@@ -1,0 +1,23 @@
+[project]
+name = "anticharon"
+version = "0.1.0"
+description = "OpenRouter model price tracker, volatility detector, and token cost optimizer for Hermes Agent and MCP pipelines"
+readme = "README.md"
+authors = [
+    { name = "Paris Neto" }
+]
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31.0",
+]
+
+[project.scripts]
+anticharon = "anticharon.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/anticharon"]

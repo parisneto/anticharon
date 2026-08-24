@@ -1,0 +1,29 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual Environments
+.venv/
+env/
+venv/
+ENV/
+
+# Distribution & Build
+dist/
+build/
+*.egg-info/
+
+# IDE & OS
+.DS_Store
+.idea/
+.vscode/
+
+# Local runtime data & environment files
+data/history.csv
+*.log
+.env
+.env.*.local
