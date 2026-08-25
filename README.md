@@ -1,6 +1,6 @@
 # Anticharon 🪙⚖️
 
-> **The ferryman who minimizes the fare instead of demanding toll.**  
+> **The ferryman who minimizes the fare instead of demanding toll.**
 > An ultra-lightweight, resilient OpenRouter API price tracker, volatility detector, and token cost optimizer for **Hermes Agent** and automated LLM workflows.
 
 ---
@@ -122,4 +122,9 @@ Run Anticharon daily via cron to alert Hermes or generate reports:
 ---
 
 ## 📄 License
-MIT License. Created by Paris Neto.
+MIT License. Created by Paris Piedade Neto.
+feel free to reach me on [LinkedIn](https://www.linkedin.com/in/parisneto/)
+
+## 💬 Feedback
+
+Feel free to open an issue or submit a pull request. Any feedback or suggestions are welcome!
