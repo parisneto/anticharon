@@ -186,6 +186,17 @@ anticharon calibrate path/to/openrouter_activity.csv
 
 # 7. Calculate and display token mix without modifying configuration (dry-run)
 anticharon calibrate path/to/openrouter_activity.csv --dry-run
+
+# 8. Model Management (Add / Remove / List)
+anticharon model add "google/gemini-3.7-flash" [--dry-run]
+anticharon model remove "minimax/minimax-m2.7" [--dry-run]
+anticharon model list [--json]
+
+# 9. Model Discovery & Exploration
+anticharon model discover "gemini"
+anticharon model discover --promo
+anticharon model discover "qwen" --modality text --max-price 0.50
+anticharon model discover --filter "openai" --filter "price < 10"
 ```
 
 ---

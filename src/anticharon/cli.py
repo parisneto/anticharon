@@ -6,15 +6,18 @@ import sys
 from pathlib import Path
 
 from anticharon import __version__
-from anticharon.config import update_config_weights, get_config_path
+from anticharon.chart import render_ascii_price_bar
+from anticharon.config import update_config_weights, get_config_path, load_config
+from anticharon.discovery import fetch_catalog, filter_catalog, format_discovery_output
 from anticharon.log_parser import parse_activity_log
+from anticharon.manager import add_model, remove_model, list_models
 from anticharon.tester import run_self_test
 from anticharon.tracker import run_tracker
 
 
 def format_human_output(result) -> None:
     """Format and print human-readable CLI summary."""
-    print("\n" + "=" * 65)
+    print("\n" + "=" * 74)
     print(f"🪙  ANTICHARON — OpenRouter Price Monitor (v{__version__})")
     print(f"📅 Timestamp: {result.timestamp}")
     if result.storage_path:
@@ -25,16 +28,36 @@ def format_human_output(result) -> None:
         print("⚠️  [STATUS: OFFLINE FALLBACK] Using cached history prices.")
     else:
         print("🟢 [STATUS: LIVE API] Updated with latest OpenRouter prices.")
-    print("=" * 65)
+    print("=" * 74)
+
+    # Determine default model from config
+    default_model = None
+    if result.config_path:
+        cfg = load_config(Path(result.config_path))
+        shortlist = cfg.get("shortlist", [])
+        if shortlist:
+            default_model = shortlist[0]
 
     print(f"{'MODEL':<38} {'PRICE/1M':<12} {'MA 7D':<12} {'CHANGE (7D)':<10}")
     print("-" * 74)
 
-    for p in result.prices_shortlist:
+    for idx, p in enumerate(result.prices_shortlist):
         change_str = f"{p.change_vs_7d_pct:+.1f}%" if p.change_vs_7d_pct != 0 else "0.0%"
-        print(f"{p.model:<38} ${p.price_1m:<11.5f} ${p.ma_7d:<11.5f} {change_str:<10}")
+        badges = []
+        if idx == 0:
+            badges.append("🏆 [BEST]")
+        if default_model and p.model == default_model:
+            badges.append("★ [DEFAULT]")
+        badge_str = f" {' '.join(badges)}" if badges else ""
+        print(f"{p.model:<38} ${p.price_1m:<11.5f} ${p.ma_7d:<11.5f} {change_str:<10}{badge_str}")
 
     print("-" * 74)
+
+    # TUI ASCII Price Spectrum Chart
+    if result.prices_shortlist:
+        chart_lines = render_ascii_price_bar(result.prices_shortlist, default_model=default_model)
+        print("\n" + "\n".join(chart_lines))
+        print("-" * 74)
 
     if result.price_warnings:
         print("\n🚨 ALERTS & WARNINGS:")
@@ -47,7 +70,7 @@ def format_human_output(result) -> None:
                 print(f"  💡 [TIP]   {w.message}")
     else:
         print("\n✅ All monitored models are within normal price fluctuation boundaries.")
-    print("=" * 65 + "\n")
+    print("=" * 74 + "\n")
 
 
 def cmd_run(args) -> int:
@@ -110,6 +133,82 @@ def cmd_calibrate(args) -> int:
         return 1
 
 
+def cmd_model(args) -> int:
+    """Handle `model` subcommands (add, remove, list, discover)."""
+    action = getattr(args, "model_action", None)
+    cfg_path = Path(args.config) if getattr(args, "config", None) else None
+
+    if action == "add":
+        res = add_model(
+            model_id=args.model_id,
+            dry_run=args.dry_run,
+            config_path=cfg_path,
+            validate_catalog=not args.no_validate
+        )
+        if getattr(args, "json", False):
+            print(json.dumps(res.to_dict(), indent=2))
+        else:
+            icon = "✅" if res.status == "success" else "⚠️"
+            print(f"\n{icon} {res.message}")
+            print(f"📋 Current Shortlist ({len(res.shortlist)} models):")
+            for m in res.shortlist:
+                print(f"  • {m}")
+            print(f"⚙️ Config: {res.config_path}\n")
+        return 0 if res.status in ("success", "warning") else 1
+
+    elif action == "remove":
+        res = remove_model(
+            model_id=args.model_id,
+            dry_run=args.dry_run,
+            config_path=cfg_path
+        )
+        if getattr(args, "json", False):
+            print(json.dumps(res.to_dict(), indent=2))
+        else:
+            icon = "✅" if res.status == "success" else "❌"
+            print(f"\n{icon} {res.message}")
+            print(f"📋 Current Shortlist ({len(res.shortlist)} models):")
+            for m in res.shortlist:
+                print(f"  • {m}")
+            print(f"⚙️ Config: {res.config_path}\n")
+        return 0 if res.status == "success" else 1
+
+    elif action == "list":
+        res = list_models(config_path=cfg_path)
+        if getattr(args, "json", False):
+            print(json.dumps(res.to_dict(), indent=2))
+        else:
+            print(f"\n📋 Shortlisted Models ({len(res.shortlist)}):")
+            print(f"⚙️ Config: {res.config_path}")
+            print("-" * 50)
+            for idx, m in enumerate(res.shortlist, 1):
+                badge = " (Default Model)" if idx == 1 else ""
+                print(f" {idx}. {m}{badge}")
+            print("-" * 50 + "\n")
+        return 0
+
+    elif action == "discover":
+        cfg = load_config(cfg_path)
+        w_in = cfg.get("weight_prompt", 0.9971)
+        w_out = cfg.get("weight_completion", 0.0029)
+
+        catalog = fetch_catalog(weight_prompt=w_in, weight_completion=w_out)
+        filtered = filter_catalog(
+            models=catalog,
+            query=args.query,
+            promo_only=args.promo,
+            modality=args.modality,
+            max_price=args.max_price,
+            max_input_price=args.max_input_price,
+            max_output_price=args.max_output_price,
+            filter_expressions=args.filter
+        )
+        format_discovery_output(filtered, json_mode=args.json)
+        return 0
+
+    return 0
+
+
 def main() -> None:
     """Main CLI entrypoint."""
     parser = argparse.ArgumentParser(
@@ -166,6 +265,46 @@ def main() -> None:
     calib_parser.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")
     calib_parser.add_argument("--json", action="store_true", help="Output results in JSON format")
 
+    # Command: model (add, remove, list, discover)
+    model_parser = subparsers.add_parser("model", help="Manage shortlisted models and discover OpenRouter catalog")
+    model_subparsers = model_parser.add_subparsers(dest="model_action", help="Model actions")
+
+    # model add
+    add_p = model_subparsers.add_parser("add", help="Add a model to shortlist.json")
+    add_p.add_argument("model_id", type=str, help="Model ID (e.g. google/gemini-3.7-flash)")
+    add_p.add_argument("--dry-run", action="store_true", help="Preview updated shortlist without saving to disk")
+    add_p.add_argument("--no-validate", action="store_true", help="Skip live OpenRouter catalog slug validation")
+    add_p.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")
+    add_p.add_argument("--json", action="store_true", help="Output result in JSON format")
+
+    # model remove
+    rm_p = model_subparsers.add_parser("remove", help="Remove a model from shortlist.json")
+    rm_p.add_argument("model_id", type=str, help="Model ID to remove")
+    rm_p.add_argument("--dry-run", action="store_true", help="Preview updated shortlist without saving to disk")
+    rm_p.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")
+    rm_p.add_argument("--json", action="store_true", help="Output result in JSON format")
+
+    # model list
+    list_p = model_subparsers.add_parser("list", help="List all shortlisted models")
+    list_p.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")
+    list_p.add_argument("--json", action="store_true", help="Output result in JSON format")
+
+    # model discover
+    disc_p = model_subparsers.add_parser(
+        "discover",
+        help="Search and filter OpenRouter's model catalog with multi-criteria filters",
+        description="Search OpenRouter catalog (~417+ models) with multi-criteria keywords, modality, and price filters."
+    )
+    disc_p.add_argument("query", nargs="?", default=None, help="Optional search query (e.g. 'gemini', 'qwen', 'grok')")
+    disc_p.add_argument("--promo", action="store_true", help="Filter for promotional and free (:free, $0.00) models")
+    disc_p.add_argument("--modality", type=str, default="text", help="Output modality filter (default: text)")
+    disc_p.add_argument("--filter", action="append", default=[], help="Filter keyword or expression (e.g. --filter 'openai' or --filter 'price < 10')")
+    disc_p.add_argument("--max-price", type=float, default=None, help="Maximum blended price per 1M tokens ($)")
+    disc_p.add_argument("--max-input-price", type=float, default=None, help="Maximum input prompt price per 1M tokens ($)")
+    disc_p.add_argument("--max-output-price", type=float, default=None, help="Maximum output completion price per 1M tokens ($)")
+    disc_p.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json (for token weights)")
+    disc_p.add_argument("--json", action="store_true", help="Output catalog results in JSON format")
+
     args = parser.parse_args()
 
     if args.test or args.command == "test":
@@ -176,6 +315,9 @@ def main() -> None:
 
     if args.command == "calibrate":
         sys.exit(cmd_calibrate(args))
+
+    if args.command == "model":
+        sys.exit(cmd_model(args))
 
     # Default if no command given: run
     if len(sys.argv) == 1:
@@ -189,3 +331,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

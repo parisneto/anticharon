@@ -113,3 +113,18 @@ def update_config_weights(
     with open(path, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2)
     return path
+
+
+def update_config_shortlist(
+    shortlist: List[str],
+    config_path: Path | None = None
+) -> Path:
+    """Update model shortlist in the configuration file."""
+    path = config_path or get_config_path()
+    config = load_config(path)
+    config["shortlist"] = shortlist
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2)
+    return path
