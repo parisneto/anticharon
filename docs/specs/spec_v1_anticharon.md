@@ -21,7 +21,7 @@ In Greek mythology, **Charon** is the grim ferryman who demands an obol coin tol
                ┌──────────────────────┴──────────────────────┐
                ▼                                             ▼
       [ OpenRouter API ]                           [ Local Storage ]
-     (GET /api/v1/models)                           (~/.hermes/price_tracker/history.csv)
+     (GET /api/v1/models)                           (./data/history.csv or ~/.anticharon/history.csv)
      * 10s timeout                                  * Compact 1-line-per-model CSV
      * Fallback to local cache                      * 30-day sliding price window
 ```
@@ -153,21 +153,24 @@ model,last_updated,current_price_1m,ma_3d,ma_7d,d1,d2,d3,d4,d5,d6,d7,d15,d30
 
 ## 6. CLI Command Interface
 
-### Primary Commands:
+### Primary Commands & Options:
 ```bash
-# 1. Standard execution: Fetch API, update history.csv, print human-readable summary & warnings
+# 1. Standard execution: Fetch API, update ./data/history.csv, print report & alerts
 anticharon run
 
 # 2. Dry run / Check: Fetch API, calculate prices without modifying history.csv
 anticharon check --dry-run
 
-# 3. Output as JSON for scripting & agent piping
+# 3. Output structured JSON (ideal for Hermes or script piping)
 anticharon run --json
 
-# 4. Self-test: Validate environment, connectivity, config, math, and write permissions
+# 4. Custom paths and timeouts
+anticharon run --config ./my_config.json --data-dir ./my_data --timeout 15.0
+
+# 5. Pre-flight self-test: Validate runtime, config, math, permissions, and network
 anticharon test
 
-# 5. Ingest OpenRouter log export CSV and calculate agent prompt/completion mix
+# 6. Ingest OpenRouter log export CSV and calculate agent prompt/completion mix
 anticharon calculate-prompt-mix path/to/openrouter_activity.csv [--update-config]
 ```
 
