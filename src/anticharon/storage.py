@@ -47,4 +47,8 @@ def write_history(records: List[List[str | float]], history_path: Path) -> None:
     with open(history_path, "w", encoding="utf-8") as f:
         f.write(CSV_HEADER + "\n")
         for rec in records:
-            f.write(",".join(str(x) for x in rec) + "\n")
+            formatted = [
+                f"{round(x, 6):.6f}".rstrip("0").rstrip(".") if isinstance(x, float) else str(x)
+                for x in rec
+            ]
+            f.write(",".join(formatted) + "\n")
