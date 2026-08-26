@@ -32,13 +32,14 @@ def run_tracker(
     timeout: float = 10.0
 ) -> TrackerResult:
     """Execute price tracker workflow."""
-    cfg = load_config(config_path or get_config_path())
+    cfg_path = config_path or get_config_path()
+    cfg = load_config(cfg_path)
     hist_path = history_path or get_history_path()
     history = read_history(hist_path)
     models_api = fetch_openrouter_models(timeout=timeout)
 
-    w_in = cfg.get("weight_prompt", 0.9922)
-    w_out = cfg.get("weight_completion", 0.0078)
+    w_in = cfg.get("weight_prompt", 0.9971)
+    w_out = cfg.get("weight_completion", 0.0029)
     threshold = cfg.get("spike_threshold_pct", 20.0)
     shortlist = cfg.get("shortlist", [])
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -63,7 +64,9 @@ def run_tracker(
             timestamp=now_iso,
             fallback=True,
             prices_shortlist=prices_shortlist,
-            price_warnings=[]
+            price_warnings=[],
+            storage_path=str(hist_path),
+            config_path=str(cfg_path)
         )
 
     updated_records = []
@@ -153,5 +156,7 @@ def run_tracker(
         timestamp=now_iso,
         fallback=False,
         prices_shortlist=prices_shortlist,
-        price_warnings=warnings
+        price_warnings=warnings,
+        storage_path=str(hist_path),
+        config_path=str(cfg_path)
     )

@@ -17,8 +17,12 @@ def format_human_output(result) -> None:
     print("\n" + "=" * 65)
     print(f"🪙  ANTICHARON — OpenRouter Price Monitor (v{__version__})")
     print(f"📅 Timestamp: {result.timestamp}")
+    if result.storage_path:
+        print(f"💾 Storage:   {result.storage_path}")
+    if result.config_path:
+        print(f"⚙️  Config:    {result.config_path}")
     if result.fallback:
-        print("⚠️ [STATUS: OFFLINE FALLBACK] Using cached history prices.")
+        print("⚠️  [STATUS: OFFLINE FALLBACK] Using cached history prices.")
     else:
         print("🟢 [STATUS: LIVE API] Updated with latest OpenRouter prices.")
     print("=" * 65)

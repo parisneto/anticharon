@@ -67,16 +67,24 @@ class TrackerResult:
     price_warnings: List[PriceWarning] = field(default_factory=list)
     fallback: bool = False
     error: Optional[str] = None
+    storage_path: Optional[str] = None
+    config_path: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        data: Dict[str, Any] = {
             "status": self.status,
             "timestamp": self.timestamp,
             "fallback": self.fallback,
             "prices_shortlist": [p.to_dict() for p in self.prices_shortlist],
             "priceWarnings": [w.to_dict() for w in self.price_warnings],
-            **({"error": self.error} if self.error else {})
         }
+        if self.storage_path:
+            data["storage_path"] = self.storage_path
+        if self.config_path:
+            data["config_path"] = self.config_path
+        if self.error:
+            data["error"] = self.error
+        return data
 
 
 @dataclass
