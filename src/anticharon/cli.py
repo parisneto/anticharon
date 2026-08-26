@@ -51,6 +51,7 @@ def cmd_run(args) -> int:
     res = run_tracker(
         dry_run=args.dry_run,
         config_path=Path(args.config) if args.config else None,
+        history_path=Path(args.data_dir) / "history.csv" if getattr(args, "data_dir", None) else None,
         timeout=args.timeout
     )
 
@@ -113,6 +114,7 @@ def main() -> None:
     run_parser.add_argument("--json", action="store_true", help="Output results in JSON format")
     run_parser.add_argument("--timeout", type=float, default=10.0, help="HTTP request timeout in seconds")
     run_parser.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")
+    run_parser.add_argument("--data-dir", type=str, default=None, help="Directory to store history.csv")
 
     # Command: check (alias for run --dry-run)
     check_parser = subparsers.add_parser("check", help="Check current prices without updating history.csv")
@@ -120,6 +122,7 @@ def main() -> None:
     check_parser.add_argument("--json", action="store_true", help="Output results in JSON format")
     check_parser.add_argument("--timeout", type=float, default=10.0, help="HTTP request timeout in seconds")
     check_parser.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")
+    check_parser.add_argument("--data-dir", type=str, default=None, help="Directory to store history.csv")
 
     # Command: test
     test_parser = subparsers.add_parser("test", help="Run pre-flight self-test and connectivity diagnostics")

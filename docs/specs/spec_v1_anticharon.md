@@ -139,9 +139,15 @@ model,last_updated,current_price_1m,ma_3d,ma_7d,d1,d2,d3,d4,d5,d6,d7,d15,d30
 }
 ```
 
-### Environment Variables:
-- `ANTICHARON_CONFIG`: Path to custom `shortlist.json` (Default: `~/.hermes/price_tracker/shortlist.json` or local `./config/shortlist.json`).
-- `ANTICHARON_DATA_DIR`: Directory where `history.csv` is stored (Default: `~/.hermes/price_tracker/` or local `./data/`).
+### Path Resolution Hierarchy:
+1. **CLI Arguments:** `--config <path>` and `--data-dir <path>` (highest priority).
+2. **Environment Variables:** `ANTICHARON_CONFIG` and `ANTICHARON_DATA_DIR`.
+3. **Local Workspace Mode (Running inside repo):**
+   - Config: `./config/shortlist.json` (or `./config/shortlist.example.json`)
+   - Data: `./data/history.csv`
+4. **Standalone / Tool Mode (When installed via `uv tool install` or run as an MCP server):**
+   - Config: `~/.anticharon/shortlist.json`
+   - Data: `~/.anticharon/history.csv`
 
 ---
 

@@ -23,29 +23,40 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 }
 
 
-def get_data_dir() -> Path:
-    """Get the active data storage directory."""
-    if "ANTICHARON_DATA_DIR" in os.environ:
+def get_data_dir(custom_dir: Path | str | None = None) -> Path:
+    """Get the active data storage directory.
+    
+    Resolution Priority:
+    1. Explicit argument (`custom_dir` or CLI `--data-dir`)
+    2. Environment variable `ANTICHARON_DATA_DIR`
+    3. Local `./data/` if running within project repository
+    4. User home directory `~/.anticharon/` for standalone tool/MCP execution
+    """
+    if custom_dir:
+        path = Path(custom_dir).expanduser()
+    elif "ANTICHARON_DATA_DIR" in os.environ:
         path = Path(os.environ["ANTICHARON_DATA_DIR"]).expanduser()
+    elif Path("pyproject.toml").exists() or Path("config").exists():
+        path = Path("data")
     else:
-        # Default to ~/.hermes/price_tracker/ or fallback to local ./data
-        hermes_dir = Path.home() / ".hermes" / "price_tracker"
-        if hermes_dir.parent.exists():
-            path = hermes_dir
-        else:
-            path = Path("data")
+        path = Path.home() / ".anticharon"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
-def get_config_path() -> Path:
-    """Resolve the path to shortlist.json configuration."""
+def get_config_path(custom_path: Path | str | None = None) -> Path:
+    """Resolve the path to shortlist.json configuration.
+    
+    Resolution Priority:
+    1. Explicit argument (`custom_path` or CLI `--config`)
+    2. Environment variable `ANTICHARON_CONFIG`
+    3. Local `./config/shortlist.json` (or `./config/shortlist.example.json`)
+    4. User home directory `~/.anticharon/shortlist.json`
+    """
+    if custom_path:
+        return Path(custom_path).expanduser()
     if "ANTICHARON_CONFIG" in os.environ:
         return Path(os.environ["ANTICHARON_CONFIG"]).expanduser()
-
-    hermes_config = Path.home() / ".hermes" / "price_tracker" / "shortlist.json"
-    if hermes_config.exists():
-        return hermes_config
 
     local_config = Path("config/shortlist.json")
     if local_config.exists():
@@ -55,12 +66,20 @@ def get_config_path() -> Path:
     if example_config.exists():
         return example_config
 
-    return hermes_config
+    home_config = Path.home() / ".anticharon" / "shortlist.json"
+    if home_config.exists():
+        return home_config
+
+    # If within repo, default to local config
+    if Path("pyproject.toml").exists():
+        return local_config
+
+    return home_config
 
 
-def get_history_path() -> Path:
+def get_history_path(custom_data_dir: Path | str | None = None) -> Path:
     """Resolve the path to history.csv storage."""
-    return get_data_dir() / "history.csv"
+    return get_data_dir(custom_data_dir) / "history.csv"
 
 
 def load_config(config_path: Path | None = None) -> Dict[str, Any]:
