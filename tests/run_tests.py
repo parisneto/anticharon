@@ -97,6 +97,26 @@ def test_offline_fallback():
             temp_csv.unlink()
 
 
+def test_config_calibration():
+    print("Testing config weight calibration...")
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
+        temp_cfg = Path(tf.name)
+
+    try:
+        sample_csv = Path(__file__).parent.parent / "docs" / "sample" / "openrouter_activity_2026-08-24.csv"
+        mix = parse_activity_log(sample_csv)
+        from anticharon.config import update_config_weights
+        update_config_weights(mix.weight_prompt, mix.weight_completion, temp_cfg)
+
+        cfg = load_config(temp_cfg)
+        assert abs(cfg["weight_prompt"] - 0.997063) < 1e-4, f"Weight prompt calibration failed: {cfg['weight_prompt']}"
+        assert abs(cfg["weight_completion"] - 0.002937) < 1e-4, f"Weight completion calibration failed: {cfg['weight_completion']}"
+        print("  [OK] Configuration calibration update passed")
+    finally:
+        if temp_cfg.exists():
+            temp_cfg.unlink()
+
+
 def main():
     print("\n🚀 Running Anticharon Test Suite...")
     print("-" * 50)
@@ -105,8 +125,9 @@ def main():
         test_moving_averages_and_cold_start()
         test_storage_csv_roundtrip()
         test_offline_fallback()
+        test_config_calibration()
         print("-" * 50)
-        print("✨ ALL TESTS PASSED SUCCESSFULLY! (4/4)\n")
+        print("✨ ALL TESTS PASSED SUCCESSFULLY! (5/5)\n")
         return 0
     except AssertionError as e:
         print(f"\n❌ TEST FAILED: {e}\n", file=sys.stderr)

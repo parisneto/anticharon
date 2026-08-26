@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import Dict, Any, List
 
 DEFAULT_SHORTLIST: List[str] = [
+    "openai/gpt-5.6-luna",
     "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4-flash-0423",
     "qwen/qwen3.7-flash",
-    "openai/gpt-5.6-luna",
     "google/gemini-3.1-flash-lite",
     "minimax/minimax-m2.7",
     "google/gemini-2.5-flash-lite"
@@ -17,8 +17,8 @@ DEFAULT_SHORTLIST: List[str] = [
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "shortlist": DEFAULT_SHORTLIST,
-    "weight_prompt": 0.9922,
-    "weight_completion": 0.0078,
+    "weight_prompt": 0.9971,
+    "weight_completion": 0.0029,
     "spike_threshold_pct": 20.0
 }
 

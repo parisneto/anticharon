@@ -1,6 +1,6 @@
 # Technical Specification: Anticharon (v1)
 
-**Document Version:** 1.0.0  
+**Document Version:** 1.1.0  
 **Status:** Approved  
 **Language:** English  
 
@@ -28,61 +28,72 @@ In Greek mythology, **Charon** is the grim ferryman who demands an obol coin tol
 
 ---
 
-## 2. Mathematical Specifications & Formulas
+## 2. Token Weighting & Empirical Calibration Rationale
 
-### 2.1 Weighted Effective Price per 1 Million Tokens (`Price_1M`)
-AI agents typically exhibit heavily skewed usage patterns (e.g., long system prompts, tool output histories, and relatively concise completions). Anticharon uses a weighted blended formula to calculate the true cost per 1M tokens:
+### 2.1 Why Local Calibration over Background API Polling? (Design Principles)
+Automated background synchronization of billing metrics via management API keys might seem convenient, but Anticharon deliberately rejects account-level API polling in favor of local CSV calibration:
+- **Least Privilege & Security:** Requesting broader management API scopes or keys with account-wide permissions just to check token ratios exposes unnecessary attack surfaces. Local file ingestion ensures user credentials stay completely isolated.
+- **Zero Overhead & Total Control:** OpenRouter does not provide a single aggregated usage endpoint; doing it via live API requires heavy, rate-limited sequential calls. A lightweight local CSV export gives instant, absolute mathematical clarity without network dependencies.
 
+### 2.2 Empirical Real-World Validation
+Agentic coding workflows are overwhelmingly dominated by prompt tokens (context history, workspace file contents, system instructions, and tool outputs):
+- **University of Washington TraceLab Evidence:** Real-world coding agent traces collected from Claude Code and Codex ([TraceLab](https://tracelab.cs.washington.edu/)) recorded **69.1 billion input tokens** against **256.7 million output tokens**, working out to **99.63% input / 0.37% output**.
+- **Author Operational Dataset (August 2026):** Ingestion of 159 agent generations (`openrouter_activity_2026-08-24.csv`) totaling **17,437,925 tokens** yielded **17,386,716 prompt tokens (99.71%)** vs **51,209 completion tokens (0.29%)**.
+- **The Core Outcome:** Calculating blended prices with accurate input/output weighting eliminates cost anxiety, allowing developers and agents to run premium frontier models responsibly while dramatically reducing the "ferryman tax" and discouraging AI slop.
+
+---
+
+## 3. Mathematical Specifications & Formulas
+
+### 3.1 Weighted Effective Price per 1 Million Tokens (`Price_1M`)
 ```text
-Price_1M = ((Prompt_Price_per_Token * Weight_Prompt) + (Completion_Price_per_Token * Weight_Completion)) * 1,000,000
+Price_1M = ((Prompt_Price_per_Token × Weight_Prompt) + (Completion_Price_per_Token × Weight_Completion)) × 1,000,000
 ```
 
-* **Default Prompt Weight (`Weight_Prompt`):** `0.9922` (99.22% input)
-* **Default Completion Weight (`Weight_Completion`):** `0.0078` (0.78% output)
-* **Constraints:** `Weight_Prompt + Weight_Completion = 1.0`
+* **Calibrated Default Prompt Weight (`Weight_Prompt`):** `0.9971` (99.71% input)
+* **Calibrated Default Completion Weight (`Weight_Completion`):** `0.0029` (0.29% output)
+* **Constraint:** `Weight_Prompt + Weight_Completion = 1.0`
 
-### 2.2 Moving Averages (`MA_3d` and `MA_7d`)
-To eliminate daily noise and capture real trends, Anticharon maintains 3-day and 7-day simple moving averages:
-
+### 3.2 Moving Averages (`MA_3d` and `MA_7d`)
 ```text
 MA_3d = (Today_Price + Price_d1 + Price_d2) / 3
 
 MA_7d = (Today_Price + Price_d1 + Price_d2 + Price_d3 + Price_d4 + Price_d5 + Price_d6) / 7
 ```
 
-Where `Price_dN` represents the recorded weighted price $N$ days ago.
+Where `Price_dN` represents the recorded weighted price N days ago.
 
-### 2.3 Historical Sliding Window Shift
-Historical prices are tracked in a 9-element array corresponding to $[d_1, d_2, d_3, d_4, d_5, d_6, d_7, d_{15}, d_{30}]$.
+### 3.3 Historical Sliding Window Shift
+Historical prices are tracked in a 9-element array corresponding to `[d1, d2, d3, d4, d5, d6, d7, d15, d30]`.
 When a new day's price (`Today_Price`) is recorded:
 ```text
 New_Prices = [Today_Price, Prev_d1, Prev_d2, Prev_d3, Prev_d4, Prev_d5, Prev_d6, Prev_d7, Prev_d15]
 ```
 
-### 2.4 Cold-Start Handling
+### 3.4 Cold-Start Handling
 When a model is first added to the tracking shortlist and has no prior CSV history:
-- The initial price `Today_Price` is replicated across all 9 historical slots ($d_1 \dots d_{30}$).
+- The initial price `Today_Price` is replicated across all 9 historical slots (`d1` through `d30`).
 - `MA_3d` and `MA_7d` are set equal to `Today_Price`.
 - This prevents `NaN`, division-by-zero, or false volatility spikes on day 1.
 
-### 2.5 Volatility & Anomaly Detection
+### 3.5 Volatility & Anomaly Detection
 Anticharon evaluates percentage variation against the 7-day moving average:
 
 ```text
-Delta_7d_Pct = ((Current_Price_1M - MA_7d) / MA_7d) * 100
+Delta_7d_Pct = ((Current_Price_1M - MA_7d) / MA_7d) × 100
 ```
 
 #### Warning Trigger Rules:
-1. **`PRICE_SPIKE`**: Triggered when `Delta_7d_Pct >= +spike_threshold_pct` (default: `+20.0%`). Indicates that a model's cost increased significantly.
-2. **`PRICE_DROP`**: Triggered when `Delta_7d_Pct <= -spike_threshold_pct` (default: `-20.0%`). Indicates a price cut or promotion.
-3. **`BEST_OPTION_CHANGED`**: Triggered when the lowest-cost model in the shortlist is different from the currently configured `current_default` model (the first entry in `shortlist.json` or explicit config).
+1. **`PRICE_SPIKE`**: Triggered when `Delta_7d_Pct ≥ +spike_threshold_pct` (default: `+20.0%`). Indicates a price hike.
+2. **`PRICE_DROP`**: Triggered when `Delta_7d_Pct ≤ -spike_threshold_pct` (default: `-20.0%`). Indicates a discount or promotion.
+3. **`BEST_OPTION_CHANGED`**: Triggered when the lowest-cost model in the shortlist is different from the configured `current_default` model (the first entry in `shortlist.json`).
 
 ---
 
-## 3. OpenRouter Activity Log Ingestion (`--calculate-prompt-mix`)
+## 4. OpenRouter Activity Log Calibration (`anticharon calibrate`)
 
-To establish exact user-specific prompt/completion weights, Anticharon ingests activity logs exported directly from the OpenRouter dashboard:
-- Navigation: OpenRouter $\rightarrow$ Sidebar Logs $\rightarrow$ Change Period (e.g. Past 1 Month) $\rightarrow$ 3 dots menu $\rightarrow$ Export CSV.
+To update operational weights whenever a fresh CSV is exported from the OpenRouter dashboard:
+- Navigation: OpenRouter → Sidebar Logs → Select Period (e.g. Past 1 Month) → 3 dots menu → Export CSV.
 - Columns processed: `tokens_prompt`, `tokens_completion`.
 
 ### Computation Formula:
@@ -97,9 +108,9 @@ Weight_Completion = Total_Completion_Tokens / Total_Tokens
 
 ---
 
-## 4. Data Storage Schema (`history.csv`)
+## 5. Data Storage Schema (`history.csv`)
 
-Storage is optimized to avoid bloated JSON payloads. A single CSV file maintains exactly **one line per model**:
+Storage maintains exactly **one line per model**:
 
 ### Header Format:
 ```csv
@@ -120,21 +131,21 @@ model,last_updated,current_price_1m,ma_3d,ma_7d,d1,d2,d3,d4,d5,d6,d7,d15,d30
 
 ---
 
-## 5. Configuration Schema (`shortlist.json`)
+## 6. Configuration Schema (`shortlist.json`)
 
 ```json
 {
   "shortlist": [
+    "openai/gpt-5.6-luna",
     "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4-flash-0423",
     "qwen/qwen3.7-flash",
-    "openai/gpt-5.6-luna",
     "google/gemini-3.1-flash-lite",
     "minimax/minimax-m2.7",
     "google/gemini-2.5-flash-lite"
   ],
-  "weight_prompt": 0.9922,
-  "weight_completion": 0.0078,
+  "weight_prompt": 0.9971,
+  "weight_completion": 0.0029,
   "spike_threshold_pct": 20.0
 }
 ```
@@ -151,7 +162,7 @@ model,last_updated,current_price_1m,ma_3d,ma_7d,d1,d2,d3,d4,d5,d6,d7,d15,d30
 
 ---
 
-## 6. CLI Command Interface
+## 7. CLI Command Interface
 
 ### Primary Commands & Options:
 ```bash
@@ -170,13 +181,16 @@ anticharon run --config ./my_config.json --data-dir ./my_data --timeout 15.0
 # 5. Pre-flight self-test: Validate runtime, config, math, permissions, and network
 anticharon test
 
-# 6. Ingest OpenRouter log export CSV and calculate agent prompt/completion mix
-anticharon calculate-prompt-mix path/to/openrouter_activity.csv [--update-config]
+# 6. Calibrate weights from OpenRouter activity log and update shortlist.json
+anticharon calibrate path/to/openrouter_activity.csv
+
+# 7. Calculate token mix without updating configuration
+anticharon calculate-prompt-mix path/to/openrouter_activity.csv
 ```
 
 ---
 
-## 7. Safety, Resilience & Network Fallback
+## 8. Safety, Resilience & Network Fallback
 
 1. **Timeout Control:** Every OpenRouter HTTP request has an explicit `10.0` second timeout.
 2. **Fallback Mode:** If the OpenRouter API fails (HTTP error, connection reset, timeout), Anticharon reads `history.csv`, logs a non-fatal warning, and returns the last known prices with `fallback: true` status.

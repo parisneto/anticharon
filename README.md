@@ -1,6 +1,10 @@
 # Anticharon 🪙⚖️
 
-> **The ferryman who minimizes the fare instead of demanding toll.**
+<p align="center">
+  <img src="docs/images/logo.jpeg" alt="Anticharon Logo" width="280" />
+</p>
+
+> **The ferryman who minimizes the fare instead of demanding toll.**  
 > An ultra-lightweight, resilient OpenRouter API price tracker, volatility detector, and token cost optimizer for **Hermes Agent** and automated LLM workflows.
 
 ---
@@ -15,8 +19,10 @@ In Greek mythology, **Charon** is the grim ferryman who demands an obol coin tol
 
 ## ✨ Key Features
 
-- **Blended Weighted Pricing:** Calculates realistic cost per 1M tokens based on your agent's actual prompt vs completion ratio (default: 99.22% in / 0.78% out).
-- **Activity Log Ingestion (`calculate-prompt-mix`):** Directly ingest CSV log exports from OpenRouter to automatically measure and update your agent's exact input/output token ratio.
+- **Blended Weighted Pricing:** Calculates realistic cost per 1M tokens based on your agent's actual prompt vs completion ratio (calibrated default: **99.71% input / 0.29% output**).
+- **Empirically Corroborated:** Backed by real-world coding agent traces from [UW TraceLab](https://tracelab.cs.washington.edu/) (Claude Code & Codex recording 99.63% in / 0.37% out across 69.3B tokens), almost identical to the author's 99.71% / 0.29% operational ratio.
+- **Reduces AI Slop & Cost Anxiety:** Accurate blended pricing eliminates token anxiety, empowering developers and agents to run premium frontier models responsibly.
+- **One-Command Calibration (`anticharon calibrate`):** Directly ingest CSV log exports from OpenRouter to automatically calculate and save your exact prompt/completion mix.
 - **Moving Average & Volatility Detection:** Tracks 3-day and 7-day moving averages (`MA_3d`, `MA_7d`) to trigger instant `PRICE_SPIKE`, `PRICE_DROP`, and `BEST_OPTION_CHANGED` alerts.
 - **Compact Historical Storage:** Keeps a clean, 1-line-per-model sliding CSV history (`history.csv`) with automatic cold-start padding.
 - **Resilient & Safe:** 10-second API timeouts with graceful fallback to local cache when offline or rate-limited.
@@ -53,7 +59,7 @@ uv sync
 
 ### Run Price Tracking
 ```bash
-# Standard run: fetches OpenRouter, updates history.csv, prints report & alerts
+# Standard run: fetches OpenRouter, updates ./data/history.csv, prints report & alerts
 uv run anticharon run
 
 # Dry-run / Check: calculates prices without saving to disk
@@ -68,17 +74,17 @@ uv run anticharon run --json
 uv run anticharon test
 ```
 
-### Ingest OpenRouter Activity Logs to Calculate Token Mix
+### Calibrate Token Weights from OpenRouter Activity Logs
 1. Go to OpenRouter: **Sidebar Logs** (`https://openrouter.ai/logs`)
 2. Select your timeframe on the top right (e.g. **Past 1 Month**)
-3. Click the **3 dots menu** $\rightarrow$ **Export** to download the CSV file.
+3. Click the **3 dots menu** → **Export** to download the CSV file.
 4. Run Anticharon:
 ```bash
-# View calculated prompt and completion ratio
-uv run anticharon calculate-prompt-mix path/to/openrouter_activity.csv
+# Ingest log and automatically update your shortlist.json config
+uv run anticharon calibrate path/to/openrouter_activity.csv
 
-# View ratio and automatically update your shortlist.json config
-uv run anticharon calculate-prompt-mix path/to/openrouter_activity.csv --update-config
+# Or inspect the calculated ratio without modifying configuration
+uv run anticharon calculate-prompt-mix path/to/openrouter_activity.csv
 ```
 
 ---

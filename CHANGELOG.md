@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `anticharon calibrate <csv>` CLI command to ingest OpenRouter activity logs and automatically persist calibrated weights to configuration.
+- Empirical validation and TraceLab context (UW TraceLab Claude Code traces at 99.63% in / 0.37% out matching author's 99.71% in / 0.29% out).
+- Private staging structure `dev_bucket/` in `.gitignore` for private scratch files, prompts, and drafts.
+- Formal specification lifecycle in `AGENTS.md` (`docs/specs/pre-work/` → `docs/specs/` → `docs/specs/backlog/` → archive to `dev_bucket/`).
+- Plain Markdown Unicode math formatting rule (`→`, `≤`, `≥`, `×`, `±`, `≠`) across all documentation.
+- Embedded official steampunk-futuristic logo in `README.md`.
+
+### Changed
+- Updated default baseline weights to calibrated operational ratio: 99.71% input / 0.29% output.
+- Moved deferred MCP integration guide to `docs/specs/backlog/mcp_integration_v2.md`.
+- Archived raw draft notes and exploratory pre-work files to `dev_bucket/`.
+
 ## [0.1.0] - 2026-08-24
 
 ### Added

@@ -28,9 +28,9 @@ def run_self_test() -> bool:
         cfg_path = get_config_path()
         cfg = load_config(cfg_path)
         shortlist = cfg.get("shortlist", [])
-        w_in = cfg.get("weight_prompt", 0.9922)
-        w_out = cfg.get("weight_completion", 0.0078)
-        print(f" [PASS] Configuration: {len(shortlist)} models shortlisted (In: {w_in*100:.1f}%, Out: {w_out*100:.1f}%)")
+        w_in = cfg.get("weight_prompt", 0.9971)
+        w_out = cfg.get("weight_completion", 0.0029)
+        print(f" [PASS] Configuration: {len(shortlist)} models shortlisted (In: {w_in*100:.2f}%, Out: {w_out*100:.2f}%)")
     except Exception as e:
         print(f" [FAIL] Configuration Error: {e}")
         all_passed = False

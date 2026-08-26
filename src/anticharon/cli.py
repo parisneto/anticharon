@@ -69,28 +69,35 @@ def cmd_test(args) -> int:
 
 
 def cmd_prompt_mix(args) -> int:
-    """Handle `calculate-prompt-mix` log ingestion command."""
+    """Handle `calculate-prompt-mix` and `calibrate` log ingestion commands."""
     try:
         mix = parse_activity_log(args.csv_file)
+        auto_update = getattr(args, "update_config", False) or args.command == "calibrate"
+        
         if args.json:
             print(json.dumps(mix.to_dict(), indent=2))
         else:
-            print("\n" + "=" * 55)
-            print("📊 OpenRouter Token Mix Analysis")
-            print("=" * 55)
+            print("\n" + "=" * 60)
+            print("📊 OpenRouter Token Mix & Calibration Analysis")
+            print("=" * 60)
             print(f" Records processed:       {mix.records_count:,}")
             print(f" Total Prompt Tokens:     {mix.total_prompt_tokens:,} ({mix.weight_prompt*100:.2f}%)")
             print(f" Total Completion Tokens: {mix.total_completion_tokens:,} ({mix.weight_completion*100:.2f}%)")
             print(f" Total Tokens:            {mix.total_tokens:,}")
-            print("-" * 55)
+            print("-" * 60)
             print(f" Calculated Weight Prompt:     {mix.weight_prompt:.6f}")
             print(f" Calculated Weight Completion: {mix.weight_completion:.6f}")
-            print("=" * 55)
+            print("-" * 60)
+            print(" 💡 TraceLab Real-World Context (UW TraceLab Dataset):")
+            print("    Claude Code / Codex traces report 99.63% in / 0.37% out.")
+            print("    Accurate blended weighting reduces token cost anxiety")
+            print("    and empowers running premium models responsibly.")
+            print("=" * 60)
 
-        if args.update_config:
+        if auto_update:
             cfg_path = Path(args.config) if args.config else get_config_path()
             updated_path = update_config_weights(mix.weight_prompt, mix.weight_completion, cfg_path)
-            print(f"✅ Configuration updated successfully at: {updated_path}\n")
+            print(f"✅ Configuration calibrated & saved at: {updated_path}\n")
         return 0
     except Exception as e:
         print(f"Error parsing activity log: {e}", file=sys.stderr)
@@ -127,6 +134,12 @@ def main() -> None:
     # Command: test
     test_parser = subparsers.add_parser("test", help="Run pre-flight self-test and connectivity diagnostics")
 
+    # Command: calibrate
+    calib_parser = subparsers.add_parser("calibrate", help="Ingest OpenRouter activity CSV and automatically update shortlist.json weights")
+    calib_parser.add_argument("csv_file", type=str, help="Path to OpenRouter activity log CSV")
+    calib_parser.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")
+    calib_parser.add_argument("--json", action="store_true", help="Output results in JSON format")
+
     # Command: calculate-prompt-mix
     mix_parser = subparsers.add_parser("calculate-prompt-mix", help="Ingest OpenRouter activity CSV and calculate token mix")
     mix_parser.add_argument("csv_file", type=str, help="Path to OpenRouter activity log CSV")
@@ -142,7 +155,7 @@ def main() -> None:
     if args.command in ("run", "check"):
         sys.exit(cmd_run(args))
 
-    if args.command == "calculate-prompt-mix":
+    if args.command in ("calculate-prompt-mix", "calibrate"):
         sys.exit(cmd_prompt_mix(args))
 
     # Default if no command given: run
