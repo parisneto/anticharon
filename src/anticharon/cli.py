@@ -68,11 +68,11 @@ def cmd_test(args) -> int:
     return 0 if success else 1
 
 
-def cmd_prompt_mix(args) -> int:
-    """Handle `calculate-prompt-mix` and `calibrate` log ingestion commands."""
+def cmd_calibrate(args) -> int:
+    """Handle `calibrate` log ingestion command."""
     try:
         mix = parse_activity_log(args.csv_file)
-        auto_update = getattr(args, "update_config", False) or args.command == "calibrate"
+        is_dry_run = getattr(args, "dry_run", False)
         
         if args.json:
             print(json.dumps(mix.to_dict(), indent=2))
@@ -94,10 +94,12 @@ def cmd_prompt_mix(args) -> int:
             print("    and empowers running premium models responsibly.")
             print("=" * 60)
 
-        if auto_update:
+        if not is_dry_run:
             cfg_path = Path(args.config) if args.config else get_config_path()
             updated_path = update_config_weights(mix.weight_prompt, mix.weight_completion, cfg_path)
             print(f"✅ Configuration calibrated & saved at: {updated_path}\n")
+        else:
+            print("ℹ️ [DRY RUN] Configuration was not modified.\n")
         return 0
     except Exception as e:
         print(f"Error parsing activity log: {e}", file=sys.stderr)
@@ -135,17 +137,11 @@ def main() -> None:
     test_parser = subparsers.add_parser("test", help="Run pre-flight self-test and connectivity diagnostics")
 
     # Command: calibrate
-    calib_parser = subparsers.add_parser("calibrate", help="Ingest OpenRouter activity CSV and automatically update shortlist.json weights")
+    calib_parser = subparsers.add_parser("calibrate", help="Ingest OpenRouter activity CSV and calibrate prompt/completion weights")
     calib_parser.add_argument("csv_file", type=str, help="Path to OpenRouter activity log CSV")
+    calib_parser.add_argument("--dry-run", action="store_true", help="Calculate and display token mix without modifying configuration")
     calib_parser.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")
     calib_parser.add_argument("--json", action="store_true", help="Output results in JSON format")
-
-    # Command: calculate-prompt-mix
-    mix_parser = subparsers.add_parser("calculate-prompt-mix", help="Ingest OpenRouter activity CSV and calculate token mix")
-    mix_parser.add_argument("csv_file", type=str, help="Path to OpenRouter activity log CSV")
-    mix_parser.add_argument("--update-config", action="store_true", help="Update shortlist.json with calculated weights")
-    mix_parser.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")
-    mix_parser.add_argument("--json", action="store_true", help="Output results in JSON format")
 
     args = parser.parse_args()
 
@@ -155,8 +151,8 @@ def main() -> None:
     if args.command in ("run", "check"):
         sys.exit(cmd_run(args))
 
-    if args.command in ("calculate-prompt-mix", "calibrate"):
-        sys.exit(cmd_prompt_mix(args))
+    if args.command == "calibrate":
+        sys.exit(cmd_calibrate(args))
 
     # Default if no command given: run
     if len(sys.argv) == 1:

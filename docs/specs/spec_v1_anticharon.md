@@ -184,8 +184,8 @@ anticharon test
 # 6. Calibrate weights from OpenRouter activity log and update shortlist.json
 anticharon calibrate path/to/openrouter_activity.csv
 
-# 7. Calculate token mix without updating configuration
-anticharon calculate-prompt-mix path/to/openrouter_activity.csv
+# 7. Calculate and display token mix without modifying configuration (dry-run)
+anticharon calibrate path/to/openrouter_activity.csv --dry-run
 ```
 
 ---

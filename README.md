@@ -1,10 +1,10 @@
 # Anticharon 🪙⚖️
 
 <p align="center">
-  <img src="docs/images/logo.jpeg" alt="Anticharon Logo" width="280" />
+  <img src="docs/images/logo.jpeg" alt="Anticharon Logo" width="480" />
 </p>
 
-> **The ferryman who minimizes the fare instead of demanding toll.**  
+> **The ferryman who minimizes the fare instead of demanding toll.**
 > An ultra-lightweight, resilient OpenRouter API price tracker, volatility detector, and token cost optimizer for **Hermes Agent** and automated LLM workflows.
 
 ---
@@ -20,10 +20,10 @@ In Greek mythology, **Charon** is the grim ferryman who demands an obol coin tol
 ## ✨ Key Features
 
 - **Blended Weighted Pricing:** Calculates realistic cost per 1M tokens based on your agent's actual prompt vs completion ratio (calibrated default: **99.71% input / 0.29% output**).
-- **Empirically Corroborated:** Backed by real-world coding agent traces from [UW TraceLab](https://tracelab.cs.washington.edu/) (Claude Code & Codex recording 99.63% in / 0.37% out across 69.3B tokens), almost identical to the author's 99.71% / 0.29% operational ratio.
-- **Reduces AI Slop & Cost Anxiety:** Accurate blended pricing eliminates token anxiety, empowering developers and agents to run premium frontier models responsibly.
-- **One-Command Calibration (`anticharon calibrate`):** Directly ingest CSV log exports from OpenRouter to automatically calculate and save your exact prompt/completion mix.
-- **Moving Average & Volatility Detection:** Tracks 3-day and 7-day moving averages (`MA_3d`, `MA_7d`) to trigger instant `PRICE_SPIKE`, `PRICE_DROP`, and `BEST_OPTION_CHANGED` alerts.
+- **Empirically Corroborated:** The default Input/Output token weights are backed by real-world coding agent traces from [UW TraceLab's "How Do AI Agents Use LLMs?" paper](https://tracelab.cs.washington.edu/llms/) (coding agent traces on Claude Code & Codex recording 99.63% in / 0.37% out across 69.3B tokens), almost identical to the author's 99.71% / 0.29% operational ratio far from it's 1st billion tokens (and I have no rush to get there).
+- **Reduces AI Slop & Cost Anxiety:** Accurate blended pricing eliminates token anxiety, empowering developers and agents to run more or less discounted premium AI frontier models responsibly (meaning : on a dev personal budget).
+- **One-Command Calibration (`anticharon calibrate`):** Directly ingest CSV log exports from OpenRouter to automatically calculate and save your exact prompt/completion mix for better life quality. Remember: Y.M.M.V. (Your Mix May Vary)
+- **Moving Average & Volatility Detection:** Tracks 3-day and 7-day moving averages (`MA_3d`, `MA_7d`) to trigger instant `PRICE_SPIKE`, `PRICE_DROP`, and `BEST_OPTION_CHANGED` alerts. No Scientific Analysis here just simple moving averages and threshold based logic.
 - **Compact Historical Storage:** Keeps a clean, 1-line-per-model sliding CSV history (`history.csv`) with automatic cold-start padding.
 - **Resilient & Safe:** 10-second API timeouts with graceful fallback to local cache when offline or rate-limited.
 - **Built-in Self-Test (`anticharon test`):** Instant pre-flight checks validating runtime environment, dependencies, math calculations, and network access.
@@ -84,7 +84,7 @@ uv run anticharon test
 uv run anticharon calibrate path/to/openrouter_activity.csv
 
 # Or inspect the calculated ratio without modifying configuration
-uv run anticharon calculate-prompt-mix path/to/openrouter_activity.csv
+uv run anticharon calibrate path/to/openrouter_activity.csv --dry-run
 ```
 
 ---
