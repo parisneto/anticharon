@@ -27,3 +27,9 @@ data/history.csv
 *.log
 .env
 .env.*.local
+
+# VS Code
+.history
+anticharon.code-workspace
+*.code-workspace
+.antigravity
