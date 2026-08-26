@@ -137,7 +137,26 @@ def main() -> None:
     test_parser = subparsers.add_parser("test", help="Run pre-flight self-test and connectivity diagnostics")
 
     # Command: calibrate
-    calib_parser = subparsers.add_parser("calibrate", help="Ingest OpenRouter activity CSV and calibrate prompt/completion weights")
+    calib_parser = subparsers.add_parser(
+        "calibrate",
+        help="Ingest OpenRouter activity CSV and calibrate prompt/completion weights",
+        description=(
+            "Ingest an exported OpenRouter activity log CSV to calibrate your agent's exact "
+            "prompt and completion token weights."
+        ),
+        epilog=(
+            "Technical Rationale (Why local CSV export instead of API polling?):\n"
+            "  • Least Privilege & Security: Anticharon deliberately rejects requesting account-wide\n"
+            "    management API keys. Ingesting local exports keeps your credentials completely isolated.\n"
+            "  • Zero Overhead: OpenRouter lacks an aggregated usage endpoint. Local CSV ingestion\n"
+            "    gives instant mathematical clarity without rate-limited sequential network calls.\n\n"
+            "How to Export Activity Logs from OpenRouter:\n"
+            "  1. Go to OpenRouter Sidebar Logs: https://openrouter.ai/logs\n"
+            "  2. Select your desired period on top right (e.g. Past 1 Month)\n"
+            "  3. Click the 3 dots menu → Export to download the CSV file.\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     calib_parser.add_argument("csv_file", type=str, help="Path to OpenRouter activity log CSV")
     calib_parser.add_argument("--dry-run", action="store_true", help="Calculate and display token mix without modifying configuration")
     calib_parser.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")

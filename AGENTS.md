@@ -56,6 +56,19 @@ To maintain a clean public repository while preserving exploratory thought, adhe
 - If the network call fails or times out, the code must gracefully fallback to the existing `history.csv` without crashing the calling Hermes Agent or cron script.
 - Never log, print, or store API keys or private tokens to disk or console output.
 
+### Rule 9: Semantic Versioning (SemVer) & Release Governance
+Anticharon follows strict [Semantic Versioning (`MAJOR.MINOR.PATCH`)](https://semver.org/):
+- **PATCH Bump (`0.1.0` → `0.1.1`):** Backwards-compatible bug fixes, model alias updates, and internal refactoring without CLI or schema changes.
+- **MINOR Bump (`0.1.0` → `0.2.0`):** Adding backwards-compatible new features (e.g. MCP Stdio Server from backlog, notification webhooks, Hermes config switcher, cron helper).
+- **MAJOR Bump (`0.x.x` → `1.0.0`):** Production-proven release after daily automated runtime validation with stable, breaking-change protected public interfaces.
+
+#### Mandatory Version Bump Checklist:
+Whenever bumping versions, the agent MUST update all 3 files in a single atomic commit:
+1. `pyproject.toml`: `version = "X.Y.Z"`
+2. `src/anticharon/__init__.py`: `__version__ = "X.Y.Z"`
+3. `CHANGELOG.md`: Move items from `[Unreleased]` into `[X.Y.Z] - YYYY-MM-DD`
+4. Create release tag: `git tag vX.Y.Z && git push origin vX.Y.Z`
+
 ---
 
 ## 2. Project Architecture & Directory Layout
