@@ -1,0 +1,56 @@
+### Tool Integration Briefing: Anticharon Price Optimizer (`v0.3.0`)
+
+**Hermes, you have a local price monitoring and analytical intelligence tool installed: `anticharon`.**
+
+Anticharon monitors OpenRouter pricing for models configured in `~/.hermes/config.yaml` (`model.default` and `fallback_providers`). It calculates blended prices per 1M tokens calibrated to real-world agent prompt-to-completion ratios (99.71% in / 0.29% out) and alerts you to price hikes, expired promotions, vendor migrations, or cheaper alternatives.
+
+#### How Hermes Should Use Anticharon:
+
+1. **To Check Current Model Costs & Alerts (Read-Only JSON):**
+   ```bash
+   anticharon check --json
+   ```
+   - `.prices_shortlist`: Sorted cheapest to most expensive with `price_1m` and `ma_7d`.
+   - `.priceWarnings`: Volatility alerts (`PRICE_SPIKE`, `PRICE_DROP`) and `BEST_OPTION_CHANGED`.
+   - `.hermes_integration`: Sync status with your active configuration.
+
+2. **To Get Pre-Processed 30-Day Analytical Profiles & Trajectory Intelligence:**
+   ```bash
+   anticharon check --profile --json
+   # or
+   anticharon history --json
+   ```
+   - Each model includes `.analytics` containing:
+     - `profile`: Deterministic classification:
+       - `STABLE`: Mature, predictable pricing (< 2.5% CV). Low budget risk.
+       - `PROMO_ENDED`: Introductory rate expired; price jumped ≥ 25% and held.
+       - `SUNSETTING`: Vendor pushing migration to newer version at same/cheaper price.
+       - `VOLATILE`: High rate fluctuations (≥ 12% CV). Hard to budget.
+       - `DISCOUNTED`: Active promotion (≥ 20% below 30d baseline). High-value window.
+       - `CREEPING_INFLATION`: Slow upward drift over 30d without spike alerts.
+       - `NEWLY_TRACKED`: Day 1 cold start; identical observation baseline.
+     - `recommendation`: Actionable recommendation for your model selection.
+     - `sibling_alternatives`: List of newer sibling models in the same family.
+
+3. **To Export or Inspect Raw 30-Day History Table:**
+   ```bash
+   anticharon history --csv
+   ```
+
+4. **To Update 7-Day Moving Averages & Price History (Daily Cron):**
+   ```bash
+   anticharon run --json
+   ```
+   *(Recommended daily via cron: `0 6 * * * ~/.local/bin/anticharon run`)*.
+
+5. **To Switch Your Default Model When Triggered by an Alert:**
+   If Anticharon alerts you with `BEST_OPTION_CHANGED`, `PROMO_ENDED`, or `SUNSETTING`:
+   ```bash
+   hermes config set model.default "<recommended_model_id>"
+   ```
+
+6. **To Discover Other OpenRouter Models Under Budget:**
+   ```bash
+   anticharon model discover "qwen" --max-price 0.20
+   anticharon model discover --promo
+   ```

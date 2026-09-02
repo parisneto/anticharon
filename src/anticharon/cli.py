@@ -247,16 +247,33 @@ def cmd_history(args) -> int:
 
 def cmd_info(args) -> int:
     """Handle `info` command to output llms.txt A2A discovery briefing."""
-    llms_candidates = [
-        Path(__file__).resolve().parent.parent.parent / "llms.txt",
-        Path.cwd() / "llms.txt",
-        Path.home() / ".anticharon" / "llms.txt"
-    ]
     content = None
-    for cand in llms_candidates:
-        if cand.exists():
-            content = cand.read_text(encoding="utf-8").strip()
-            break
+
+    # Tier 1: Try package resource (works when installed via uv tool / pip)
+    try:
+        import importlib.resources as pkg_resources
+        content = pkg_resources.files("anticharon").joinpath("llms.txt").read_text(encoding="utf-8").strip()
+    except Exception:
+        content = None
+
+    # Tier 2: Search filesystem candidates (git root, home directory, dotfolder)
+    if not content:
+        llms_candidates = [
+            Path(__file__).resolve().parent / "llms.txt",
+            Path(__file__).resolve().parent.parent.parent / "llms.txt",
+            Path.cwd() / "llms.txt",
+            Path.home() / "anticharon" / "llms.txt",
+            Path.home() / ".anticharon" / "llms.txt"
+        ]
+        for cand in llms_candidates:
+            if cand.exists():
+                try:
+                    text = cand.read_text(encoding="utf-8").strip()
+                    if text:
+                        content = text
+                        break
+                except Exception:
+                    continue
 
     if not content:
         content = (
@@ -264,6 +281,15 @@ def cmd_info(args) -> int:
             "OpenRouter model price tracker and token cost optimizer.\n"
             "Run `anticharon check --json` to inspect prices and alerts."
         )
+
+    # Auto-seed ~/.anticharon/llms.txt for local agent discovery
+    try:
+        user_dot = Path.home() / ".anticharon" / "llms.txt"
+        if not user_dot.exists() and content:
+            user_dot.parent.mkdir(parents=True, exist_ok=True)
+            user_dot.write_text(content, encoding="utf-8")
+    except Exception:
+        pass
 
     if getattr(args, "json", False):
         print(json.dumps({"status": "success", "content": content}, indent=2))
