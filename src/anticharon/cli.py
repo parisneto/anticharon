@@ -113,7 +113,8 @@ def cmd_test(args) -> int:
     """Handle `test` diagnostic command."""
     success = run_self_test(
         hermes_config_path=getattr(args, "hermes_config", None),
-        no_hermes=getattr(args, "no_hermes", False)
+        no_hermes=getattr(args, "no_hermes", False),
+        json_mode=getattr(args, "json", False)
     )
     return 0 if success else 1
 
@@ -278,6 +279,9 @@ def main() -> None:
     )
     parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--test", action="store_true", help="Run self-test diagnostic suite")
+    parser.add_argument("--json", action="store_true", help="Output results in JSON format")
+    parser.add_argument("--hermes-config", type=str, default=None, help="Path to custom Hermes config.yaml")
+    parser.add_argument("--no-hermes", action="store_true", help="Disable Hermes auto-detection and run in standalone mode")
 
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
 
@@ -303,6 +307,7 @@ def main() -> None:
 
     # Command: test
     test_parser = subparsers.add_parser("test", help="Run pre-flight self-test and connectivity diagnostics")
+    test_parser.add_argument("--json", action="store_true", help="Output diagnostic summary in JSON format")
     test_parser.add_argument("--hermes-config", type=str, default=None, help="Path to custom Hermes config.yaml")
     test_parser.add_argument("--no-hermes", action="store_true", help="Disable Hermes auto-detection during self-test")
 
@@ -393,14 +398,18 @@ def main() -> None:
     if args.command == "model":
         sys.exit(cmd_model(args))
 
-    # Default if no command given: run
-    if len(sys.argv) == 1:
-        res = run_tracker(dry_run=False)
-        format_human_output(res)
+    # Default if no subcommand given: run
+    if args.command is None and not args.test:
+        res = run_tracker(
+            dry_run=False,
+            hermes_config_path=getattr(args, "hermes_config", None),
+            no_hermes=getattr(args, "no_hermes", False)
+        )
+        if getattr(args, "json", False):
+            print(json.dumps(res.to_dict(), indent=2))
+        else:
+            format_human_output(res)
         sys.exit(0)
-
-    parser.print_help()
-    sys.exit(0)
 
 
 if __name__ == "__main__":
