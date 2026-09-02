@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-02
+
+### Fixed
+- **Wheel Package Resource Bundling for `llms.txt`:** Bundled `llms.txt` inside `src/anticharon/` and updated `anticharon info` to load via Python's standard `importlib.resources`. This ensures the complete Agent-to-Agent briefing is always found in isolated `uv tool install` and `pip` environments regardless of working directory.
+- **Auto-Seeding of `~/.anticharon/llms.txt`:** Automatically writes or syncs `llms.txt` into the user's config directory for direct agent inspection.
+
 ## [0.3.0] - 2026-09-02
 
 ### Added
