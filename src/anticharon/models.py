@@ -16,6 +16,56 @@ class PriceRecord:
 
 
 @dataclass
+class SiblingAlternative:
+    """Sibling alternative model in the same family."""
+    model: str
+    price_1m: float
+    relation: str
+    price_diff_pct: float
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "model": self.model,
+            "price_1m": round(self.price_1m, 5),
+            "relation": self.relation,
+            "price_diff_pct": round(self.price_diff_pct, 2)
+        }
+
+
+@dataclass
+class ModelAnalytics:
+    """Historical trajectory and profile analytics for a model."""
+    profile: str
+    badge: str
+    trend_direction: str
+    volatility_cv_pct: float
+    price_min_30d: float
+    price_max_30d: float
+    change_vs_30d_pct: float
+    trajectory_sparkline: str
+    recommendation: str
+    secondary_badge: Optional[str] = None
+    sibling_alternatives: List[SiblingAlternative] = field(default_factory=list)
+    history_vector: Dict[str, float] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "profile": self.profile,
+            "badge": self.badge,
+            "secondary_badge": self.secondary_badge,
+            "trend_direction": self.trend_direction,
+            "volatility_cv_pct": round(self.volatility_cv_pct, 2),
+            "price_min_30d": round(self.price_min_30d, 5),
+            "price_max_30d": round(self.price_max_30d, 5),
+            "change_vs_30d_pct": round(self.change_vs_30d_pct, 2),
+            "trajectory_sparkline": self.trajectory_sparkline,
+            "recommendation": self.recommendation,
+            "sibling_alternatives": [s.to_dict() for s in self.sibling_alternatives],
+            "history_vector": {k: round(v, 5) for k, v in self.history_vector.items()}
+        }
+
+
+@dataclass
 class ModelPrice:
     """Calculated current price and moving average metrics for a model."""
     model: str
@@ -25,14 +75,18 @@ class ModelPrice:
     ma_3d: Optional[float] = None
     prompt_price_raw: Optional[float] = None
     completion_price_raw: Optional[float] = None
+    analytics: Optional[ModelAnalytics] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        data: Dict[str, Any] = {
             "model": self.model,
             "price_1m": round(self.price_1m, 5),
             "ma_7d": round(self.ma_7d, 5),
             "change_vs_7d_pct": round(self.change_vs_7d_pct, 2)
         }
+        if self.analytics:
+            data["analytics"] = self.analytics.to_dict()
+        return data
 
 
 @dataclass
@@ -89,6 +143,7 @@ class TrackerResult:
     storage_path: Optional[str] = None
     config_path: Optional[str] = None
     hermes_integration: Optional[HermesIntegrationStatus] = None
+    analytics_mode: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         data: Dict[str, Any] = {
@@ -98,6 +153,8 @@ class TrackerResult:
             "prices_shortlist": [p.to_dict() for p in self.prices_shortlist],
             "priceWarnings": [w.to_dict() for w in self.price_warnings],
         }
+        if self.analytics_mode:
+            data["analytics_mode"] = True
         if self.hermes_integration:
             data["hermes_integration"] = self.hermes_integration.to_dict()
         if self.storage_path:

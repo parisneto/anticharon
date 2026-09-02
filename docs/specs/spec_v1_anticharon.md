@@ -193,6 +193,41 @@ When deployed in environments alongside **Hermes Agent**, Anticharon automatical
 
 ---
 
+## 3.6 Historical Analytical Intelligence & Pricing Profiles
+
+Anticharon inspects the full 30-day temporal window stored in `history.csv` (`[d1..d7, d15, d30]`) and applies statistical dispersion analysis alongside live catalog sibling relationship tracking:
+
+### Metric Definitions:
+- **Mean Price:** `μ = sum(prices) / 10`
+- **Standard Deviation:** `σ = sqrt(sum((p - μ)²) / 10)`
+- **Coefficient of Variation:** `CV = (σ / μ) × 100%`
+- **30-Day Net Shift:** `Delta_30d_Pct = ((Current_Price - Price_d30) / Price_d30) × 100%`
+
+### Deterministic Model Profile Categories:
+1. **`STABLE` (`🛡️ STABLE`):**
+   - Condition: `CV < 2.5%` and `|Delta_30d_Pct| < 5%`.
+   - Meaning: Mature, predictable pricing. Low budget risk for agents and scheduled cron pipelines.
+2. **`PROMO_ENDED` (`📈 PROMO_ENDED`):**
+   - Condition: Prior baseline (`d15` or `d30`) was `≥ 25%` cheaper than current price, and current price has remained elevated for `≥ 2` days.
+   - Meaning: Promotional or introductory discount has expired. The higher price is the new baseline.
+3. **`SUNSETTING` (`⚠️ SUNSETTING`):**
+   - Condition: Current price `≥ Price_d30`, AND the OpenRouter catalog or shortlist contains a newer version in the same model family (e.g. Gemini 3.8 vs 3.7) that is equal or cheaper in price.
+   - Meaning: Vendor is forcing architectural migration away from the legacy slug.
+4. **`VOLATILE` (`⚡ VOLATILE`):**
+   - Condition: `CV ≥ 12%`, or frequent reversals in directional delta across the window.
+   - Meaning: Unpredictable rate fluctuations. Monthly cost estimation is unreliable.
+5. **`DISCOUNTED` (`🏷️ DISCOUNTED`):**
+   - Condition: Current price is `≥ 20%` lower than 30-day baseline (`Current_Price ≤ 0.80 × Price_d30`).
+   - Meaning: Active promotion or permanent rate reduction. High-value window for large context or batch tasks.
+6. **`CREEPING_INFLATION` (`🐌 CREEPING`):**
+   - Condition: Steady upward drift (`Price_d30 < Price_d15 < Price_d7 < Current_Price`) with total rise between `+5%` and `+25%` without triggering single-day spike alerts.
+   - Meaning: Stealth inflation by provider.
+7. **`NEWLY_TRACKED` (`🌱 NEWLY_TRACKED`):**
+   - Condition: All historical price slots are identical due to day 1 cold-start padding.
+   - Meaning: Insufficient trend history. Observational baseline establishing.
+
+---
+
 ## 7. CLI Command Interface
 
 ### Primary Commands & Options:
@@ -203,37 +238,49 @@ anticharon run
 # 2. Dry run / Check: Fetch API, calculate prices without modifying history.csv
 anticharon check --dry-run
 
-# 3. Suppress Hermes auto-detection and run purely standalone
+# 3. Analytical Intelligence: Evaluate 30-day historical profiles and trajectory table
+anticharon check --profile
+anticharon run --profile
+anticharon check --profile --json
+
+# 4. History Subcommand: Audit 30-day temporal metrics and export raw CSV
+anticharon history
+anticharon history --profile
+anticharon history --csv
+anticharon history --json
+
+# 5. Agent-to-Agent Info: Output llms.txt briefing directly to stdout
+anticharon info
+anticharon info --json
+
+# 6. Suppress Hermes auto-detection and run purely standalone
 anticharon run --no-hermes
 anticharon check --no-hermes
 
-# 4. Explicit Hermes config path
+# 7. Explicit Hermes config path
 anticharon run --hermes-config /custom/path/to/config.yaml
 
-# 5. Output structured JSON (ideal for Hermes or script piping)
+# 8. Output structured JSON (ideal for Hermes or script piping)
 anticharon run --json
 
-# 6. Custom paths and timeouts
+# 9. Custom paths and timeouts
 anticharon run --config ./my_config.json --data-dir ./my_data --timeout 15.0
 
-# 7. Pre-flight self-test: Validate runtime, config, math, permissions, network, and Hermes integration
-anticharon test
+# 10. Pre-flight self-test: Validate runtime, config, math, permissions, network, and Hermes integration
+anticharon test [--json]
 
-# 8. Calibrate weights from OpenRouter activity log and update shortlist.json
-anticharon calibrate path/to/openrouter_activity.csv
+# 11. Calibrate weights from OpenRouter activity log and update shortlist.json
+anticharon calibrate path/to/openrouter_activity.csv [--dry-run]
 
-# 9. Calculate and display token mix without modifying configuration (dry-run)
-anticharon calibrate path/to/openrouter_activity.csv --dry-run
-
-# 10. Explicitly sync models from Hermes config
+# 12. Explicitly sync models from Hermes config
 anticharon model sync [--hermes-config PATH] [--dry-run]
 
-# 11. Model Management (Add / Remove / List)
+# 13. Model Management (Add / Remove / List)
 anticharon model add "google/gemini-3.7-flash" [--dry-run]
 anticharon model remove "minimax/minimax-m2.7" [--dry-run]
 anticharon model list [--json]
 
-# 12. Model Discovery & Exploration
+# 14. Model Discovery & Exploration
 anticharon model discover "gemini"
 anticharon model discover --promo
 anticharon model discover "qwen" --modality text --max-price 0.50
@@ -247,4 +294,14 @@ anticharon model discover --filter "openai" --filter "price < 10"
 1. **Timeout Control:** Every OpenRouter HTTP request has an explicit `10.0` second timeout.
 2. **Fallback Mode:** If the OpenRouter API fails (HTTP error, connection reset, timeout), Anticharon reads `history.csv`, logs a non-fatal warning, and returns the last known prices with `fallback: true` status.
 3. **No Unhandled Crashes:** Agents relying on Anticharon via cron or automated pipelines receive valid structured data even during network disruptions.
+
+---
+
+## 9. Agent-to-Agent (A2A) Discovery Standard (`llms.txt`)
+
+In compliance with the [`llms.txt`](https://llmstxt.org/) specification:
+- Anticharon maintains a structured `llms.txt` document at the repository root and installs a copy to `~/.anticharon/llms.txt`.
+- Any autonomous LLM agent, MCP host, or CLI script can run `anticharon info` to stream the machine-readable operational briefing directly into its context window.
+- The document provides concise operational instructions, CLI parameter syntax, JSON schemas, and Hermes configuration commands without unnecessary human prose.
+
 

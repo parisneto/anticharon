@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-02
+
+### Added
+- **Historical Analytical Intelligence & Model Pricing Profiles (`src/anticharon/analytics.py`):**
+  - Evaluates 30-day temporal dispersion across 9 historical slots (`d1..d7, d15, d30`) and current prices.
+  - Classifies shortlisted models into 7 deterministic profiles: `🛡️ STABLE`, `📈 PROMO_ENDED`, `⚠️ SUNSETTING`, `⚡ VOLATILE`, `🏷️ DISCOUNTED`, `🐌 CREEPING_INFLATION`, and `🌱 NEWLY_TRACKED`.
+  - Sibling alternative detection (`find_sibling_alternatives`) flagging newer version models in the same family available at equal or lower cost (e.g. Gemini 3.8 vs 3.7).
+  - Compact trajectory trend sparklines (e.g. `$0.38 ──↑ $0.76 (+100.0%)`).
+- **Dedicated Subcommand `anticharon history`:**
+  - Audits 30-day temporal analytics, statistical volatility ($CV\%$), min/max spreads, and actionable recommendations.
+  - Option `--csv` to dump the raw 30-day `history.csv` table directly to stdout for Unix piping.
+- **CLI Options `--profile` and `--history-csv`:** Added to `anticharon run`, `anticharon check`, and default invocation.
+- **Machine-Readable Pre-Processed Analytics in `--json`:** Adds structured `.analytics` object containing profile, badges, variance, trend direction, sparklines, and sibling alternatives so agents (Hermes) receive pre-digested intelligence.
+- **Agent-to-Agent (A2A) Discovery Standard (`llms.txt`):**
+  - Authoritative `llms.txt` specification at repository root.
+  - New `anticharon info [--json]` CLI command streaming operational briefing directly to stdout for LLM agent discovery.
+- **Comprehensive Test Suite Expansion:** 10/10 automated tests covering family parsing, sibling alternatives, profiles classification, history export, and `llms.txt`.
+
 ## [0.2.1] - 2026-09-02
 
 ### Added

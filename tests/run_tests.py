@@ -342,6 +342,88 @@ fallback_providers:
             tf_path.unlink()
 
 
+def test_historical_analytics_and_profiles():
+    """Test 30-day statistical variance, profile classification, sibling detection, and llms.txt."""
+    print("Testing 30-day historical analytics, model profiles, and llms.txt...")
+    from anticharon.analytics import calculate_model_analytics, find_sibling_alternatives, parse_model_family
+
+    # 1. Test family parser
+    prov, prefix, ver, suffix = parse_model_family("google/gemini-3.7-flash")
+    assert prov == "google"
+    assert prefix == "gemini-"
+    assert ver == 3.7
+    assert suffix == "-flash"
+
+    # 2. Test sibling detection
+    candidates = {
+        "google/gemini-3.7-flash": 0.75881,
+        "google/gemini-3.8-flash": 0.75881,
+        "google/gemini-2.5-flash-lite": 0.10088
+    }
+    sibs = find_sibling_alternatives("google/gemini-3.7-flash", 0.75881, candidates)
+    assert len(sibs) == 1
+    assert sibs[0].model == "google/gemini-3.8-flash"
+    assert sibs[0].relation == "newer_version"
+
+    # 3. Test PROMO_ENDED & SUNSETTING classification
+    hist_promo = [0.75881]*4 + [0.37941]*5
+    an_promo = calculate_model_analytics("google/gemini-3.7-flash", 0.75881, hist_promo, candidates)
+    assert an_promo.profile == "PROMO_ENDED"
+    assert "PROMO_ENDED" in an_promo.badge
+    assert an_promo.secondary_badge == "⚠️ SUNSETTING"
+    assert round(an_promo.change_vs_30d_pct, 1) == 100.0
+
+    # 4. Test STABLE classification (mature low-variance history)
+    hist_stable = [0.10088]*6 + [0.10087]*2 + [0.10088]
+    an_stable = calculate_model_analytics("google/gemini-2.5-flash-lite", 0.10088, hist_stable)
+    assert an_stable.profile == "STABLE"
+    assert "STABLE" in an_stable.badge
+    assert an_stable.volatility_cv_pct < 0.1
+
+    # 5. Test NEWLY_TRACKED (cold-start) classification
+    an_cold = calculate_model_analytics("openai/gpt-4.1-nano", 0.10, [0.10]*9)
+    assert an_cold.profile == "NEWLY_TRACKED"
+    assert "NEWLY_TRACKED" in an_cold.badge
+
+    # 6. Test VOLATILE classification
+    hist_vol = [0.85, 0.40, 0.95, 0.45, 0.90, 0.40, 0.85, 0.40, 0.90]
+    an_vol = calculate_model_analytics("nousresearch/hermes-3-70b", 0.65, hist_vol)
+    assert an_vol.profile == "VOLATILE"
+    assert "VOLATILE" in an_vol.badge
+
+    # 7. Test DISCOUNTED classification
+    hist_disc = [1.50, 1.50, 1.80, 2.00, 2.50, 3.00, 3.00, 3.00, 3.00]
+    an_disc = calculate_model_analytics("mistralai/mistral-large-2407", 1.50, hist_disc)
+    assert an_disc.profile == "DISCOUNTED"
+    assert "DISCOUNTED" in an_disc.badge
+
+    # 8. Test CREEPING_INFLATION classification
+    hist_creep = [0.06534]*4 + [0.06018]*2 + [0.06017]*2 + [0.06017]
+    an_creep = calculate_model_analytics("deepseek/deepseek-v4-flash-0731", 0.06534, hist_creep)
+    assert an_creep.profile == "CREEPING_INFLATION"
+    assert "CREEPING" in an_creep.badge
+
+    # 9. Test run_tracker with enable_analytics=True
+    res_an = run_tracker(dry_run=True, enable_analytics=True, timeout=0.001)
+    assert res_an.analytics_mode is True
+    assert len(res_an.prices_shortlist) > 0
+    an_dict = res_an.to_dict()
+    assert an_dict.get("analytics_mode") is True
+    first_model = an_dict["prices_shortlist"][0]
+    assert "analytics" in first_model
+    assert "profile" in first_model["analytics"]
+
+    # 10. Test llms.txt presence
+    llms_path = Path(__file__).resolve().parent.parent / "llms.txt"
+    assert llms_path.exists(), "llms.txt must exist at repository root"
+    llms_text = llms_path.read_text(encoding="utf-8")
+    assert "### Tool Integration Briefing: Anticharon" in llms_text
+    assert "anticharon check --profile --json" in llms_text
+    assert "anticharon history --csv" in llms_text
+
+    print("  [OK] 30-day analytics, model profiles, and llms.txt tests passed")
+
+
 def main():
     print("\n🚀 Running Anticharon Test Suite...")
     print("-" * 50)
@@ -355,8 +437,9 @@ def main():
         test_model_manager()
         test_model_discovery_filters()
         test_hermes_integration()
+        test_historical_analytics_and_profiles()
         print("-" * 50)
-        print("✨ ALL TESTS PASSED SUCCESSFULLY! (9/9)\n")
+        print("✨ ALL TESTS PASSED SUCCESSFULLY! (10/10)\n")
         return 0
     except AssertionError as e:
         print(f"\n❌ TEST FAILED: {e}\n", file=sys.stderr)

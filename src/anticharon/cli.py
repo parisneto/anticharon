@@ -7,11 +7,12 @@ from pathlib import Path
 
 from anticharon import __version__
 from anticharon.chart import render_ascii_price_bar
-from anticharon.config import update_config_weights, get_config_path, load_config
+from anticharon.config import update_config_weights, get_config_path, get_history_path, load_config
 from anticharon.discovery import fetch_catalog, filter_catalog, format_discovery_output
 from anticharon.hermes import get_hermes_models, sync_hermes_to_config
 from anticharon.log_parser import parse_activity_log
 from anticharon.manager import add_model, remove_model, list_models
+from anticharon.models import TrackerResult
 from anticharon.tester import run_self_test
 from anticharon.tracker import run_tracker
 
@@ -91,21 +92,183 @@ def format_human_output(result) -> None:
     print("=" * 74 + "\n")
 
 
+def format_analytics_human_output(result: TrackerResult) -> None:
+    """Format TrackerResult with deep 30-day analytical intelligence and profiles."""
+    print("\n" + "=" * 104)
+    print(f"🪙  ANTICHARON — Analytical Price Intelligence & History (v{__version__})")
+    print(f"📅 Timestamp: {result.timestamp}")
+    if result.storage_path:
+        print(f"💾 Storage:   {result.storage_path}")
+    if result.config_path:
+        print(f"⚙️  Config:    {result.config_path}")
+
+    # Hermes banner
+    if result.hermes_integration:
+        h = result.hermes_integration
+        if h.detected:
+            print(f"🤖 Hermes:    Synced ({h.models_count} models via {h.method} from {h.source})")
+        elif h.warning:
+            print(f"🤖 Hermes:    {h.warning}")
+
+    status_str = "CACHED HISTORY (Offline Fallback)" if result.fallback else "LIVE API"
+    status_icon = "🟠" if result.fallback else "🟢"
+    print(f"{status_icon} [STATUS: {status_str}]")
+    print("=" * 104)
+
+    default_model = None
+    if result.config_path:
+        cfg = load_config(Path(result.config_path))
+        shortlist = cfg.get("shortlist", [])
+        if shortlist:
+            default_model = shortlist[0]
+
+    print(f"{'MODEL':<33} {'PRICE/1M':<10} {'30D TREND':<18} {'PROFILE':<17} {'RECOMMENDATION'}")
+    print("-" * 104)
+
+    stable_models = []
+    promo_ended_models = []
+    sunsetting_models = []
+    discounted_models = []
+    volatile_models = []
+
+    for p in result.prices_shortlist:
+        an = p.analytics
+        badge = an.badge if an else "—"
+        spark = an.trajectory_sparkline if an else "—"
+        rec = an.recommendation if an else ""
+
+        if an:
+            if an.profile == "STABLE":
+                stable_models.append((p.model, p.price_1m, an.volatility_cv_pct))
+            elif an.profile == "PROMO_ENDED":
+                promo_ended_models.append((p.model, an.change_vs_30d_pct, an.volatility_cv_pct))
+            elif an.profile == "SUNSETTING":
+                sunsetting_models.append((p.model, an.recommendation))
+            elif an.profile == "DISCOUNTED":
+                discounted_models.append((p.model, an.change_vs_30d_pct))
+            elif an.profile == "VOLATILE":
+                volatile_models.append((p.model, an.volatility_cv_pct))
+
+        def_badge = " ★[DEF]" if default_model and p.model == default_model else ""
+        model_display = f"{p.model}{def_badge}"
+        print(f"{model_display:<33} ${p.price_1m:<9.5f} {spark:<18} {badge:<17} {rec}")
+        if an and an.secondary_badge:
+            print(f"{'':<33} {'':<10} {'':<18} {an.secondary_badge:<17}")
+
+    print("-" * 104)
+
+    # Summary Insights
+    print("\n📊 30-DAY VOLATILITY & SPREAD SUMMARY:")
+    if stable_models:
+        st_desc = ", ".join([f"{m.split('/')[-1]} (${pr:.3f})" for m, pr, _ in stable_models[:4]])
+        print(f"  • STABLE WORKHORSES: {st_desc} [CV < 2.5%]")
+    if promo_ended_models:
+        for m, delta, cv in promo_ended_models:
+            print(f"  • EXPIRED PROMO: {m} rose {delta:+.1f}% over baseline (CV: {cv:.1f}%).")
+    if sunsetting_models:
+        for m, rec in sunsetting_models:
+            print(f"  • MIGRATION OPPORTUNITY: {m} — {rec}")
+    if discounted_models:
+        for m, delta in discounted_models:
+            print(f"  • ACTIVE DISCOUNT: {m} is discounted {delta:.1f}% vs 30d baseline.")
+    if volatile_models:
+        for m, cv in volatile_models:
+            print(f"  • HIGH VOLATILITY: {m} shows erratic price changes (CV: {cv:.1f}%).")
+
+    if result.price_warnings:
+        print("\n🚨 ALERTS & WARNINGS:")
+        for w in result.price_warnings:
+            if w.type == "PRICE_SPIKE":
+                print(f"  🔴 [SPIKE] {w.message}")
+            elif w.type == "PRICE_DROP":
+                print(f"  🟢 [DROP]  {w.message}")
+            elif w.type == "BEST_OPTION_CHANGED":
+                print(f"  💡 [TIP]   {w.message}")
+
+    print("=" * 104 + "\n")
+
+
 def cmd_run(args) -> int:
     """Handle `run` and `check` commands."""
+    hist_path = Path(args.data_dir) / "history.csv" if getattr(args, "data_dir", None) else get_history_path()
+    if getattr(args, "history_csv", False):
+        if not hist_path.exists():
+            print(f"History file not found at {hist_path}", file=sys.stderr)
+            return 1
+        print(hist_path.read_text(encoding="utf-8").strip())
+        return 0
+
+    is_analytics = getattr(args, "profile", False) or getattr(args, "analytics", False)
     res = run_tracker(
         dry_run=args.dry_run,
         config_path=Path(args.config) if args.config else None,
-        history_path=Path(args.data_dir) / "history.csv" if getattr(args, "data_dir", None) else None,
+        history_path=hist_path,
         timeout=args.timeout,
         hermes_config_path=getattr(args, "hermes_config", None),
-        no_hermes=getattr(args, "no_hermes", False)
+        no_hermes=getattr(args, "no_hermes", False),
+        enable_analytics=is_analytics
     )
 
     if args.json:
         print(json.dumps(res.to_dict(), indent=2))
+    elif is_analytics:
+        format_analytics_human_output(res)
     else:
         format_human_output(res)
+    return 0
+
+
+def cmd_history(args) -> int:
+    """Handle `history` analytical command."""
+    hist_path = Path(args.data_dir) / "history.csv" if getattr(args, "data_dir", None) else get_history_path()
+    if getattr(args, "csv", False) or getattr(args, "history_csv", False):
+        if not hist_path.exists():
+            print(f"History file not found at {hist_path}", file=sys.stderr)
+            return 1
+        print(hist_path.read_text(encoding="utf-8").strip())
+        return 0
+
+    res = run_tracker(
+        dry_run=True,
+        config_path=Path(args.config) if getattr(args, "config", None) else None,
+        history_path=hist_path,
+        timeout=getattr(args, "timeout", 10.0),
+        hermes_config_path=getattr(args, "hermes_config", None),
+        no_hermes=getattr(args, "no_hermes", False),
+        enable_analytics=True
+    )
+
+    if getattr(args, "json", False):
+        print(json.dumps(res.to_dict(), indent=2))
+    else:
+        format_analytics_human_output(res)
+    return 0
+
+
+def cmd_info(args) -> int:
+    """Handle `info` command to output llms.txt A2A discovery briefing."""
+    llms_candidates = [
+        Path(__file__).resolve().parent.parent.parent / "llms.txt",
+        Path.cwd() / "llms.txt",
+        Path.home() / ".anticharon" / "llms.txt"
+    ]
+    content = None
+    for cand in llms_candidates:
+        if cand.exists():
+            content = cand.read_text(encoding="utf-8").strip()
+            break
+
+    if not content:
+        content = (
+            "# Anticharon Price Optimizer\n"
+            "OpenRouter model price tracker and token cost optimizer.\n"
+            "Run `anticharon check --json` to inspect prices and alerts."
+        )
+
+    if getattr(args, "json", False):
+        print(json.dumps({"status": "success", "content": content}, indent=2))
+    else:
+        print(content)
     return 0
 
 
@@ -280,6 +443,9 @@ def main() -> None:
     parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--test", action="store_true", help="Run self-test diagnostic suite")
     parser.add_argument("--json", action="store_true", help="Output results in JSON format")
+    parser.add_argument("--profile", action="store_true", help="Display analytical model profiles and 30-day trajectory")
+    parser.add_argument("--analytics", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--history-csv", action="store_true", help="Output raw history.csv table to stdout")
     parser.add_argument("--hermes-config", type=str, default=None, help="Path to custom Hermes config.yaml")
     parser.add_argument("--no-hermes", action="store_true", help="Disable Hermes auto-detection and run in standalone mode")
 
@@ -289,6 +455,9 @@ def main() -> None:
     run_parser = subparsers.add_parser("run", help="Fetch prices, update history, and display report")
     run_parser.add_argument("--dry-run", action="store_true", help="Do not write updates to history.csv")
     run_parser.add_argument("--json", action="store_true", help="Output results in JSON format")
+    run_parser.add_argument("--profile", action="store_true", help="Display analytical model profiles and 30-day trajectory")
+    run_parser.add_argument("--analytics", action="store_true", help=argparse.SUPPRESS)
+    run_parser.add_argument("--history-csv", action="store_true", help="Output raw history.csv table to stdout")
     run_parser.add_argument("--timeout", type=float, default=10.0, help="HTTP request timeout in seconds")
     run_parser.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")
     run_parser.add_argument("--data-dir", type=str, default=None, help="Directory to store history.csv")
@@ -299,11 +468,32 @@ def main() -> None:
     check_parser = subparsers.add_parser("check", help="Check current prices without updating history.csv")
     check_parser.add_argument("--dry-run", action="store_true", default=True, help="Do not write updates to history.csv")
     check_parser.add_argument("--json", action="store_true", help="Output results in JSON format")
+    check_parser.add_argument("--profile", action="store_true", help="Display analytical model profiles and 30-day trajectory")
+    check_parser.add_argument("--analytics", action="store_true", help=argparse.SUPPRESS)
+    check_parser.add_argument("--history-csv", action="store_true", help="Output raw history.csv table to stdout")
     check_parser.add_argument("--timeout", type=float, default=10.0, help="HTTP request timeout in seconds")
     check_parser.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")
     check_parser.add_argument("--data-dir", type=str, default=None, help="Directory to store history.csv")
     check_parser.add_argument("--hermes-config", type=str, default=None, help="Path to custom Hermes config.yaml")
     check_parser.add_argument("--no-hermes", action="store_true", help="Disable Hermes auto-detection and run in standalone mode")
+
+    # Command: history
+    history_parser = subparsers.add_parser("history", help="Audit 30-day historical intelligence and export CSV")
+    history_parser.add_argument("--profile", action="store_true", default=True, help="Display analytical model profiles and trajectory")
+    history_parser.add_argument("--analytics", action="store_true", help=argparse.SUPPRESS)
+    history_parser.add_argument("--csv", action="store_true", help="Output raw history.csv table to stdout")
+    history_parser.add_argument("--history-csv", action="store_true", help=argparse.SUPPRESS)
+    history_parser.add_argument("--json", action="store_true", help="Output results in JSON format")
+    history_parser.add_argument("--timeout", type=float, default=10.0, help="HTTP request timeout in seconds")
+    history_parser.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")
+    history_parser.add_argument("--data-dir", type=str, default=None, help="Directory to store history.csv")
+    history_parser.add_argument("--hermes-config", type=str, default=None, help="Path to custom Hermes config.yaml")
+    history_parser.add_argument("--no-hermes", action="store_true", help="Disable Hermes auto-detection")
+
+    # Command: info (Agent-to-Agent discovery / llms.txt)
+    info_parser = subparsers.add_parser("info", help="Display Agent-to-Agent (A2A) discovery briefing (llms.txt)")
+    info_parser.add_argument("--json", action="store_true", help="Output briefing in JSON format")
+    info_parser.add_argument("--llm", action="store_true", help="Explicit alias for LLM/agent briefing")
 
     # Command: test
     test_parser = subparsers.add_parser("test", help="Run pre-flight self-test and connectivity diagnostics")
@@ -392,6 +582,12 @@ def main() -> None:
     if args.command in ("run", "check"):
         sys.exit(cmd_run(args))
 
+    if args.command == "history":
+        sys.exit(cmd_history(args))
+
+    if args.command == "info":
+        sys.exit(cmd_info(args))
+
     if args.command == "calibrate":
         sys.exit(cmd_calibrate(args))
 
@@ -400,13 +596,26 @@ def main() -> None:
 
     # Default if no subcommand given: run
     if args.command is None and not args.test:
+        hist_path = Path(args.data_dir) / "history.csv" if getattr(args, "data_dir", None) else get_history_path()
+        if getattr(args, "history_csv", False):
+            if not hist_path.exists():
+                print(f"History file not found at {hist_path}", file=sys.stderr)
+                sys.exit(1)
+            print(hist_path.read_text(encoding="utf-8").strip())
+            sys.exit(0)
+
+        is_analytics = getattr(args, "profile", False) or getattr(args, "analytics", False)
         res = run_tracker(
             dry_run=False,
+            history_path=hist_path,
             hermes_config_path=getattr(args, "hermes_config", None),
-            no_hermes=getattr(args, "no_hermes", False)
+            no_hermes=getattr(args, "no_hermes", False),
+            enable_analytics=is_analytics
         )
         if getattr(args, "json", False):
             print(json.dumps(res.to_dict(), indent=2))
+        elif is_analytics:
+            format_analytics_human_output(res)
         else:
             format_human_output(res)
         sys.exit(0)

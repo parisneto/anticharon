@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 import requests
 
+from anticharon.analytics import calculate_model_analytics
 from anticharon.config import load_config, get_history_path, get_config_path
 from anticharon.hermes import get_hermes_models, sync_hermes_to_config
 from anticharon.models import ModelPrice, PriceWarning, TrackerResult, HermesIntegrationStatus
@@ -32,7 +33,8 @@ def run_tracker(
     history_path: Optional[Path] = None,
     timeout: float = 10.0,
     hermes_config_path: Optional[str | Path] = None,
-    no_hermes: bool = False
+    no_hermes: bool = False,
+    enable_analytics: bool = False
 ) -> TrackerResult:
     """Execute price tracker workflow."""
     cfg_path = config_path or get_config_path()
@@ -99,6 +101,18 @@ def run_tracker(
                     change_vs_7d_pct=delta_7d_pct
                 ))
         prices_shortlist.sort(key=lambda x: x.price_1m)
+        if enable_analytics:
+            cand = {p.model: p.price_1m for p in prices_shortlist}
+            c_def = shortlist[0] if shortlist else None
+            for p in prices_shortlist:
+                if p.model in history:
+                    p.analytics = calculate_model_analytics(
+                        model_id=p.model,
+                        current_price=p.price_1m,
+                        history_prices=history[p.model].prices,
+                        candidate_prices=cand,
+                        current_default=c_def
+                    )
         return TrackerResult(
             status="success",
             timestamp=now_iso,
@@ -107,7 +121,8 @@ def run_tracker(
             price_warnings=[],
             storage_path=str(hist_path),
             config_path=str(cfg_path),
-            hermes_integration=hermes_status
+            hermes_integration=hermes_status,
+            analytics_mode=enable_analytics
         )
 
     updated_records = []
@@ -192,6 +207,24 @@ def run_tracker(
                 message=f"Model {cheapest.model} (${cheapest.price_1m:.5f}/1M) is cheaper than configured default {current_default}."
             ))
 
+    if enable_analytics:
+        if updated_records:
+            history_prices_map = {row[0]: row[5:] for row in updated_records}
+        else:
+            history_prices_map = {m: r.prices for m, r in history.items()}
+
+        cand = {p.model: p.price_1m for p in prices_shortlist}
+        c_def = shortlist[0] if shortlist else None
+        for p in prices_shortlist:
+            if p.model in history_prices_map:
+                p.analytics = calculate_model_analytics(
+                    model_id=p.model,
+                    current_price=p.price_1m,
+                    history_prices=history_prices_map[p.model],
+                    candidate_prices=cand,
+                    current_default=c_def
+                )
+
     return TrackerResult(
         status="success",
         timestamp=now_iso,
@@ -200,5 +233,6 @@ def run_tracker(
         price_warnings=warnings,
         storage_path=str(hist_path),
         config_path=str(cfg_path),
-        hermes_integration=hermes_status
+        hermes_integration=hermes_status,
+        analytics_mode=enable_analytics
     )
