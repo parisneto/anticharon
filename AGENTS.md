@@ -28,9 +28,10 @@ To maintain a clean public repository while preserving exploratory thought, adhe
   - `±` instead of `$\pm$`
   - `≠` instead of `$\neq$`
 
-### Rule 4: Mandatory Changelog Updates
-- Every task, bugfix, or feature MUST update [`CHANGELOG.md`](CHANGELOG.md) under the `[Unreleased]` section following the [Keep a Changelog](https://keepachangelog.com/) format.
+### Rule 4: Mandatory Changelog & In-Flight Tracking
+- While working on an active task, stage changes under the `[Unreleased]` section in [`CHANGELOG.md`](CHANGELOG.md) following the [Keep a Changelog](https://keepachangelog.com/) format.
 - Group items clearly under `### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`, or `### Security`.
+- **Strict Rule:** `[Unreleased]` is strictly a transient staging scratchpad for work-in-progress. Once a task or bugfix is completed and verified, it MUST NOT be left sitting in `[Unreleased]`; it must be cut into a release tag via Rule 9.
 
 ### Rule 5: Atomic Git Commits
 - Once a functional unit or task is verified, create clean, atomic git commits with semantic commit messages:
@@ -56,18 +57,23 @@ To maintain a clean public repository while preserving exploratory thought, adhe
 - If the network call fails or times out, the code must gracefully fallback to the existing `history.csv` without crashing the calling Hermes Agent or cron script.
 - Never log, print, or store API keys or private tokens to disk or console output.
 
-### Rule 9: Semantic Versioning (SemVer) & Release Governance
+### Rule 9: Autonomous Semantic Versioning (SemVer) & Release Governance
 Anticharon follows strict [Semantic Versioning (`MAJOR.MINOR.PATCH`)](https://semver.org/):
-- **PATCH Bump (`0.1.0` → `0.1.1`):** Backwards-compatible bug fixes, model alias updates, and internal refactoring without CLI or schema changes.
-- **MINOR Bump (`0.1.0` → `0.2.0`):** Adding backwards-compatible new features (e.g. MCP Stdio Server from backlog, notification webhooks, Hermes config switcher, cron helper).
-- **MAJOR Bump (`0.x.x` → `1.0.0`):** Production-proven release after daily automated runtime validation with stable, breaking-change protected public interfaces.
+- **PATCH Bump (`0.1.0` → `0.1.1`):** Backwards-compatible bug fixes, packaging corrections, model alias updates, and internal refactoring without CLI or schema changes.
+- **MINOR Bump (`0.1.0` → `0.2.0`):** Adding backwards-compatible new features, subcommands, or flags (e.g. analytical engine, discovery filters, history export).
+- **MAJOR Bump (`0.x.x` → `1.0.0`):** Production-proven release after automated runtime validation with stable, breaking-change protected public interfaces.
+
+#### Mandatory Autonomous Release Trigger (Definition of Done):
+- **Zero-Prompt Versioning:** The human user must **NEVER** have to remind the agent to manage versions or cut releases. Managing versions is a mandatory requirement for task completion.
+- Upon passing all tests (Rule 6) and verifying the functional unit, the agent MUST autonomously execute the **Mandatory Version Bump Checklist** as the final step of the task (`PATCH` for fixes, `MINOR` for features).
+- **Never Overwrite Existing Tags:** Never overwrite an existing release tag (`git tag -f`). Any subsequent change—even a single-line bugfix or packaging correction—is a new, immutable `PATCH` release.
 
 #### Mandatory Version Bump Checklist:
-Whenever bumping versions, the agent MUST update all 3 files in a single atomic commit:
+The agent MUST update all 3 files in a single atomic commit:
 1. `pyproject.toml`: `version = "X.Y.Z"`
 2. `src/anticharon/__init__.py`: `__version__ = "X.Y.Z"`
-3. `CHANGELOG.md`: Move items from `[Unreleased]` into `[X.Y.Z] - YYYY-MM-DD`
-4. Create release tag: `git tag vX.Y.Z && git push origin vX.Y.Z`
+3. `CHANGELOG.md`: Move items from `[Unreleased]` into `## [X.Y.Z] - YYYY-MM-DD` and restore an empty `## [Unreleased]` section on top.
+4. Create release tag: `git tag vX.Y.Z && git push origin vX.Y.Z` (or local git tag).
 
 ### Rule 10: Strict Repository-Relative Path Standard (No Local Path Leaks)
 - **Strict Rule:** Never use absolute host filesystem paths (e.g. `/Users/...`, `C:\...`, or `file:///...`) in Markdown files, code comments, docstrings, or specifications.
