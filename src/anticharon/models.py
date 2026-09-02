@@ -59,6 +59,25 @@ class PriceWarning:
 
 
 @dataclass
+class HermesIntegrationStatus:
+    """Status of Hermes agent configuration detection and synchronization."""
+    detected: bool
+    source: Optional[str] = None
+    method: str = "standalone"  # 'cli', 'file_grep', or 'standalone'
+    models_count: int = 0
+    warning: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "detected": self.detected,
+            "source": self.source,
+            "method": self.method,
+            "models_count": self.models_count,
+            "warning": self.warning
+        }
+
+
+@dataclass
 class TrackerResult:
     """Full execution output from the price tracker."""
     status: str
@@ -69,6 +88,7 @@ class TrackerResult:
     error: Optional[str] = None
     storage_path: Optional[str] = None
     config_path: Optional[str] = None
+    hermes_integration: Optional[HermesIntegrationStatus] = None
 
     def to_dict(self) -> Dict[str, Any]:
         data: Dict[str, Any] = {
@@ -78,6 +98,8 @@ class TrackerResult:
             "prices_shortlist": [p.to_dict() for p in self.prices_shortlist],
             "priceWarnings": [w.to_dict() for w in self.price_warnings],
         }
+        if self.hermes_integration:
+            data["hermes_integration"] = self.hermes_integration.to_dict()
         if self.storage_path:
             data["storage_path"] = self.storage_path
         if self.config_path:

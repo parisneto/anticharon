@@ -9,6 +9,7 @@ from anticharon import __version__
 from anticharon.chart import render_ascii_price_bar
 from anticharon.config import update_config_weights, get_config_path, load_config
 from anticharon.discovery import fetch_catalog, filter_catalog, format_discovery_output
+from anticharon.hermes import get_hermes_models, sync_hermes_to_config
 from anticharon.log_parser import parse_activity_log
 from anticharon.manager import add_model, remove_model, list_models
 from anticharon.tester import run_self_test
@@ -24,11 +25,28 @@ def format_human_output(result) -> None:
         print(f"💾 Storage:   {result.storage_path}")
     if result.config_path:
         print(f"⚙️  Config:    {result.config_path}")
+    if getattr(result, "hermes_integration", None):
+        h = result.hermes_integration
+        if h.detected:
+            print(f"🤖 Hermes:    Synced ({h.models_count} models via {h.method} from {h.source})")
+        elif h.warning:
+            print(f"⚠️  Hermes:    Standalone mode ({h.warning})")
     if result.fallback:
         print("⚠️  [STATUS: OFFLINE FALLBACK] Using cached history prices.")
     else:
         print("🟢 [STATUS: LIVE API] Updated with latest OpenRouter prices.")
     print("=" * 74)
+
+    # Big bold warning banner if Hermes not detected
+    if getattr(result, "hermes_integration", None):
+        h = result.hermes_integration
+        if not h.detected and h.warning:
+            print("\n" + "!" * 74)
+            print("⚠️  [HERMES CONFIG NOT DETECTED]")
+            print("   Could not detect Hermes configuration at ~/.hermes/config.yaml or via $HERMES_HOME.")
+            print("   Operating in STANDALONE mode using Anticharon shortlist.json.")
+            print("   To link Hermes: provide --hermes-config <path>, set $HERMES_CONFIG, or suppress with --no-hermes.")
+            print("!" * 74 + "\n")
 
     # Determine default model from config
     default_model = None
@@ -79,7 +97,9 @@ def cmd_run(args) -> int:
         dry_run=args.dry_run,
         config_path=Path(args.config) if args.config else None,
         history_path=Path(args.data_dir) / "history.csv" if getattr(args, "data_dir", None) else None,
-        timeout=args.timeout
+        timeout=args.timeout,
+        hermes_config_path=getattr(args, "hermes_config", None),
+        no_hermes=getattr(args, "no_hermes", False)
     )
 
     if args.json:
@@ -91,7 +111,10 @@ def cmd_run(args) -> int:
 
 def cmd_test(args) -> int:
     """Handle `test` diagnostic command."""
-    success = run_self_test()
+    success = run_self_test(
+        hermes_config_path=getattr(args, "hermes_config", None),
+        no_hermes=getattr(args, "no_hermes", False)
+    )
     return 0 if success else 1
 
 
@@ -206,6 +229,44 @@ def cmd_model(args) -> int:
         format_discovery_output(filtered, json_mode=args.json)
         return 0
 
+    elif action == "sync":
+        hermes_custom = getattr(args, "hermes_config", None)
+        hermes_info = get_hermes_models(custom_path=hermes_custom, prompt_if_missing=True)
+        if not hermes_info:
+            err_msg = "Could not find or extract Hermes configuration. Specify --hermes-config <path> or set $HERMES_HOME."
+            if getattr(args, "json", False):
+                print(json.dumps({"status": "error", "message": err_msg}, indent=2))
+            else:
+                print(f"\n❌ {err_msg}\n", file=sys.stderr)
+            return 1
+
+        is_dry_run = getattr(args, "dry_run", False)
+        changed, new_shortlist, saved_path = sync_hermes_to_config(
+            hermes_info, config_path=cfg_path, dry_run=is_dry_run
+        )
+        if getattr(args, "json", False):
+            print(json.dumps({
+                "status": "success",
+                "action": "sync",
+                "dry_run": is_dry_run,
+                "changed": changed,
+                "source": hermes_info["source"],
+                "method": hermes_info["method"],
+                "default_model": hermes_info["default_model"],
+                "shortlist": new_shortlist,
+                "config_path": str(saved_path)
+            }, indent=2))
+        else:
+            prefix = "[DRY RUN] Would sync" if is_dry_run else "Successfully synced"
+            print(f"\n✅ {prefix} {len(new_shortlist)} models from Hermes ({hermes_info['source']})")
+            print(f"★ Default Model: {hermes_info['default_model']}")
+            print(f"📋 Synchronized Shortlist:")
+            for idx, m in enumerate(new_shortlist, 1):
+                badge = " ★ [DEFAULT]" if idx == 1 else ""
+                print(f"  {idx}. {m}{badge}")
+            print(f"⚙️ Config: {saved_path}\n")
+        return 0
+
     return 0
 
 
@@ -227,6 +288,8 @@ def main() -> None:
     run_parser.add_argument("--timeout", type=float, default=10.0, help="HTTP request timeout in seconds")
     run_parser.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")
     run_parser.add_argument("--data-dir", type=str, default=None, help="Directory to store history.csv")
+    run_parser.add_argument("--hermes-config", type=str, default=None, help="Path to custom Hermes config.yaml")
+    run_parser.add_argument("--no-hermes", action="store_true", help="Disable Hermes auto-detection and run in standalone mode")
 
     # Command: check (alias for run --dry-run)
     check_parser = subparsers.add_parser("check", help="Check current prices without updating history.csv")
@@ -235,9 +298,13 @@ def main() -> None:
     check_parser.add_argument("--timeout", type=float, default=10.0, help="HTTP request timeout in seconds")
     check_parser.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")
     check_parser.add_argument("--data-dir", type=str, default=None, help="Directory to store history.csv")
+    check_parser.add_argument("--hermes-config", type=str, default=None, help="Path to custom Hermes config.yaml")
+    check_parser.add_argument("--no-hermes", action="store_true", help="Disable Hermes auto-detection and run in standalone mode")
 
     # Command: test
     test_parser = subparsers.add_parser("test", help="Run pre-flight self-test and connectivity diagnostics")
+    test_parser.add_argument("--hermes-config", type=str, default=None, help="Path to custom Hermes config.yaml")
+    test_parser.add_argument("--no-hermes", action="store_true", help="Disable Hermes auto-detection during self-test")
 
     # Command: calibrate
     calib_parser = subparsers.add_parser(
@@ -265,9 +332,16 @@ def main() -> None:
     calib_parser.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")
     calib_parser.add_argument("--json", action="store_true", help="Output results in JSON format")
 
-    # Command: model (add, remove, list, discover)
+    # Command: model (add, remove, list, discover, sync)
     model_parser = subparsers.add_parser("model", help="Manage shortlisted models and discover OpenRouter catalog")
     model_subparsers = model_parser.add_subparsers(dest="model_action", help="Model actions")
+
+    # model sync
+    sync_p = model_subparsers.add_parser("sync", help="Synchronize shortlist with Hermes configuration")
+    sync_p.add_argument("--hermes-config", type=str, default=None, help="Path to custom Hermes config.yaml")
+    sync_p.add_argument("--dry-run", action="store_true", help="Preview models without saving to shortlist.json")
+    sync_p.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")
+    sync_p.add_argument("--json", action="store_true", help="Output result in JSON format")
 
     # model add
     add_p = model_subparsers.add_parser("add", help="Add a model to shortlist.json")

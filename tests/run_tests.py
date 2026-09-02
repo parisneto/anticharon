@@ -248,6 +248,100 @@ def test_model_discovery_filters():
     print("  [OK] Model discovery multi-criteria filters passed")
 
 
+def test_hermes_integration():
+    print("Testing Hermes configuration detection, stream-grep parsing, and auto-sync...")
+    from anticharon.hermes import extract_models_from_file, sync_hermes_to_config
+
+    # 1. Test Stream-Grep against VM config fixture (inline JSON fallback_providers)
+    vm_yaml_content = """model:
+  default: openai/gpt-5.6-luna
+  provider: openrouter
+  base_url: https://openrouter.ai/api/v1
+  api_mode: chat_completions
+fallback_providers: '[{"provider":"openrouter","model":"deepseek/deepseek-v4-pro-0813"},{"provider":"openrouter","model":"deepseek/deepseek-v4-flash-0731"},{"provider":"openrouter","model":"qwen/qwen3.7-flash"},{"provider":"google/gemini-3.1-flash-lite","provider":"openrouter","model":"google/gemini-3.1-flash-lite"},{"provider":"openrouter","model":"minimax/minimax-m2.7"},{"provider":"openrouter","model":"google/gemini-2.5-flash-lite"},{"provider":"openrouter","model":"openai/gpt-4.1-nano"}]'
+"""
+    with tempfile.NamedTemporaryFile("w+", suffix=".yaml", delete=False) as tf:
+        tf.write(vm_yaml_content)
+        tf_path = Path(tf.name)
+
+    try:
+        parsed = extract_models_from_file(tf_path)
+        assert parsed is not None, "Failed to parse VM yaml"
+        assert parsed["default_model"] == "openai/gpt-5.6-luna"
+        assert len(parsed["fallback_models"]) >= 6
+        assert parsed["all_models"][0] == "openai/gpt-5.6-luna"
+        assert "deepseek/deepseek-v4-pro-0813" in parsed["all_models"]
+        assert "openai/gpt-4.1-nano" in parsed["all_models"]
+
+        # 2. Test Shortlist Synchronization
+        with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False) as cf:
+            cf.write('{"shortlist": ["old/model"], "weight_prompt": 0.995, "weight_completion": 0.005}')
+            cf_path = Path(cf.name)
+
+        try:
+            changed, new_shortlist, _ = sync_hermes_to_config(parsed, config_path=cf_path, dry_run=False)
+            assert changed is True
+            assert len(new_shortlist) >= 7
+            assert new_shortlist[0] == "openai/gpt-5.6-luna"
+
+            # Verify weight preservation
+            cfg = load_config(cf_path)
+            assert cfg["weight_prompt"] == 0.995
+            assert cfg["shortlist"] == new_shortlist
+        finally:
+            if cf_path.exists():
+                cf_path.unlink()
+
+        # 3. Test multi-line YAML fallbacks with mixed providers (OpenRouter vs Anthropic)
+        yaml_multiline = """model:
+  default: openai/gpt-5.6-luna
+  provider: openrouter
+fallback_providers:
+  - provider: openrouter
+    model: deepseek/deepseek-v4-pro-0813
+  - provider: anthropic
+    model: claude-3-opus
+  - provider: openrouter
+    model: qwen/qwen3.7-flash
+"""
+        with tempfile.NamedTemporaryFile("w+", suffix=".yaml", delete=False) as yf:
+            yf.write(yaml_multiline)
+            yf_path = Path(yf.name)
+
+        try:
+            parsed_multi = extract_models_from_file(yf_path)
+            assert parsed_multi is not None
+            assert parsed_multi["default_model"] == "openai/gpt-5.6-luna"
+            assert "claude-3-opus" not in parsed_multi["all_models"]
+            assert "deepseek/deepseek-v4-pro-0813" in parsed_multi["all_models"]
+            assert "qwen/qwen3.7-flash" in parsed_multi["all_models"]
+            assert len(parsed_multi["all_models"]) == 3
+        finally:
+            if yf_path.exists():
+                yf_path.unlink()
+
+        # 4. Test run_tracker with hermes_config_path and dry_run
+        res = run_tracker(dry_run=True, hermes_config_path=tf_path, timeout=0.001)
+        assert res.hermes_integration is not None
+        assert res.hermes_integration.detected is True
+        assert res.hermes_integration.warning is None
+        res_dict = res.to_dict()
+        assert "hermes_integration" in res_dict
+        assert res_dict["hermes_integration"]["detected"] is True
+        assert res_dict["hermes_integration"]["warning"] is None
+
+        # 5. Test run_tracker with no_hermes=True
+        res_no = run_tracker(dry_run=True, no_hermes=True, timeout=0.001)
+        assert res_no.hermes_integration is not None
+        assert res_no.hermes_integration.detected is False
+        assert res_no.hermes_integration.method == "standalone"
+
+        print("  [OK] Hermes integration, stream-grep parser, and sync tests passed")
+    finally:
+        if tf_path.exists():
+            tf_path.unlink()
+
+
 def main():
     print("\n🚀 Running Anticharon Test Suite...")
     print("-" * 50)
@@ -260,8 +354,9 @@ def main():
         test_ascii_chart()
         test_model_manager()
         test_model_discovery_filters()
+        test_hermes_integration()
         print("-" * 50)
-        print("✨ ALL TESTS PASSED SUCCESSFULLY! (8/8)\n")
+        print("✨ ALL TESTS PASSED SUCCESSFULLY! (9/9)\n")
         return 0
     except AssertionError as e:
         print(f"\n❌ TEST FAILED: {e}\n", file=sys.stderr)

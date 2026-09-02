@@ -150,7 +150,7 @@ model,last_updated,current_price_1m,ma_3d,ma_7d,d1,d2,d3,d4,d5,d6,d7,d15,d30
 }
 ```
 
-### Path Resolution Hierarchy:
+### 6.1 Path Resolution Hierarchy:
 1. **CLI Arguments:** `--config <path>` and `--data-dir <path>` (highest priority).
 2. **Environment Variables:** `ANTICHARON_CONFIG` and `ANTICHARON_DATA_DIR`.
 3. **Local Workspace Mode (Running inside repo):**
@@ -159,6 +159,37 @@ model,last_updated,current_price_1m,ma_3d,ma_7d,d1,d2,d3,d4,d5,d6,d7,d15,d30
 4. **Standalone / Tool Mode (When installed via `uv tool install` or run as an MCP server):**
    - Config: `~/.anticharon/shortlist.json`
    - Data: `~/.anticharon/history.csv`
+
+---
+
+## 6.2 Hermes Agent Integration & Model Auto-Sync
+
+When deployed in environments alongside **Hermes Agent**, Anticharon automatically resolves and synchronizes the active running models directly from Hermes rather than relying exclusively on static defaults.
+
+### Hermes Configuration Resolution Hierarchy:
+1. Explicit CLI argument: `--hermes-config <path>`
+2. Environment variable: `HERMES_CONFIG` (direct path to config file)
+3. Environment directory: `$HERMES_HOME/config.yaml`
+4. Standard user home path: `~/.hermes/config.yaml`
+5. Interactive prompt (TTY only): If missing and interactive, prompt user for path.
+6. Standalone fallback: If not found in non-interactive/cron mode, log a prominent warning banner and fall back cleanly to `shortlist.json`.
+
+### Two-Tier Safe Extraction Architecture:
+- **Tier 1 (Hermes CLI):** If `hermes` binary is present on `$PATH`, queries `hermes config get model` and `hermes config get fallback_providers` directly (< 1.5s timeout).
+- **Tier 2 (Stream-Grep File Scanner):** If `hermes` CLI is not on `$PATH`, inspects the file using a line-by-line streaming regex scanner.
+  - Matches `default: <model_slug>` (verified for OpenRouter provider).
+  - Matches `fallback_providers: <json_array>` or multi-line YAML fallbacks.
+  - Zero `pyyaml` dependency.
+  - Constant memory footprint: reads line-by-line without buffering the file.
+  - Zero secret leaks: API keys, system prompts, and tokens in other YAML sections are never read or stored.
+
+### Model Placement & Synchronization Rules:
+- The Hermes `default` model is always placed at index 0 (`shortlist[0]`), receiving the `★ [DEFAULT]` badge and serving as the baseline for `BEST_OPTION_CHANGED` alerts.
+- OpenRouter fallback models follow in order.
+- Newly discovered models are automatically initialized in `history.csv` using the cold-start replication rule (Section 3.4).
+- User-configured weights (`weight_prompt`, `weight_completion`, `spike_threshold_pct`) are preserved during synchronization.
+- Upgrades/reinstallation resilience: If `~/.anticharon/` is deleted during an update, the next execution re-creates `~/.anticharon/shortlist.json` automatically.
+- Opt-out: Pass `--no-hermes` to suppress Hermes auto-detection and run purely standalone.
 
 ---
 
@@ -172,27 +203,37 @@ anticharon run
 # 2. Dry run / Check: Fetch API, calculate prices without modifying history.csv
 anticharon check --dry-run
 
-# 3. Output structured JSON (ideal for Hermes or script piping)
+# 3. Suppress Hermes auto-detection and run purely standalone
+anticharon run --no-hermes
+anticharon check --no-hermes
+
+# 4. Explicit Hermes config path
+anticharon run --hermes-config /custom/path/to/config.yaml
+
+# 5. Output structured JSON (ideal for Hermes or script piping)
 anticharon run --json
 
-# 4. Custom paths and timeouts
+# 6. Custom paths and timeouts
 anticharon run --config ./my_config.json --data-dir ./my_data --timeout 15.0
 
-# 5. Pre-flight self-test: Validate runtime, config, math, permissions, and network
+# 7. Pre-flight self-test: Validate runtime, config, math, permissions, network, and Hermes integration
 anticharon test
 
-# 6. Calibrate weights from OpenRouter activity log and update shortlist.json
+# 8. Calibrate weights from OpenRouter activity log and update shortlist.json
 anticharon calibrate path/to/openrouter_activity.csv
 
-# 7. Calculate and display token mix without modifying configuration (dry-run)
+# 9. Calculate and display token mix without modifying configuration (dry-run)
 anticharon calibrate path/to/openrouter_activity.csv --dry-run
 
-# 8. Model Management (Add / Remove / List)
+# 10. Explicitly sync models from Hermes config
+anticharon model sync [--hermes-config PATH] [--dry-run]
+
+# 11. Model Management (Add / Remove / List)
 anticharon model add "google/gemini-3.7-flash" [--dry-run]
 anticharon model remove "minimax/minimax-m2.7" [--dry-run]
 anticharon model list [--json]
 
-# 9. Model Discovery & Exploration
+# 12. Model Discovery & Exploration
 anticharon model discover "gemini"
 anticharon model discover --promo
 anticharon model discover "qwen" --modality text --max-price 0.50
@@ -206,3 +247,4 @@ anticharon model discover --filter "openai" --filter "price < 10"
 1. **Timeout Control:** Every OpenRouter HTTP request has an explicit `10.0` second timeout.
 2. **Fallback Mode:** If the OpenRouter API fails (HTTP error, connection reset, timeout), Anticharon reads `history.csv`, logs a non-fatal warning, and returns the last known prices with `fallback: true` status.
 3. **No Unhandled Crashes:** Agents relying on Anticharon via cron or automated pipelines receive valid structured data even during network disruptions.
+

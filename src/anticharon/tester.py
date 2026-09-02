@@ -3,15 +3,20 @@
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 import requests
 
 from anticharon.config import load_config, get_data_dir, get_config_path
+from anticharon.hermes import get_hermes_models
 from anticharon.models import ModelPrice
 from anticharon.tracker import OPENROUTER_MODELS_URL
 
 
-def run_self_test() -> bool:
-    """Run comprehensive self-checks on runtime, config, formulas, permissions, and network."""
+def run_self_test(
+    hermes_config_path: Optional[str | Path] = None,
+    no_hermes: bool = False
+) -> bool:
+    """Run comprehensive self-checks on runtime, config, formulas, permissions, network, and Hermes."""
     all_passed = True
     print("\n🪙  Anticharon Self-Test & Diagnostic Suite\n" + "=" * 48)
 
@@ -34,6 +39,19 @@ def run_self_test() -> bool:
     except Exception as e:
         print(f" [FAIL] Configuration Error: {e}")
         all_passed = False
+
+    # 3. Hermes Integration Check
+    if not no_hermes:
+        try:
+            h_info = get_hermes_models(custom_path=hermes_config_path)
+            if h_info:
+                print(f" [PASS] Hermes Integration: Detected ({len(h_info.get('all_models', []))} models via {h_info.get('method')} from {h_info.get('source')})")
+            else:
+                print(" [INFO] Hermes Integration: Not detected (Standalone mode active)")
+        except Exception as e:
+            print(f" [WARN] Hermes Integration Error: {e}")
+    else:
+        print(" [INFO] Hermes Integration: Disabled (--no-hermes flag active)")
 
     # 3. Data Directory & Write Permissions
     try:

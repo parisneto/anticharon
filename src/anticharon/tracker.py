@@ -7,7 +7,8 @@ from typing import Dict, Any, Optional
 import requests
 
 from anticharon.config import load_config, get_history_path, get_config_path
-from anticharon.models import ModelPrice, PriceWarning, TrackerResult
+from anticharon.hermes import get_hermes_models, sync_hermes_to_config
+from anticharon.models import ModelPrice, PriceWarning, TrackerResult, HermesIntegrationStatus
 from anticharon.storage import read_history, write_history
 
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
@@ -29,19 +30,58 @@ def run_tracker(
     dry_run: bool = False,
     config_path: Optional[Path] = None,
     history_path: Optional[Path] = None,
-    timeout: float = 10.0
+    timeout: float = 10.0,
+    hermes_config_path: Optional[str | Path] = None,
+    no_hermes: bool = False
 ) -> TrackerResult:
     """Execute price tracker workflow."""
     cfg_path = config_path or get_config_path()
     cfg = load_config(cfg_path)
     hist_path = history_path or get_history_path()
     history = read_history(hist_path)
+
+    # Hermes auto-detection & synchronization
+    hermes_status: Optional[HermesIntegrationStatus] = None
+    if not no_hermes:
+        hermes_info = get_hermes_models(custom_path=hermes_config_path)
+        if hermes_info:
+            hermes_status = HermesIntegrationStatus(
+                detected=True,
+                source=hermes_info.get("source"),
+                method=hermes_info.get("method", "file_grep"),
+                models_count=len(hermes_info.get("all_models", [])),
+                warning=None
+            )
+            # Sync to shortlist config unless dry_run
+            if not dry_run:
+                sync_hermes_to_config(hermes_info, config_path=cfg_path, dry_run=False)
+                cfg = load_config(cfg_path)
+            # Use hermes models for current tracking session
+            shortlist = hermes_info.get("all_models", [])
+        else:
+            hermes_status = HermesIntegrationStatus(
+                detected=False,
+                source=None,
+                method="standalone",
+                models_count=0,
+                warning="Hermes configuration not detected. Operating in standalone mode."
+            )
+            shortlist = cfg.get("shortlist", [])
+    else:
+        hermes_status = HermesIntegrationStatus(
+            detected=False,
+            source=None,
+            method="standalone",
+            models_count=0,
+            warning=None
+        )
+        shortlist = cfg.get("shortlist", [])
+
     models_api = fetch_openrouter_models(timeout=timeout)
 
     w_in = cfg.get("weight_prompt", 0.9971)
     w_out = cfg.get("weight_completion", 0.0029)
     threshold = cfg.get("spike_threshold_pct", 20.0)
-    shortlist = cfg.get("shortlist", [])
     now_iso = datetime.now(timezone.utc).isoformat()
 
     # Fallback mode when API query returns empty
@@ -66,7 +106,8 @@ def run_tracker(
             prices_shortlist=prices_shortlist,
             price_warnings=[],
             storage_path=str(hist_path),
-            config_path=str(cfg_path)
+            config_path=str(cfg_path),
+            hermes_integration=hermes_status
         )
 
     updated_records = []
@@ -158,5 +199,6 @@ def run_tracker(
         prices_shortlist=prices_shortlist,
         price_warnings=warnings,
         storage_path=str(hist_path),
-        config_path=str(cfg_path)
+        config_path=str(cfg_path),
+        hermes_integration=hermes_status
     )

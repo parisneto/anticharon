@@ -62,14 +62,31 @@ uv sync
 
 ### Run Price Tracking
 ```bash
-# Standard run: fetches OpenRouter, updates history, prints report & ASCII price chart
+# Standard run: auto-detects Hermes models, fetches OpenRouter, updates history, prints report & ASCII price chart
 uv run anticharon run
 
 # Dry-run / Check: calculates prices without saving to disk
 uv run anticharon check --dry-run
 
+# Explicit Hermes config path or standalone mode without Hermes
+uv run anticharon run --hermes-config /path/to/hermes/config.yaml
+uv run anticharon run --no-hermes
+
 # Output structured JSON (ideal for Hermes or script piping)
 uv run anticharon run --json
+```
+
+### Hermes Agent Auto-Detection & Model Synchronization
+When deployed alongside **Hermes Agent** (e.g. in a remote VM or local agent environment), Anticharon automatically detects Hermes's active model (`default:`) and OpenRouter fallback models:
+```bash
+# Explicitly synchronize shortlist with Hermes configuration
+uv run anticharon model sync
+
+# Preview synchronization without modifying shortlist.json
+uv run anticharon model sync --dry-run
+
+# Custom Hermes config path
+uv run anticharon model sync --hermes-config /custom/path/to/config.yaml
 ```
 
 ### Model Discovery & Catalog Exploration
@@ -99,7 +116,7 @@ uv run anticharon model add "google/gemini-3.7-flash" --dry-run
 uv run anticharon model remove "minimax/minimax-m2.7"
 ```
 
-### Run Environment & Network Self-Test
+### Run Environment, Network & Hermes Self-Test
 ```bash
 uv run anticharon test
 ```

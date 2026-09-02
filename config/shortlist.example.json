@@ -1,6 +1,7 @@
 {
   "shortlist": [
     "openai/gpt-5.6-luna",
+    "google/gemini-3.8-flash",
     "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4-flash-0423",
     "qwen/qwen3.7-flash",

@@ -69,6 +69,11 @@ Whenever bumping versions, the agent MUST update all 3 files in a single atomic 
 3. `CHANGELOG.md`: Move items from `[Unreleased]` into `[X.Y.Z] - YYYY-MM-DD`
 4. Create release tag: `git tag vX.Y.Z && git push origin vX.Y.Z`
 
+### Rule 10: Strict Repository-Relative Path Standard (No Local Path Leaks)
+- **Strict Rule:** Never use absolute host filesystem paths (e.g. `/Users/...`, `C:\...`, or `file:///...`) in Markdown files, code comments, docstrings, or specifications.
+- Always use clean, repo-relative paths (e.g. `docs/specs/spec_v1_anticharon.md`, `[README.md](README.md)`, or `src/anticharon/models.py`).
+- This ensures all links work portably on GitHub/GitLab, prevent personal OS username leaks, and work seamlessly across different machines.
+
 ---
 
 ## 2. Project Architecture & Directory Layout
