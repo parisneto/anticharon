@@ -292,7 +292,11 @@ anticharon model discover --filter "openai" --filter "price < 10"
 ## 8. Safety, Resilience & Network Fallback
 
 1. **Timeout Control:** Every OpenRouter HTTP request has an explicit `10.0` second timeout.
-2. **Fallback Mode:** If the OpenRouter API fails (HTTP error, connection reset, timeout), Anticharon reads `history.csv`, logs a non-fatal warning, and returns the last known prices with `fallback: true` status.
+2. **Self-Describing Fallback Schema:** If the OpenRouter API fails (HTTP error, connection reset, timeout), Anticharon reads `history.csv`, logs a non-fatal warning, and returns the last known prices. To prevent LLM agents from confusing HTTP cache fallbacks with model failover providers, the JSON schema includes explicit fields:
+   - `data_source`: `"live_api"` (successful HTTP request) or `"cached_history"` (network failure fallback).
+   - `api_offline_fallback`: `true` if OpenRouter API failed and local cache was used; `false` otherwise.
+   - `fallback`: Legacy boolean alias for `api_offline_fallback` maintained for backward compatibility.
+   - `_hints`: In-band field definitions dictionary included when `--hints` is passed.
 3. **No Unhandled Crashes:** Agents relying on Anticharon via cron or automated pipelines receive valid structured data even during network disruptions.
 
 ---

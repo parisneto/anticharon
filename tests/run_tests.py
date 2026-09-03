@@ -89,9 +89,16 @@ def test_offline_fallback():
         write_history(sample_records, temp_csv)
 
         # Force tracker to run with invalid URL / 0 timeout to simulate offline
-        res = run_tracker(dry_run=True, history_path=temp_csv, timeout=0.001)
+        res = run_tracker(dry_run=True, history_path=temp_csv, timeout=0.001, hints_enabled=True)
         assert res.status == "success"
-        print("  [OK] Offline fallback test passed")
+        assert res.fallback is True
+        d = res.to_dict()
+        assert d["data_source"] == "cached_history"
+        assert d["api_offline_fallback"] is True
+        assert d["fallback"] is True
+        assert "_hints" in d
+        assert "data_source" in d["_hints"]
+        print("  [OK] Offline fallback & self-describing A2A schema test passed")
     finally:
         if temp_csv.exists():
             temp_csv.unlink()

@@ -34,7 +34,8 @@ def run_tracker(
     timeout: float = 10.0,
     hermes_config_path: Optional[str | Path] = None,
     no_hermes: bool = False,
-    enable_analytics: bool = False
+    enable_analytics: bool = False,
+    hints_enabled: bool = False
 ) -> TrackerResult:
     """Execute price tracker workflow."""
     cfg_path = config_path or get_config_path()
@@ -122,7 +123,8 @@ def run_tracker(
             storage_path=str(hist_path),
             config_path=str(cfg_path),
             hermes_integration=hermes_status,
-            analytics_mode=enable_analytics
+            analytics_mode=enable_analytics,
+            hints_enabled=hints_enabled
         )
 
     updated_records = []
@@ -234,5 +236,6 @@ def run_tracker(
         storage_path=str(hist_path),
         config_path=str(cfg_path),
         hermes_integration=hermes_status,
-        analytics_mode=enable_analytics
+        analytics_mode=enable_analytics,
+        hints_enabled=hints_enabled
     )

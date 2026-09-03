@@ -144,11 +144,14 @@ class TrackerResult:
     config_path: Optional[str] = None
     hermes_integration: Optional[HermesIntegrationStatus] = None
     analytics_mode: bool = False
+    hints_enabled: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         data: Dict[str, Any] = {
             "status": self.status,
             "timestamp": self.timestamp,
+            "data_source": "cached_history" if self.fallback else "live_api",
+            "api_offline_fallback": self.fallback,
             "fallback": self.fallback,
             "prices_shortlist": [p.to_dict() for p in self.prices_shortlist],
             "priceWarnings": [w.to_dict() for w in self.price_warnings],
@@ -161,6 +164,14 @@ class TrackerResult:
             data["storage_path"] = self.storage_path
         if self.config_path:
             data["config_path"] = self.config_path
+        if self.hints_enabled:
+            data["_hints"] = {
+                "data_source": "'live_api' (fresh prices from OpenRouter) or 'cached_history' (offline fallback if API fails)",
+                "api_offline_fallback": "True only if OpenRouter API failed and local CSV cache was used. Has NO relation to Hermes model fallback_providers.",
+                "prices_shortlist": "Active models sorted cheapest to most expensive by blended price/1M tokens",
+                "priceWarnings": "Alerts for price spikes, price drops, or when a model is cheaper than configured default",
+                "hermes_integration": "Auto-sync status with ~/.hermes/config.yaml (models_count includes default + fallback_providers)"
+            }
         if self.error:
             data["error"] = self.error
         return data

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-02
+
+### Added
+- **Self-Describing A2A JSON Schema Keys:**
+  - Added `data_source` (`"live_api"` or `"cached_history"`) to unambiguously declare data provenance.
+  - Added `api_offline_fallback` boolean, preventing autonomous LLM agents (such as Hermes) from confusing HTTP cache fallbacks with model `fallback_providers`.
+  - Added CLI flag `--hints` to include an in-band `_hints` dictionary explaining payload keys directly inside JSON responses.
+  - Preserved `fallback` boolean as a backward-compatible alias.
+- **A2A JSON Schema & Field Glossary in `llms.txt`:** Added dedicated glossary section detailing field definitions, cache fallback boundaries, and Hermes integration models count.
+
 ## [0.3.1] - 2026-09-02
 
 ### Fixed

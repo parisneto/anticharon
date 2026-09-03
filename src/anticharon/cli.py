@@ -206,7 +206,8 @@ def cmd_run(args) -> int:
         timeout=args.timeout,
         hermes_config_path=getattr(args, "hermes_config", None),
         no_hermes=getattr(args, "no_hermes", False),
-        enable_analytics=is_analytics
+        enable_analytics=is_analytics,
+        hints_enabled=getattr(args, "hints", False)
     )
 
     if args.json:
@@ -235,7 +236,8 @@ def cmd_history(args) -> int:
         timeout=getattr(args, "timeout", 10.0),
         hermes_config_path=getattr(args, "hermes_config", None),
         no_hermes=getattr(args, "no_hermes", False),
-        enable_analytics=True
+        enable_analytics=True,
+        hints_enabled=getattr(args, "hints", False)
     )
 
     if getattr(args, "json", False):
@@ -469,6 +471,7 @@ def main() -> None:
     parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--test", action="store_true", help="Run self-test diagnostic suite")
     parser.add_argument("--json", action="store_true", help="Output results in JSON format")
+    parser.add_argument("--hints", action="store_true", help="Include self-describing key hints in JSON output")
     parser.add_argument("--profile", action="store_true", help="Display analytical model profiles and 30-day trajectory")
     parser.add_argument("--analytics", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--history-csv", action="store_true", help="Output raw history.csv table to stdout")
@@ -481,6 +484,7 @@ def main() -> None:
     run_parser = subparsers.add_parser("run", help="Fetch prices, update history, and display report")
     run_parser.add_argument("--dry-run", action="store_true", help="Do not write updates to history.csv")
     run_parser.add_argument("--json", action="store_true", help="Output results in JSON format")
+    run_parser.add_argument("--hints", action="store_true", help="Include self-describing key hints in JSON output")
     run_parser.add_argument("--profile", action="store_true", help="Display analytical model profiles and 30-day trajectory")
     run_parser.add_argument("--analytics", action="store_true", help=argparse.SUPPRESS)
     run_parser.add_argument("--history-csv", action="store_true", help="Output raw history.csv table to stdout")
@@ -494,6 +498,7 @@ def main() -> None:
     check_parser = subparsers.add_parser("check", help="Check current prices without updating history.csv")
     check_parser.add_argument("--dry-run", action="store_true", default=True, help="Do not write updates to history.csv")
     check_parser.add_argument("--json", action="store_true", help="Output results in JSON format")
+    check_parser.add_argument("--hints", action="store_true", help="Include self-describing key hints in JSON output")
     check_parser.add_argument("--profile", action="store_true", help="Display analytical model profiles and 30-day trajectory")
     check_parser.add_argument("--analytics", action="store_true", help=argparse.SUPPRESS)
     check_parser.add_argument("--history-csv", action="store_true", help="Output raw history.csv table to stdout")
@@ -510,6 +515,7 @@ def main() -> None:
     history_parser.add_argument("--csv", action="store_true", help="Output raw history.csv table to stdout")
     history_parser.add_argument("--history-csv", action="store_true", help=argparse.SUPPRESS)
     history_parser.add_argument("--json", action="store_true", help="Output results in JSON format")
+    history_parser.add_argument("--hints", action="store_true", help="Include self-describing key hints in JSON output")
     history_parser.add_argument("--timeout", type=float, default=10.0, help="HTTP request timeout in seconds")
     history_parser.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")
     history_parser.add_argument("--data-dir", type=str, default=None, help="Directory to store history.csv")

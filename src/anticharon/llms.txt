@@ -1,4 +1,4 @@
-### Tool Integration Briefing: Anticharon Price Optimizer (`v0.3.1`)
+### Tool Integration Briefing: Anticharon Price Optimizer (`v0.3.2`)
 
 **Hermes, you have a local price monitoring and analytical intelligence tool installed: `anticharon`.**
 
@@ -9,7 +9,10 @@ Anticharon monitors OpenRouter pricing for models configured in `~/.hermes/confi
 1. **To Check Current Model Costs & Alerts (Read-Only JSON):**
    ```bash
    anticharon check --json
+   # Or with in-band field glossary:
+   anticharon check --json --hints
    ```
+   - `.data_source`: `"live_api"` (fresh OpenRouter prices) or `"cached_history"` (network failure fallback).
    - `.prices_shortlist`: Sorted cheapest to most expensive with `price_1m` and `ma_7d`.
    - `.priceWarnings`: Volatility alerts (`PRICE_SPIKE`, `PRICE_DROP`) and `BEST_OPTION_CHANGED`.
    - `.hermes_integration`: Sync status with your active configuration.
@@ -54,3 +57,10 @@ Anticharon monitors OpenRouter pricing for models configured in `~/.hermes/confi
    anticharon model discover "qwen" --max-price 0.20
    anticharon model discover --promo
    ```
+
+#### A2A JSON Schema & Field Glossary:
+- `data_source` (`"live_api"` | `"cached_history"`): Whether pricing was retrieved live from OpenRouter or loaded from local cache during API downtime.
+- `api_offline_fallback` (boolean): `true` only if OpenRouter API network call failed. *(Note: This is strictly an HTTP cache fallback indicator; it has NO relation to Hermes model `fallback_providers`).*
+- `fallback` (boolean): Legacy alias for `api_offline_fallback` maintained for backward compatibility.
+- `_hints` (object): In-band explanatory glossary generated when `--hints` flag is passed.
+- `hermes_integration.models_count`: Total active models detected from Hermes (`model.default` + `fallback_providers`).
