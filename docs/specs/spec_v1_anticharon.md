@@ -358,6 +358,9 @@ Anticharon natively exposes a standard Model Context Protocol (MCP) server over 
 ### 10.4 Exposed MCP Prompts
 - `cost_spike_triage`: Prompt template guiding an agent to analyze a detected `PRICE_SPIKE` or `PROMO_ENDED` alert and formulate model switching recommendations.
 - `model_migration_advisor`: Prompt template guiding migration from a `SUNSETTING` model to an equal or cheaper sibling alternative.
+- `family_upgrade_discover`: Discovers newer generation models in the same provider family (e.g. Gemini, DeepSeek, Qwen) and evaluates cost-benefit migration.
+- `daily_cost_briefing`: Generates an executive daily cost briefing of model prices, moving averages, and volatility alerts across the active shortlist.
+- `budget_optimization_audit`: Audits the active shortlist to identify cost outliers, SUNSETTING legacy versions, and opportunities to reorder fallback providers.
 
 ### 10.5 Host Configuration Integration
 
@@ -381,6 +384,25 @@ mcp_servers:
   }
 }
 ```
+
+### 10.6 Real-World Empirical Case Study: Gemini 3.7 vs 3.8 Migration
+
+During live MCP Inspector validation on September 3, 2026, Anticharon evaluated live OpenRouter pricing against the 30-day temporal sliding window for Google Gemini models:
+- **`google/gemini-3.7-flash`:**
+  - Price rose from $0.37941 to $0.75881 (+100.0%).
+  - Statistical Profile: `📈 PROMO_ENDED` with secondary badge `⚠️ SUNSETTING`.
+  - Trajectory Sparkline: `$0.38 ──↑ $0.76 (+100.0%, CV: 26.96%)`.
+  - Analytical Recommendation: `"Introductory promo ended (+100.0%). Sibling google/gemini-3.8-flash active at same/lower price ($0.759). Migrate to google/gemini-3.8-flash."`
+  - Sibling Alternative: Automatically identified `google/gemini-3.8-flash` ($0.75881/1M) as the newer drop-in version.
+- **`google/gemini-2.5-flash-lite` & `google/gemini-3.1-flash-lite`:**
+  - Classified as `🛡️ STABLE` (CV: 0.01%, 30-day change: +0.01%).
+- **`google/gemini-3.8-flash`:**
+  - Classified as `🌱 NEWLY_TRACKED` ($0.75881/1M).
+- **Core Outcome:**
+  Rather than an agent blindly continuing to run an expired promo model at double the price, Anticharon's MCP server provided structured mathematical proof and actionable instructions (`hermes config set model.default "google/gemini-3.8-flash"`) in a single JSON tool call.
+
+![Anticharon MCP Inspector Price Analytics](docs/images/MCP%20Inspector_price_change.png)
+
 
 
 

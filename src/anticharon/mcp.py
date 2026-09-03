@@ -266,6 +266,63 @@ def model_migration_advisor(legacy_model: str, recommended_model: str) -> str:
     )
 
 
+@server.prompt(
+    name="family_upgrade_discover",
+    description="Discovers newer generation models in the same provider family (e.g. Gemini, DeepSeek, Qwen) and evaluates cost-benefit migration."
+)
+def family_upgrade_discover(model_or_family: str) -> str:
+    """Prompt template for discovering newer sibling models in the same provider family."""
+    return (
+        f"Anticharon agent workflow: Discover newer version models in family '{model_or_family}'.\n\n"
+        f"Execution Plan:\n"
+        f"1. Run tool `discover_models(query=\"{model_or_family}\")` to find all active catalog models in this family.\n"
+        f"2. Identify newer generations or sibling variants (e.g. 3.8 vs 3.7, flash vs flash-lite, coder vs chat).\n"
+        f"3. Compare calibrated blended pricing per 1M tokens against current rates.\n"
+        f"4. If a newer model is cheaper or equal in cost, formulate an upgrade recommendation:\n"
+        f"   - Compare context windows and benchmark strengths.\n"
+        f"   - Provide the CLI command: `hermes config set model.default \"<new_model_slug>\"`.\n"
+        f"   - Offer to add it to shortlist: `anticharon model add \"<new_model_slug>\"`."
+    )
+
+
+@server.prompt(
+    name="daily_cost_briefing",
+    description="Generates an executive daily cost briefing of model prices, moving averages, and volatility alerts across the active shortlist."
+)
+def daily_cost_briefing(budget_threshold: float = 0.50) -> str:
+    """Prompt template for daily cost monitoring and executive summary."""
+    return (
+        f"Anticharon agent workflow: Executive Daily Cost Briefing (Threshold: ${budget_threshold:.2f}/1M tokens).\n\n"
+        f"Execution Plan:\n"
+        f"1. Call tool `check_prices(dry_run=true, include_analytics=true)`.\n"
+        f"2. Check for any active price warnings (e.g. `BEST_OPTION_CHANGED`, `PRICE_SPIKE`, `PRICE_DROP`).\n"
+        f"3. Identify models exceeding ${budget_threshold:.2f} per 1M blended tokens.\n"
+        f"4. Produce a concise 3-bullet briefing:\n"
+        f"   • 🏆 Cheapest Workhorse Model right now\n"
+        f"   • ⚠️ Volatility & Alerts (spikes, expired promos, or default model surpassed)\n"
+        f"   • 💡 Actionable Recommendation for today's LLM agent orchestration"
+    )
+
+
+@server.prompt(
+    name="budget_optimization_audit",
+    description="Audits the active shortlist to identify cost outliers, SUNSETTING legacy versions, and opportunities to reorder fallback providers."
+)
+def budget_optimization_audit() -> str:
+    """Prompt template for comprehensive shortlist budget audit."""
+    return (
+        "Anticharon agent workflow: Comprehensive Shortlist Budget Audit.\n\n"
+        "Execution Plan:\n"
+        "1. Call tool `get_model_history()` to inspect 30-day trajectories and intelligence profiles.\n"
+        "2. Classify models by budget tier:\n"
+        "   - Identify models classified as 🛡️ STABLE (low budget risk).\n"
+        "   - Flag models classified as 📈 PROMO_ENDED or ⚠️ SUNSETTING.\n"
+        "   - Flag models with high CV% volatility (⚡ VOLATILE).\n"
+        "3. For any expensive or sunsetting model, run `discover_models` to find drop-in replacements.\n"
+        "4. Recommend optimal Hermes `fallback_providers` ordering (cheapest reliable providers first)."
+    )
+
+
 # ==============================================================================
 # Server Entrypoint
 # ==============================================================================

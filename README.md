@@ -189,6 +189,25 @@ Anticharon natively exposes an MCP server over `stdio` for **Hermes Agent**, **C
 - `anticharon://history.csv`: Raw 30-day sliding history data table.
 - `anticharon://shortlist.json`: Active configuration and calibrated weights.
 
+### MCP Prompts:
+- `cost_spike_triage`: Guided triage when a price hike or expired promotional window occurs.
+- `model_migration_advisor`: Guided migration when an active model is flagged as `SUNSETTING`.
+- `family_upgrade_discover`: Discovers newer generation sibling models in the same provider family.
+- `daily_cost_briefing`: Generates a 3-bullet executive briefing of price movements and alerts.
+- `budget_optimization_audit`: Audits your shortlist to identify cost outliers and optimize fallback ordering.
+
+### 📊 Real-World Case Study: Gemini 3.7 vs 3.8 Upgrade Detection
+
+During live MCP Inspector validation across 30 days of price data:
+- **`google/gemini-3.7-flash`:** Price jumped from `$0.379` to `$0.759` (+100.0%). Anticharon flagged it as `📈 PROMO_ENDED` and `⚠️ SUNSETTING`.
+- **Automatic Sibling Alternative:** Anticharon detected that `google/gemini-3.8-flash` was available at the exact same price (`$0.75881/1M`), delivering an actionable recommendation:
+  > *"Introductory promo ended (+100.0%). Sibling google/gemini-3.8-flash active at same/lower price ($0.759). Migrate to google/gemini-3.8-flash."*
+- **Outcome:** Your agent receives pre-digested intelligence to switch to the newer model version instead of blindly running legacy models at doubled prices.
+
+<p align="center">
+  <img src="docs/images/MCP%20Inspector_price_change.png" alt="Anticharon MCP Inspector Price Analytics" width="700" />
+</p>
+
 ### Host Configuration:
 
 #### Hermes Agent (`~/.hermes/config.yaml`):

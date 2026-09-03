@@ -490,9 +490,15 @@ def test_mcp_server_suite():
         prompt_names = [p.name for p in prompts]
         assert "cost_spike_triage" in prompt_names
         assert "model_migration_advisor" in prompt_names
+        assert "family_upgrade_discover" in prompt_names
+        assert "daily_cost_briefing" in prompt_names
+        assert "budget_optimization_audit" in prompt_names
 
         p_triage = loop.run_until_complete(server.get_prompt("cost_spike_triage", {"model_id": "test/model", "current_price": 0.50, "ma_7d": 0.25}))
         assert len(p_triage.messages) > 0
+
+        p_discover = loop.run_until_complete(server.get_prompt("family_upgrade_discover", {"model_or_family": "gemini"}))
+        assert len(p_discover.messages) > 0
 
         print("  [OK] MCP server tools, resources, prompts, and schema tests passed")
     finally:
