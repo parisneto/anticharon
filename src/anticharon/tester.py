@@ -135,6 +135,32 @@ def run_self_test(
         if not json_mode:
             print(f" [WARN] OpenRouter API Network Warning: {e} (Anticharon will use local CSV fallback)")
 
+    # 7. MCP Server Readiness Check
+    try:
+        from anticharon.mcp import server
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            tools = loop.run_until_complete(server.list_tools())
+            resources = loop.run_until_complete(server.list_resources())
+            tool_names = [t.name for t in tools]
+            diag["mcp_server"] = {
+                "ready": True,
+                "tools_count": len(tools),
+                "tools": tool_names,
+                "resources_count": len(resources)
+            }
+            if not json_mode:
+                print(f" [PASS] MCP Server: Ready ({len(tools)} tools, {len(resources)} resources loaded)")
+        finally:
+            loop.close()
+    except Exception as e:
+        diag["mcp_server"] = {"ready": False, "error": str(e)}
+        if not json_mode:
+            print(f" [FAIL] MCP Server Error: {e}")
+        all_passed = False
+
     diag["status"] = "success" if all_passed else "failure"
     diag["all_passed"] = all_passed
 

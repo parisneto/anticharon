@@ -7,7 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.3.2] - 2026-09-02
+## [0.4.0] - 2026-09-03
+
+### Added
+- **Model Context Protocol (MCP) Server Architecture (`src/anticharon/mcp.py`):**
+  - Native stdio MCP server implementation using FastMCP (`mcp>=1.3.0`).
+  - Strict stdio hygiene: `stdout` reserved exclusively for JSON-RPC 2.0 frames; all diagnostic logs, banners, and non-fatal fallback notices routed safely to `stderr` to prevent client disconnection.
+  - Subcommand `anticharon mcp` with `--transport stdio` support.
+  - Exposes 4 specialized MCP tools:
+    - `check_prices`: Live pricing, weighted blended costs, 7-day MA, volatility alerts, and 30-day intelligence profiles.
+    - `get_model_history`: 30-day temporal breakdown, statistical CV%, directional trend sparklines, and profile recommendations (JSON or raw CSV).
+    - `discover_models`: Live multi-criteria catalog search across ~417+ models with user-calibrated blended pricing.
+    - `sync_hermes_models`: Bi-directional synchronization with Hermes `model.default` and `fallback_providers`.
+  - Exposes 3 native MCP resources:
+    - `anticharon://llms.txt`: Agent-to-Agent discovery briefing and schema documentation.
+    - `anticharon://history.csv`: Raw 30-day sliding history data table.
+    - `anticharon://shortlist.json`: Active configuration and calibrated weights.
+  - Exposes 2 MCP prompt templates:
+    - `cost_spike_triage`: Prompt template guiding agents to analyze `PRICE_SPIKE` / `PROMO_ENDED` alerts.
+    - `model_migration_advisor`: Prompt template guiding model migration from `SUNSETTING` models.
+- **XDG Base Directory Compliance (`src/anticharon/config.py`):**
+  - Added support for `$XDG_CONFIG_HOME/anticharon/shortlist.json` (`~/.config/anticharon/`) and `$XDG_DATA_HOME/anticharon/` (`~/.local/share/anticharon/`).
+  - Added graceful fallback to `/tmp/anticharon` if running in strictly read-only sandboxes.
+- **Architecture Decision Record (ADR 0001):**
+  - Documented unified single-repository architecture, stdio isolation, XDG hierarchy, and in-band `_hints` design in `docs/specs/adr/0001_mcp_unified_repo_and_stdio_architecture.md`.
+- **MCP Self-Test & Diagnostic Suite (`anticharon test` & `tests/run_tests.py`):**
+  - Step 7 in `anticharon test` validates MCP server tool registration, resource loading, and async runtime.
+  - Added comprehensive MCP automated test suite in `tests/run_tests.py` (11/11 tests passing in <0.4s).
+- **Comprehensive Documentation & Guide Updates:**
+  - Synchronized official specification `docs/specs/spec_v1_anticharon.md` with Section 10 MCP Server Architecture.
+  - Promoted and retired `docs/specs/backlog/mcp_integration_v2.md`.
+  - Updated `README.md` and `llms.txt` with Claude Desktop and Hermes Agent MCP configuration examples and `uvx` installation guides.
 
 ### Added
 - **Self-Describing A2A JSON Schema Keys:**

@@ -58,9 +58,26 @@ Anticharon monitors OpenRouter pricing for models configured in `~/.hermes/confi
    anticharon model discover --promo
    ```
 
+7. **To Run as a Model Context Protocol (MCP) Server:**
+   ```bash
+   anticharon mcp
+   # Or directly from GitHub via uvx:
+   uvx --from git+https://github.com/parisneto/anticharon.git anticharon mcp
+   ```
+   **MCP Tools Available:**
+   - `check_prices(force_refresh, dry_run, include_analytics)`: Fetches live prices, alerts, and 30d profiles.
+   - `get_model_history(model_id, format)`: Retrieves 30d trajectories, CV%, and recommendations (json or csv).
+   - `discover_models(query, promo_only, modality, max_price, limit)`: Live OpenRouter catalog search.
+   - `sync_hermes_models(hermes_config_path, dry_run)`: Bi-directional model sync with Hermes.
+
+   **MCP Resources Available:**
+   - `anticharon://llms.txt`: Machine-readable briefing and glossary.
+   - `anticharon://history.csv`: Raw 30-day sliding history data.
+   - `anticharon://shortlist.json`: Active configuration and weights.
+
 #### A2A JSON Schema & Field Glossary:
 - `data_source` (`"live_api"` | `"cached_history"`): Whether pricing was retrieved live from OpenRouter or loaded from local cache during API downtime.
 - `api_offline_fallback` (boolean): `true` only if OpenRouter API network call failed. *(Note: This is strictly an HTTP cache fallback indicator; it has NO relation to Hermes model `fallback_providers`).*
 - `fallback` (boolean): Legacy alias for `api_offline_fallback` maintained for backward compatibility.
-- `_hints` (object): In-band explanatory glossary generated when `--hints` flag is passed.
+- `_hints` (object): In-band explanatory glossary generated when `--hints` flag is passed or in MCP tool responses.
 - `hermes_integration.models_count`: Total active models detected from Hermes (`model.default` + `fallback_providers`).

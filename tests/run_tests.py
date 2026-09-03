@@ -431,6 +431,74 @@ def test_historical_analytics_and_profiles():
     print("  [OK] 30-day analytics, model profiles, and llms.txt tests passed")
 
 
+def test_mcp_server_suite():
+    print("Testing Model Context Protocol (MCP) server tools, resources, and prompts...")
+    import asyncio
+    import json
+    from anticharon.mcp import server
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        # 1. Tools registration and schema
+        tools = loop.run_until_complete(server.list_tools())
+        tool_names = [t.name for t in tools]
+        assert "check_prices" in tool_names, "Tool check_prices missing"
+        assert "get_model_history" in tool_names, "Tool get_model_history missing"
+        assert "discover_models" in tool_names, "Tool discover_models missing"
+        assert "sync_hermes_models" in tool_names, "Tool sync_hermes_models missing"
+
+        # 2. Tool execution: check_prices
+        res_prices = loop.run_until_complete(server.call_tool("check_prices", {"dry_run": True, "include_analytics": True}))
+        assert not res_prices.is_error, "check_prices failed"
+        assert len(res_prices.content) > 0
+        payload = json.loads(res_prices.content[0].text)
+        assert "data_source" in payload
+        assert "api_offline_fallback" in payload
+        assert "_hints" in payload
+        assert "api_offline_fallback" in payload["_hints"]
+        assert "fallback_providers" in payload["_hints"]["api_offline_fallback"]
+
+        # 3. Tool execution: get_model_history (csv format)
+        res_hist = loop.run_until_complete(server.call_tool("get_model_history", {"format": "csv"}))
+        assert not res_hist.is_error
+        hist_data = json.loads(res_hist.content[0].text)
+        assert hist_data["format"] == "csv"
+        assert "model,last_updated" in hist_data["data"]
+
+        # 4. Tool execution: sync_hermes_models (dry_run)
+        res_sync = loop.run_until_complete(server.call_tool("sync_hermes_models", {"dry_run": True}))
+        assert not res_sync.is_error
+
+        # 5. Resources registration and reading
+        resources = loop.run_until_complete(server.list_resources())
+        resource_uris = [r.uri for r in resources]
+        assert "anticharon://llms.txt" in resource_uris
+        assert "anticharon://history.csv" in resource_uris
+        assert "anticharon://shortlist.json" in resource_uris
+
+        res_llms = loop.run_until_complete(server.read_resource("anticharon://llms.txt"))
+        assert len(res_llms) > 0 and len(res_llms[0].content) > 100
+
+        res_shortlist = loop.run_until_complete(server.read_resource("anticharon://shortlist.json"))
+        assert len(res_shortlist) > 0
+        cfg_read = json.loads(res_shortlist[0].content)
+        assert "shortlist" in cfg_read
+
+        # 6. Prompts registration
+        prompts = loop.run_until_complete(server.list_prompts())
+        prompt_names = [p.name for p in prompts]
+        assert "cost_spike_triage" in prompt_names
+        assert "model_migration_advisor" in prompt_names
+
+        p_triage = loop.run_until_complete(server.get_prompt("cost_spike_triage", {"model_id": "test/model", "current_price": 0.50, "ma_7d": 0.25}))
+        assert len(p_triage.messages) > 0
+
+        print("  [OK] MCP server tools, resources, prompts, and schema tests passed")
+    finally:
+        loop.close()
+
+
 def main():
     print("\n🚀 Running Anticharon Test Suite...")
     print("-" * 50)
@@ -445,8 +513,9 @@ def main():
         test_model_discovery_filters()
         test_hermes_integration()
         test_historical_analytics_and_profiles()
+        test_mcp_server_suite()
         print("-" * 50)
-        print("✨ ALL TESTS PASSED SUCCESSFULLY! (10/10)\n")
+        print("✨ ALL TESTS PASSED SUCCESSFULLY! (11/11)\n")
         return 0
     except AssertionError as e:
         print(f"\n❌ TEST FAILED: {e}\n", file=sys.stderr)

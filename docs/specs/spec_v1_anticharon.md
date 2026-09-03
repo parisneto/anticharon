@@ -308,4 +308,79 @@ In compliance with the [`llms.txt`](https://llmstxt.org/) specification:
 - Any autonomous LLM agent, MCP host, or CLI script can run `anticharon info` to stream the machine-readable operational briefing directly into its context window.
 - The document provides concise operational instructions, CLI parameter syntax, JSON schemas, and Hermes configuration commands without unnecessary human prose.
 
+---
+
+## 10. Model Context Protocol (MCP) Server Architecture
+
+Anticharon natively exposes a standard Model Context Protocol (MCP) server over `stdio` via `anticharon mcp`. This enables autonomous LLM agents (such as Hermes Agent, Claude Desktop, and Cursor) to monitor OpenRouter pricing, query historical intelligence, and discover catalog alternatives on demand.
+
+### 10.1 Protocol & Transport Specifications
+- **Transport:** Standard input/output (`stdio`) using JSON-RPC 2.0.
+- **Stdio Isolation Rule:** `stdout` is reserved strictly for valid JSON-RPC frames. All logging, status banners, non-fatal cache fallback notices, and error logs are directed to `stderr`.
+- **SDK Implementation:** Python standard `mcp>=1.3.0` (`FastMCP`).
+
+### 10.2 Exposed MCP Tools
+
+#### 1. `check_prices`
+- **Description:** Fetches current OpenRouter model pricing for the monitored shortlist, calculates weighted blended cost per 1M tokens, computes 7-day moving averages, evaluates volatility alerts (PRICE_SPIKE, PRICE_DROP, BEST_OPTION_CHANGED), and attaches 30-day analytical intelligence profiles.
+- **Parameters:**
+  - `force_refresh` (boolean, optional, default: `false`): Force fresh HTTP fetch from OpenRouter API, ignoring local cache.
+  - `dry_run` (boolean, optional, default: `true`): Calculate prices without updating `history.csv` sliding window.
+  - `include_analytics` (boolean, optional, default: `true`): Attach 30-day statistical profiles, badges, and sibling alternatives.
+- **Return Payload:** Self-describing JSON dictionary containing `timestamp`, `data_source` (`live_api` or `cached_history`), `api_offline_fallback` (boolean), `prices_shortlist`, `priceWarnings`, `hermes_integration`, and in-band `_hints`.
+
+#### 2. `get_model_history`
+- **Description:** Audits 30-day temporal price history, volatility coefficient of variation (CV%), directional trends, and deterministic intelligence profiles (STABLE, PROMO_ENDED, SUNSETTING, VOLATILE, DISCOUNTED, CREEPING_INFLATION, NEWLY_TRACKED).
+- **Parameters:**
+  - `model_id` (string, optional): Specific model slug to inspect. If omitted, returns all shortlisted models.
+  - `format` (string, optional, default: `"json"`): Output format (`"json"` for structured analytics or `"csv"` for raw historical table).
+
+#### 3. `discover_models`
+- **Description:** Queries and filters OpenRouter's live catalog (~417+ models) using multi-criteria keyword matching, promotional status, output modality, and price ceiling expressions, calculating real-world blended prices calibrated to user token weights.
+- **Parameters:**
+  - `query` (string, optional): Search query (e.g. `"gemini"`, `"qwen"`).
+  - `promo_only` (boolean, optional, default: `false`): Filter for promotional or free models (:free, $0.00).
+  - `modality` (string, optional, default: `"text"`): Modality filter (e.g. `"text"`).
+  - `max_price` (number, optional): Maximum blended price per 1M tokens ($).
+  - `limit` (integer, optional, default: `15`): Maximum number of matching models to return.
+
+#### 4. `sync_hermes_models`
+- **Description:** Inspects Hermes Agent configuration (`~/.hermes/config.yaml` or `$HERMES_HOME`) and synchronizes the active default model and fallback providers into Anticharon's shortlist.
+- **Parameters:**
+  - `hermes_config_path` (string, optional): Explicit custom path to Hermes `config.yaml`.
+  - `dry_run` (boolean, optional, default: `false`): Preview synchronized models without writing to disk.
+
+### 10.3 Exposed MCP Resources
+- `anticharon://llms.txt`: Machine-readable Agent-to-Agent operational briefing and schema definitions.
+- `anticharon://history.csv`: Raw 30-day sliding history table (`model,last_updated,current_price_1m,ma_3d,ma_7d,d1..d7,d15,d30`).
+- `anticharon://shortlist.json`: Active model shortlist and token weight configuration.
+
+### 10.4 Exposed MCP Prompts
+- `cost_spike_triage`: Prompt template guiding an agent to analyze a detected `PRICE_SPIKE` or `PROMO_ENDED` alert and formulate model switching recommendations.
+- `model_migration_advisor`: Prompt template guiding migration from a `SUNSETTING` model to an equal or cheaper sibling alternative.
+
+### 10.5 Host Configuration Integration
+
+#### Hermes Agent (`~/.hermes/config.yaml`):
+```yaml
+mcp_servers:
+  anticharon:
+    command: "uvx"
+    args: ["--from", "git+https://github.com/parisneto/anticharon.git", "anticharon", "mcp"]
+```
+*(Or locally installed: `command: "anticharon"`, `args: ["mcp"]`)*
+
+#### Claude Desktop (`claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "anticharon": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/parisneto/anticharon.git", "anticharon", "mcp"]
+    }
+  }
+}
+```
+
+
 

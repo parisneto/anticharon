@@ -300,6 +300,14 @@ def cmd_info(args) -> int:
     return 0
 
 
+def cmd_mcp(args) -> int:
+    """Handle `mcp` server execution command over stdio."""
+    from anticharon.mcp import run_mcp_server
+    transport = getattr(args, "transport", "stdio")
+    run_mcp_server(transport=transport)
+    return 0
+
+
 def cmd_test(args) -> int:
     """Handle `test` diagnostic command."""
     success = run_self_test(
@@ -527,6 +535,10 @@ def main() -> None:
     info_parser.add_argument("--json", action="store_true", help="Output briefing in JSON format")
     info_parser.add_argument("--llm", action="store_true", help="Explicit alias for LLM/agent briefing")
 
+    # Command: mcp (Model Context Protocol server)
+    mcp_parser = subparsers.add_parser("mcp", help="Run Model Context Protocol (MCP) server over stdio")
+    mcp_parser.add_argument("--transport", type=str, default="stdio", choices=["stdio", "sse", "streamable-http"], help="MCP transport protocol (default: stdio)")
+
     # Command: test
     test_parser = subparsers.add_parser("test", help="Run pre-flight self-test and connectivity diagnostics")
     test_parser.add_argument("--json", action="store_true", help="Output diagnostic summary in JSON format")
@@ -619,6 +631,9 @@ def main() -> None:
 
     if args.command == "info":
         sys.exit(cmd_info(args))
+
+    if args.command == "mcp":
+        sys.exit(cmd_mcp(args))
 
     if args.command == "calibrate":
         sys.exit(cmd_calibrate(args))

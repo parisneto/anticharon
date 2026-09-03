@@ -30,7 +30,8 @@ def get_data_dir(custom_dir: Path | str | None = None) -> Path:
     1. Explicit argument (`custom_dir` or CLI `--data-dir`)
     2. Environment variable `ANTICHARON_DATA_DIR`
     3. Local `./data/` if running within project repository
-    4. User home directory `~/.anticharon/` for standalone tool/MCP execution
+    4. XDG data directory `$XDG_DATA_HOME/anticharon/` or `~/.local/share/anticharon/`
+    5. User home directory `~/.anticharon/` for standalone tool/MCP execution
     """
     if custom_dir:
         path = Path(custom_dir).expanduser()
@@ -38,9 +39,18 @@ def get_data_dir(custom_dir: Path | str | None = None) -> Path:
         path = Path(os.environ["ANTICHARON_DATA_DIR"]).expanduser()
     elif Path("pyproject.toml").exists() or Path("config").exists():
         path = Path("data")
+    elif "XDG_DATA_HOME" in os.environ:
+        path = Path(os.environ["XDG_DATA_HOME"]).expanduser() / "anticharon"
+    elif (Path.home() / ".local" / "share" / "anticharon").exists():
+        path = Path.home() / ".local" / "share" / "anticharon"
     else:
         path = Path.home() / ".anticharon"
-    path.mkdir(parents=True, exist_ok=True)
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        # Fall back to /tmp/anticharon in read-only / strictly sandboxed environments
+        path = Path("/tmp/anticharon")
+        path.mkdir(parents=True, exist_ok=True)
     return path
 
 
@@ -51,7 +61,8 @@ def get_config_path(custom_path: Path | str | None = None) -> Path:
     1. Explicit argument (`custom_path` or CLI `--config`)
     2. Environment variable `ANTICHARON_CONFIG`
     3. Local `./config/shortlist.json` (or `./config/shortlist.example.json`)
-    4. User home directory `~/.anticharon/shortlist.json`
+    4. XDG user config `$XDG_CONFIG_HOME/anticharon/shortlist.json` or `~/.config/anticharon/shortlist.json`
+    5. User home directory `~/.anticharon/shortlist.json`
     """
     if custom_path:
         return Path(custom_path).expanduser()
@@ -65,6 +76,12 @@ def get_config_path(custom_path: Path | str | None = None) -> Path:
     example_config = Path("config/shortlist.example.json")
     if example_config.exists():
         return example_config
+
+    # Check XDG config directory
+    xdg_config_dir = Path(os.environ["XDG_CONFIG_HOME"]).expanduser() if "XDG_CONFIG_HOME" in os.environ else Path.home() / ".config"
+    xdg_config = xdg_config_dir / "anticharon" / "shortlist.json"
+    if xdg_config.exists():
+        return xdg_config
 
     home_config = Path.home() / ".anticharon" / "shortlist.json"
     if home_config.exists():

@@ -174,6 +174,51 @@ Run Anticharon daily via cron to alert Hermes or generate reports:
 
 ---
 
+## 🔌 Model Context Protocol (MCP) Server
+
+Anticharon natively exposes an MCP server over `stdio` for **Hermes Agent**, **Claude Desktop**, and any standard MCP client.
+
+### MCP Tools:
+- `check_prices`: Fetches live OpenRouter prices for your shortlist, calculates weighted blended rates, 7-day moving averages, alerts (`PRICE_SPIKE`, `PRICE_DROP`, `BEST_OPTION_CHANGED`), and attaches 30-day intelligence profiles.
+- `get_model_history`: Audits 30-day historical trajectories, CV% volatility, and trend sparklines (JSON or raw CSV).
+- `discover_models`: Live multi-criteria catalog search across ~417+ models with real-world blended pricing.
+- `sync_hermes_models`: Synchronizes your model shortlist directly with Hermes `config.yaml`.
+
+### MCP Resources:
+- `anticharon://llms.txt`: Machine-readable Agent-to-Agent briefing.
+- `anticharon://history.csv`: Raw 30-day sliding history data table.
+- `anticharon://shortlist.json`: Active configuration and calibrated weights.
+
+### Host Configuration:
+
+#### Hermes Agent (`~/.hermes/config.yaml`):
+```yaml
+mcp_servers:
+  anticharon:
+    command: "uvx"
+    args: ["--from", "git+https://github.com/parisneto/anticharon.git", "anticharon", "mcp"]
+```
+*(Or locally installed: `command: "anticharon"`, `args: ["mcp"]`)*
+
+#### Claude Desktop (`claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "anticharon": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/parisneto/anticharon.git", "anticharon", "mcp"]
+    }
+  }
+}
+```
+
+#### In-Band A2A Semantics (`_hints`):
+Tool responses include an in-band `_hints` dictionary declaring key definitions:
+- `data_source`: `"live_api"` or `"cached_history"`
+- `api_offline_fallback`: Explicit boolean declaring HTTP cache fallback. **Note:** This has *no relation* to Hermes model `fallback_providers`.
+
+---
+
 ## 📄 License
 MIT License. Created by Paris Piedade Neto.
 feel free to reach me on [LinkedIn](https://www.linkedin.com/in/parisneto/)
