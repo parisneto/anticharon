@@ -230,6 +230,18 @@ Tool responses include an in-band `_hints` dictionary declaring key definitions:
 - `data_source`: `"live_api"` or `"cached_history"`
 - `api_offline_fallback`: Explicit boolean declaring HTTP cache fallback. **Note:** This has *no relation* to Hermes model `fallback_providers`.
 
+### 🛠️ Interactive Testing with MCP Inspector
+
+You can visually test and debug all Anticharon MCP tools, resources, and prompts using the official Model Context Protocol Inspector:
+
+```bash
+# Launch with the helper script:
+./scripts/inspect_mcp.sh
+
+# Or directly via npx:
+npx @modelcontextprotocol/inspector uv --directory . run anticharon mcp
+```
+
 ---
 
 ## 📄 License
