@@ -34,10 +34,12 @@ server = MCPServer("anticharon")
 @server.tool(
     name="check_prices",
     description=(
-        "Fetches current OpenRouter model pricing for the monitored shortlist, calculates "
+        "Fetches current OpenRouter model pricing for your monitored shortlist, calculates "
         "calibrated blended price per 1M tokens, computes 7-day moving averages, evaluates "
         "volatility alerts (PRICE_SPIKE, PRICE_DROP, BEST_OPTION_CHANGED), and attaches "
-        "30-day analytical intelligence profiles (STABLE, PROMO_ENDED, SUNSETTING, etc.)."
+        "30-day analytical intelligence profiles (STABLE, PROMO_ENDED, SUNSETTING, etc.). "
+        "Maintains a compact local shortlist.json and history.csv to help your agents switch "
+        "models seamlessly, optimize budgets, and minimize the ferryman's token toll."
     )
 )
 def check_prices(
@@ -60,7 +62,8 @@ def check_prices(
     description=(
         "Audits 30-day historical price trajectories, statistical volatility (CV%), "
         "directional trend sparklines, deterministic intelligence profiles, and sibling "
-        "alternative recommendations from history.csv."
+        "alternative recommendations from local history.csv storage, giving your agent "
+        "the empirical intelligence to navigate price spikes and vendor rate increases."
     )
 )
 def get_model_history(
@@ -271,4 +274,19 @@ def run_mcp_server(transport: str = "stdio") -> None:
     """Launch the Anticharon MCP server with strict stdio hygiene."""
     # Direct all internal logging strictly to stderr to prevent stdio JSON-RPC corruption
     logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(levelname)s: %(message)s")
-    server.run(transport=transport)
+
+    # If launched directly in an interactive terminal, provide helpful guidance on stderr
+    if sys.stdin.isatty():
+        sys.stderr.write(
+            f"\n🪙 Anticharon MCP Server (v{__version__}) running over {transport}.\n"
+            f"📡 Listening for JSON-RPC 2.0 frames on stdio...\n"
+            f"💡 Tip: This server is designed to be orchestrated by an MCP host (Hermes Agent, Cursor, Claude Desktop).\n"
+            f"🛑 Press Ctrl+C to terminate cleanly.\n\n"
+        )
+        sys.stderr.flush()
+
+    try:
+        server.run(transport=transport)
+    except KeyboardInterrupt:
+        sys.stderr.write("\n🛑 Anticharon MCP server terminated cleanly.\n")
+        sys.stderr.flush()

@@ -179,8 +179,8 @@ Run Anticharon daily via cron to alert Hermes or generate reports:
 Anticharon natively exposes an MCP server over `stdio` for **Hermes Agent**, **Claude Desktop**, and any standard MCP client.
 
 ### MCP Tools:
-- `check_prices`: Fetches live OpenRouter prices for your shortlist, calculates weighted blended rates, 7-day moving averages, alerts (`PRICE_SPIKE`, `PRICE_DROP`, `BEST_OPTION_CHANGED`), and attaches 30-day intelligence profiles.
-- `get_model_history`: Audits 30-day historical trajectories, CV% volatility, and trend sparklines (JSON or raw CSV).
+- `check_prices`: Fetches live OpenRouter prices for your shortlist, calculates weighted blended rates, 7-day moving averages, alerts (`PRICE_SPIKE`, `PRICE_DROP`, `BEST_OPTION_CHANGED`), and attaches 30-day intelligence profiles. Automatically maintains a compact local `shortlist.json` and `history.csv` of your favorite models, empowering agents to switch smoothly, eliminate cost anxiety, and dodge the ferryman's toll!
+- `get_model_history`: Audits 30-day historical trajectories, CV% volatility, and trend sparklines from your local storage (JSON or raw CSV).
 - `discover_models`: Live multi-criteria catalog search across ~417+ models with real-world blended pricing.
 - `sync_hermes_models`: Synchronizes your model shortlist directly with Hermes `config.yaml`.
 
@@ -199,6 +199,19 @@ mcp_servers:
     args: ["--from", "git+https://github.com/parisneto/anticharon.git", "anticharon", "mcp"]
 ```
 *(Or locally installed: `command: "anticharon"`, `args: ["mcp"]`)*
+
+#### Cursor IDE (`.cursor/mcp.json` or Settings → Features → MCP):
+```json
+{
+  "mcpServers": {
+    "anticharon": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/parisneto/anticharon.git", "anticharon", "mcp"]
+    }
+  }
+}
+```
+*(Or for local development: `"command": "anticharon"`, `"args": ["mcp"]`)*
 
 #### Claude Desktop (`claude_desktop_config.json`):
 ```json
