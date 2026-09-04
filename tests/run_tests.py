@@ -529,7 +529,9 @@ def main():
         test_historical_analytics_and_profiles()
         test_mcp_server_suite()
         print("-" * 50)
-        print("✨ ALL TESTS PASSED SUCCESSFULLY! (11/11)\n")
+        print("✨ ALL TESTS PASSED SUCCESSFULLY! (11/11)")
+        print("💡 Note: [WARN] network messages above are simulated 1ms timeout tests")
+        print("   verifying Anticharon's offline cache resilience engine (100% expected).\n")
         return 0
     except AssertionError as e:
         print(f"\n❌ TEST FAILED: {e}\n", file=sys.stderr)
