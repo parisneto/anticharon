@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-09-04
+
+### Added
+- **GitHub Actions CI Pipeline (`.github/workflows/ci.yml`):**
+  - Automated continuous integration runner testing pushes and pull requests across Python 3.12 with `tests/run_tests.py` and `anticharon test`.
+- **GitHub Community Templates:**
+  - Added `.github/ISSUE_TEMPLATE/bug_report.md` with environment diagnostic instructions.
+  - Added `.github/ISSUE_TEMPLATE/feature_request.md` for candidate model and tool requests.
+  - Added `.github/PULL_REQUEST_TEMPLATE.md` with verification quality checklist.
+- **Environment Telemetry in Diagnostic Suite (`anticharon test`):**
+  - Added system platform, OS release, CPU architecture, Python binary location, data directory, and config path to both human terminal and `--json` diagnostic outputs.
+
+### Changed
+- **Empirical Research Storytelling & TraceLab Citations:**
+  - Corrected paper title to *"TraceLab: Characterizing Coding Agent Workloads for LLM Serving"*, updated UW SyFi blog/demo/GitHub links, and documented the 114.2B input vs 391.8M output token dataset (291.5 : 1 ratio).
+  - Added comparative narrative and delta breakdown in `README.md` and `docs/specs/spec_v1_anticharon.md` highlighting how the academic dataset mirrors Anticharon's 99.71% in / 0.29% out baseline within 0.05% (-0.0005).
+- **Public Backlog & License Cleanliness:**
+  - Removed references to local zero-cost models (Ollama) from backlog, clarifying focus on remote orchestrator configs (LiteLLM, OpenRouter collections, Claude Code).
+  - Standardized author name to `Páris Piedade Neto` across `LICENSE`, `pyproject.toml`, and documentation.
+
 ## [0.4.1] - 2026-09-04
 
 ### Changed

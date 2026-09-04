@@ -19,21 +19,53 @@ def run_self_test(
 ) -> bool:
     """Run comprehensive self-checks on runtime, config, formulas, permissions, network, and Hermes."""
     import json
+    import platform
+    import os
     all_passed = True
     diag: dict = {}
-    if not json_mode:
-        print("\n🪙  Anticharon Self-Test & Diagnostic Suite\n" + "=" * 48)
 
-    # 1. Python Environment Check
+    # Environment & Host Resolution
+    os_name = platform.system()
+    os_release = platform.release()
+    os_arch = platform.machine()
     py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
     py_ok = sys.version_info >= (3, 10)
+    py_bin = sys.executable
+    try:
+        resolved_data_dir = str(get_data_dir())
+    except Exception:
+        resolved_data_dir = "unresolved"
+    try:
+        resolved_cfg_path = str(get_config_path())
+    except Exception:
+        resolved_cfg_path = "unresolved"
+
+    diag["environment"] = {
+        "os": os_name,
+        "release": os_release,
+        "architecture": os_arch,
+        "python_version": py_ver,
+        "python_executable": py_bin,
+        "data_dir": resolved_data_dir,
+        "config_path": resolved_cfg_path
+    }
+
+    if not json_mode:
+        print("\n🪙  Anticharon Self-Test & Diagnostic Suite\n" + "=" * 60)
+        print(f" 🖥️  Host System:  {os_name} {os_release} ({os_arch})")
+        print(f" 🐍 Python Env:   v{py_ver} ({py_bin})")
+        print(f" 📁 Data Storage: {resolved_data_dir}")
+        print(f" ⚙️  Config Path:  {resolved_cfg_path}")
+        print("-" * 60)
+
+    # 1. Python Environment Check
     diag["python"] = {"version": py_ver, "supported": py_ok}
     if py_ok:
         if not json_mode:
-            print(f" [PASS] Python Environment: v{py_ver} (Supported)")
+            print(f" [PASS] Python Version: v{py_ver} (Supported)")
     else:
         if not json_mode:
-            print(f" [FAIL] Python Environment: v{py_ver} (Requires >= 3.10)")
+            print(f" [FAIL] Python Version: v{py_ver} (Requires >= 3.10)")
         all_passed = False
 
     # 2. Config Resolution & Parsing
@@ -167,7 +199,7 @@ def run_self_test(
     if json_mode:
         print(json.dumps(diag, indent=2))
     else:
-        print("=" * 48)
+        print("=" * 60)
         if all_passed:
             print("🎉 All core diagnostics passed successfully!\n")
         else:

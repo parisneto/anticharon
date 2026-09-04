@@ -6,9 +6,9 @@ This backlog tracks completed milestones, upcoming sprint priorities, and long-t
 
 ## 🎯 Current Sprint (Public Release & Repository Preparation)
 
-- [ ] **GitHub Actions CI Automation (`.github/workflows/ci.yml`)**: Automated headless test runner on every Push and Pull Request using `uv run python tests/run_tests.py` and `anticharon test`.
-- [x] **Open-Source License (`LICENSE`)**: Added standard MIT License file establishing copyright (`(c) 2026 Paris Piedade Neto`) and liability protection.
-- [ ] **Issue & Pull Request Templates**:
+- [x] **GitHub Actions CI Automation (`.github/workflows/ci.yml`)**: Automated headless test runner on every Push and Pull Request using `uv run python tests/run_tests.py` and `anticharon test`.
+- [x] **Open-Source License (`LICENSE`)**: Added standard MIT License file establishing copyright (`(c) 2026 Páris Piedade Neto`) and liability protection.
+- [x] **Issue & Pull Request Templates**:
   - `.github/ISSUE_TEMPLATE/bug_report.md` (structured price drift & execution bugs).
   - `.github/ISSUE_TEMPLATE/feature_request.md` (candidate models, discovery filters).
   - `.github/PULL_REQUEST_TEMPLATE.md` (test verification checklist).
@@ -22,7 +22,7 @@ This backlog tracks completed milestones, upcoming sprint priorities, and long-t
 - [ ] **Expose `calibrate` as an MCP Tool (`calibrate_token_weights`)**:
   - Expose the OpenRouter activity log parser directly as an MCP tool so orchestrators (Hermes, Claude Desktop, Cursor) can calibrate agent token mixes (`weight_prompt` / `weight_completion`) on the fly.
 - [ ] **Universal One-Way Shortlist Importers**:
-  - Expand beyond Hermes to support one-way import of model slugs from other local frameworks and configs (e.g. LiteLLM `config.yaml`, Ollama local models, and OpenRouter curated collections) into Anticharon's `shortlist.json`.
+  - Expand beyond Hermes to support one-way import of model slugs from other agent orchestrator configs and routing proxies (e.g. LiteLLM `config.yaml`, OpenRouter curated collections/rankings, Claude Code, and Cursor model definitions) into Anticharon's `shortlist.json`.
   - Always strictly one-way (source is read-only; writes exclusively to `shortlist.json`).
 - [ ] **Interactive CLI Shortlist Picker**:
   - Add interactive multi-select TUI menu (`anticharon model select`) for selecting candidate models from discovery directly into the shortlist.

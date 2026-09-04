@@ -1,8 +1,8 @@
 # Technical Specification: Anticharon (v1)
 
-**Document Version:** 1.1.0  
-**Status:** Approved  
-**Language:** English  
+**Document Version:** 1.1.0
+**Status:** Approved
+**Language:** English
 
 ---
 
@@ -37,8 +37,8 @@ Automated background synchronization of billing metrics via management API keys 
 
 ### 2.2 Empirical Real-World Validation
 Agentic coding workflows are overwhelmingly dominated by prompt tokens (context history, workspace file contents, system instructions, and tool outputs):
-- **University of Washington TraceLab Evidence:** Real-world coding agent traces collected from Claude Code and Codex ([TraceLab](https://tracelab.cs.washington.edu/)) recorded **69.1 billion input tokens** against **256.7 million output tokens**, working out to **99.63% input / 0.37% output**.
-- **Author Operational Dataset (August 2026):** Ingestion of 159 agent generations (`openrouter_activity_2026-08-24.csv`) totaling **17,437,925 tokens** yielded **17,386,716 prompt tokens (99.71%)** vs **51,209 completion tokens (0.29%)**.
+- **University of Washington TraceLab Evidence:** Empirical research from [*"TraceLab: Characterizing Coding Agent Workloads for LLM Serving"*](https://syfi.cs.washington.edu/blog/2026-06-25-tracelab/) ([live demo](https://tracelab.cs.washington.edu/), [GitHub](https://github.com/uw-syfi/TraceLab)) analyzing coding agent workloads (Sep 2025 – Jul 2026) recorded **114.2 billion input tokens** vs **391.8 million output tokens** (a **291.5 : 1 ratio**), yielding **99.66% input / 0.34% output**.
+- **Author Operational Dataset (August 2026):** Ingestion of 159 agent generations (`openrouter_activity_2026-08-24.csv`) totaling **17,437,925 tokens** yielded **17,386,716 prompt tokens (99.71%)** vs **51,209 completion tokens (0.29%)**, differing by **only 0.05% (-0.0005)** from the 114B token academic baseline.
 - **The Core Outcome:** Calculating blended prices with accurate input/output weighting eliminates cost anxiety, allowing developers and agents to run premium frontier models responsibly while dramatically reducing the "ferryman tax" and discouraging AI slop.
 
 ---
