@@ -1,4 +1,8 @@
-# Anticharon 🪙⚖️
+# Anticharon 🪙⚖️ (v0.4.2)
+
+[![Version](https://img.shields.io/badge/version-0.4.2-blue.svg)](CHANGELOG.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![CI](https://github.com/parisneto/anticharon/actions/workflows/ci.yml/badge.svg)](https://github.com/parisneto/anticharon/actions)
 
 <p align="center">
   <img src="docs/images/logo.jpeg" alt="Anticharon Logo" width="480" />
@@ -235,9 +239,15 @@ mcp_servers:
     command: "uvx"
     args: ["--from", "git+https://github.com/parisneto/anticharon.git", "anticharon", "mcp"]
 ```
-*(Or locally installed: `command: "anticharon"`, `args: ["mcp"]`)*
+*For local dev within repo clone:*
+```yaml
+mcp_servers:
+  anticharon:
+    command: "uv"
+    args: ["--directory", "/path/to/anticharon", "run", "anticharon", "mcp"]
+```
 
-#### Cursor IDE (`.cursor/mcp.json` or Settings → Features → MCP):
+#### Cursor IDE & Antigravity (`.cursor/mcp.json` or `~/.gemini/config/mcp_config.json`):
 ```json
 {
   "mcpServers": {
@@ -248,7 +258,18 @@ mcp_servers:
   }
 }
 ```
-*(Or for local development: `"command": "anticharon"`, `"args": ["mcp"]`)*
+*For local development in a repository clone (no global installation required):*
+```json
+{
+  "mcpServers": {
+    "anticharon": {
+      "command": "uv",
+      "args": ["--directory", "/path/to/anticharon", "run", "anticharon", "mcp"]
+    }
+  }
+}
+```
+*(Or via direct virtual environment: `"command": "/path/to/anticharon/.venv/bin/python"`, `"args": ["-m", "anticharon", "mcp"]`)*
 
 #### Claude Desktop (`claude_desktop_config.json`):
 ```json

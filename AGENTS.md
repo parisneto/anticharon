@@ -68,11 +68,12 @@ Anticharon follows strict [Semantic Versioning (`MAJOR.MINOR.PATCH`)](https://se
 - **Never Overwrite Existing Tags:** Never overwrite an existing release tag (`git tag -f`). Any subsequent change—even a single-line bugfix or packaging correction—is a new, immutable `PATCH` release.
 
 #### Mandatory Version Bump Checklist:
-The agent MUST update all 3 files in a single atomic commit:
+The agent MUST update all 4 files in a single atomic commit:
 1. `pyproject.toml`: `version = "X.Y.Z"`
 2. `src/anticharon/__init__.py`: `__version__ = "X.Y.Z"`
-3. `CHANGELOG.md`: Move items from `[Unreleased]` into `## [X.Y.Z] - YYYY-MM-DD` and restore an empty `## [Unreleased]` section on top.
-4. Create release tag: `git tag vX.Y.Z && git push origin vX.Y.Z` (or local git tag).
+3. `README.md`: Version in title and badges (`(vX.Y.Z)`)
+4. `CHANGELOG.md`: Move items from `[Unreleased]` into `## [X.Y.Z] - YYYY-MM-DD` and restore an empty `## [Unreleased]` section on top.
+5. Create release tag: `git tag vX.Y.Z && git push origin main --tags` (or local git tag).
 
 ### Rule 10: Strict Repository-Relative Path Standard (No Local Path Leaks)
 - **Strict Rule:** Never use absolute host filesystem paths (e.g. `/Users/...`, `C:\...`, or `file:///...`) in Markdown files, code comments, docstrings, or specifications.

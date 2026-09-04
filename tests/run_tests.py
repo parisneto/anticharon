@@ -410,15 +410,25 @@ def test_historical_analytics_and_profiles():
     assert an_creep.profile == "CREEPING_INFLATION"
     assert "CREEPING" in an_creep.badge
 
-    # 9. Test run_tracker with enable_analytics=True
-    res_an = run_tracker(dry_run=True, enable_analytics=True, timeout=0.001)
-    assert res_an.analytics_mode is True
-    assert len(res_an.prices_shortlist) > 0
-    an_dict = res_an.to_dict()
-    assert an_dict.get("analytics_mode") is True
-    first_model = an_dict["prices_shortlist"][0]
-    assert "analytics" in first_model
-    assert "profile" in first_model["analytics"]
+    # 9. Test run_tracker with enable_analytics=True (hermetic temporary history)
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tf:
+        temp_hist = Path(tf.name)
+    try:
+        sample_records = [
+            ["openai/gpt-5.6-luna", "2026-08-24T20:00:00Z", 0.10389, 0.10389, 0.10389, 0.10389, 0.10389, 0.10389, 0.10389, 0.10389, 0.10389, 0.10389, 0.10389, 0.10389]
+        ]
+        write_history(sample_records, temp_hist)
+        res_an = run_tracker(dry_run=True, enable_analytics=True, timeout=0.001, history_path=temp_hist)
+        assert res_an.analytics_mode is True
+        assert len(res_an.prices_shortlist) > 0
+        an_dict = res_an.to_dict()
+        assert an_dict.get("analytics_mode") is True
+        first_model = an_dict["prices_shortlist"][0]
+        assert "analytics" in first_model
+        assert "profile" in first_model["analytics"]
+    finally:
+        if temp_hist.exists():
+            temp_hist.unlink()
 
     # 10. Test llms.txt presence
     llms_path = Path(__file__).resolve().parent.parent / "llms.txt"
