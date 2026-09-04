@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-04
+
+### Changed
+- **MCP Tool Rename (`sync_hermes_models` → `import_hermes_models`):**
+  - Renamed tool to `import_hermes_models` to clearly communicate one-way ingestion into Anticharon's shortlist.
+  - Set default `dry_run=True` for safe-by-default preview mode in MCP tool invocations.
+  - Added directional response metadata: `"direction": "hermes→anticharon"` and `"hermes_untouched": true`.
+  - Added explicit status notices clarifying preview vs shortlist update state.
+- **CLI Model Subcommands (`src/anticharon/cli.py`):**
+  - Added `anticharon model import-hermes` as the primary command (retaining `sync` as an alias).
+  - Terminal output now explicitly prints `🔒 Hermes configuration is untouched (read-only)`.
+- **Public Repository Hardening & Spec Lifecycle:**
+  - Migrated private developer drafts and deployment scripts from `dev_bucket/` to `.local/` (strictly ignored by git).
+  - Archived exploratory notes (`diagnostic_v1_mcp_architecture.md`, `mcp_prompts_v2.md`, `model_discovery.md`) to `.local/docs/specs/`.
+  - Created public sprint roadmap in `docs/BACKLOG.md`.
+  - Updated `AGENTS.md` Rule 2 and Section 2 directory layout.
+
+### Added
+- **Official Open-Source License:**
+  - Added `LICENSE` (MIT License, Copyright (c) 2026 Paris Piedade Neto) at repository root.
+- **Private GitHub Release Playbook (`.local/docs/github_release_and_pr_playbook.md`):**
+  - Added comprehensive guide for solo developers on free personal accounts, covering GitHub Actions CI, step-by-step PR reviews, and SemVer release management.
+- **MCP Prompt Suite Extensions:**
+  - Added `family_upgrade_discover`, `daily_cost_briefing`, and `budget_optimization_audit` prompt templates.
+  - Added `src/anticharon/__main__.py` entrypoint and `scripts/inspect_mcp.sh` helper.
+
 ## [0.4.0] - 2026-09-03
 
 ### Added

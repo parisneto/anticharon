@@ -429,13 +429,18 @@ def cmd_model(args) -> int:
         format_discovery_output(filtered, json_mode=args.json)
         return 0
 
-    elif action == "sync":
+    elif action in ("sync", "import-hermes"):
         hermes_custom = getattr(args, "hermes_config", None)
         hermes_info = get_hermes_models(custom_path=hermes_custom, prompt_if_missing=True)
         if not hermes_info:
             err_msg = "Could not find or extract Hermes configuration. Specify --hermes-config <path> or set $HERMES_HOME."
             if getattr(args, "json", False):
-                print(json.dumps({"status": "error", "message": err_msg}, indent=2))
+                print(json.dumps({
+                    "status": "error",
+                    "direction": "hermes→anticharon",
+                    "hermes_untouched": True,
+                    "message": err_msg
+                }, indent=2))
             else:
                 print(f"\n❌ {err_msg}\n", file=sys.stderr)
             return 1
@@ -447,7 +452,9 @@ def cmd_model(args) -> int:
         if getattr(args, "json", False):
             print(json.dumps({
                 "status": "success",
-                "action": "sync",
+                "action": "import-hermes",
+                "direction": "hermes→anticharon",
+                "hermes_untouched": True,
                 "dry_run": is_dry_run,
                 "changed": changed,
                 "source": hermes_info["source"],
@@ -457,14 +464,15 @@ def cmd_model(args) -> int:
                 "config_path": str(saved_path)
             }, indent=2))
         else:
-            prefix = "[DRY RUN] Would sync" if is_dry_run else "Successfully synced"
+            prefix = "[DRY RUN] Would import" if is_dry_run else "Successfully imported"
             print(f"\n✅ {prefix} {len(new_shortlist)} models from Hermes ({hermes_info['source']})")
+            print(f"🔒 Hermes configuration is untouched (read-only).")
             print(f"★ Default Model: {hermes_info['default_model']}")
-            print(f"📋 Synchronized Shortlist:")
+            print(f"📋 Imported Shortlist:")
             for idx, m in enumerate(new_shortlist, 1):
                 badge = " ★ [DEFAULT]" if idx == 1 else ""
                 print(f"  {idx}. {m}{badge}")
-            print(f"⚙️ Config: {saved_path}\n")
+            print(f"⚙️ Anticharon Config: {saved_path}\n")
         return 0
 
     return 0
@@ -575,8 +583,12 @@ def main() -> None:
     model_parser = subparsers.add_parser("model", help="Manage shortlisted models and discover OpenRouter catalog")
     model_subparsers = model_parser.add_subparsers(dest="model_action", help="Model actions")
 
-    # model sync
-    sync_p = model_subparsers.add_parser("sync", help="Synchronize shortlist with Hermes configuration")
+    # model import-hermes (with 'sync' alias)
+    sync_p = model_subparsers.add_parser(
+        "import-hermes",
+        aliases=["sync"],
+        help="Import active models from Hermes Agent config into shortlist (read-only on Hermes)"
+    )
     sync_p.add_argument("--hermes-config", type=str, default=None, help="Path to custom Hermes config.yaml")
     sync_p.add_argument("--dry-run", action="store_true", help="Preview models without saving to shortlist.json")
     sync_p.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")

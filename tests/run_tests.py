@@ -446,7 +446,8 @@ def test_mcp_server_suite():
         assert "check_prices" in tool_names, "Tool check_prices missing"
         assert "get_model_history" in tool_names, "Tool get_model_history missing"
         assert "discover_models" in tool_names, "Tool discover_models missing"
-        assert "sync_hermes_models" in tool_names, "Tool sync_hermes_models missing"
+        assert "import_hermes_models" in tool_names, "Tool import_hermes_models missing"
+        assert "sync_hermes_models" not in tool_names, "Legacy tool sync_hermes_models should be completely removed"
 
         # 2. Tool execution: check_prices
         res_prices = loop.run_until_complete(server.call_tool("check_prices", {"dry_run": True, "include_analytics": True}))
@@ -466,9 +467,16 @@ def test_mcp_server_suite():
         assert hist_data["format"] == "csv"
         assert "model,last_updated" in hist_data["data"]
 
-        # 4. Tool execution: sync_hermes_models (dry_run)
-        res_sync = loop.run_until_complete(server.call_tool("sync_hermes_models", {"dry_run": True}))
-        assert not res_sync.is_error
+        # 4. Tool execution: import_hermes_models (default dry_run=True verification)
+        res_import = loop.run_until_complete(server.call_tool("import_hermes_models", {}))
+        assert not res_import.is_error
+        data_import = json.loads(res_import.content[0].text)
+        assert data_import["direction"] == "hermes→anticharon"
+        assert data_import["hermes_untouched"] is True
+        if data_import.get("detected"):
+            assert data_import["dry_run"] is True
+            assert "notice" in data_import
+            assert "PREVIEW ONLY" in data_import["notice"]
 
         # 5. Resources registration and reading
         resources = loop.run_until_complete(server.list_resources())

@@ -76,17 +76,17 @@ uv run anticharon run --no-hermes
 uv run anticharon run --json
 ```
 
-### Hermes Agent Auto-Detection & Model Synchronization
+### Hermes Agent Auto-Detection & Model Ingestion
 When deployed alongside **Hermes Agent** (e.g. in a remote VM or local agent environment), Anticharon automatically detects Hermes's active model (`default:`) and OpenRouter fallback models:
 ```bash
-# Explicitly synchronize shortlist with Hermes configuration
-uv run anticharon model sync
+# Explicitly import Hermes models into Anticharon shortlist (read-only on Hermes)
+uv run anticharon model import-hermes   # or: uv run anticharon model sync
 
-# Preview synchronization without modifying shortlist.json
-uv run anticharon model sync --dry-run
+# Preview model import without modifying shortlist.json
+uv run anticharon model import-hermes --dry-run
 
 # Custom Hermes config path
-uv run anticharon model sync --hermes-config /custom/path/to/config.yaml
+uv run anticharon model import-hermes --hermes-config /custom/path/to/config.yaml
 ```
 
 ### Model Discovery & Catalog Exploration
@@ -182,7 +182,10 @@ Anticharon natively exposes an MCP server over `stdio` for **Hermes Agent**, **C
 - `check_prices`: Fetches live OpenRouter prices for your shortlist, calculates weighted blended rates, 7-day moving averages, alerts (`PRICE_SPIKE`, `PRICE_DROP`, `BEST_OPTION_CHANGED`), and attaches 30-day intelligence profiles. Automatically maintains a compact local `shortlist.json` and `history.csv` of your favorite models, empowering agents to switch smoothly, eliminate cost anxiety, and dodge the ferryman's toll!
 - `get_model_history`: Audits 30-day historical trajectories, CV% volatility, and trend sparklines from your local storage (JSON or raw CSV).
 - `discover_models`: Live multi-criteria catalog search across ~417+ models with real-world blended pricing.
-- `sync_hermes_models`: Synchronizes your model shortlist directly with Hermes `config.yaml`.
+- `import_hermes_models`: Imports active default and fallback models from Hermes `config.yaml` into Anticharon's shortlist. Strictly read-only on Hermes. Default is `dry_run=True` (preview only); set `dry_run=False` to save to shortlist.
+
+> [!TIP]
+> **🔒 Safe-by-Default Hermes Ingestion:** `import_hermes_models` is strictly **one-way and read-only** on Hermes Agent (`~/.hermes/config.yaml`). It never touches or mutates your Hermes configuration. In MCP tool calls, `dry_run=true` is the default to prevent unexpected disk writes.
 
 ### MCP Resources:
 - `anticharon://llms.txt`: Machine-readable Agent-to-Agent briefing.
@@ -263,10 +266,17 @@ npx @modelcontextprotocol/inspector uv --directory . run anticharon mcp
 
 ---
 
-## 📄 License
-MIT License. Created by Paris Piedade Neto.
-feel free to reach me on [LinkedIn](https://www.linkedin.com/in/parisneto/)
+## 📄 License & Author
 
-## 💬 Feedback
+MIT License. Copyright (c) 2026 Paris Piedade Neto.
+Connect on [LinkedIn](https://www.linkedin.com/in/parisneto/).
 
-Feel free to open an issue or submit a pull request. Any feedback or suggestions are welcome!
+---
+
+## 🤝 Contributing & Community
+
+Anticharon is built for the agentic developer community. Contributions, suggestions, and model discovery profiles are welcome!
+
+- **Found a bug or price discrepancy?** Open an [Issue](https://github.com/parisneto/anticharon/issues).
+- **Want to add a feature or provider filter?** Fork the repo, create a branch, and submit a [Pull Request](https://github.com/parisneto/anticharon/pulls).
+- **Code Standards**: Anticharon follows spec-driven development, zero-dependency testing, and plain Markdown math. Always run `uv run python tests/run_tests.py` before submitting a PR.

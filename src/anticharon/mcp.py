@@ -149,22 +149,26 @@ def discover_models(
 
 
 @server.tool(
-    name="sync_hermes_models",
+    name="import_hermes_models",
     description=(
-        "Synchronizes Anticharon's model shortlist with active models defined in Hermes Agent "
-        "configuration (~/.hermes/config.yaml or $HERMES_HOME)."
+        "Imports active default and fallback models from Hermes Agent configuration "
+        "(~/.hermes/config.yaml or $HERMES_HOME) into Anticharon's shortlist. "
+        "READ-ONLY ON HERMES: Never modifies Hermes configuration. "
+        "Default is dry_run=True (preview only); set dry_run=False to write to Anticharon shortlist.json."
     )
 )
-def sync_hermes_models(
+def import_hermes_models(
     hermes_config_path: Optional[str] = None,
-    dry_run: bool = False
+    dry_run: bool = True
 ) -> Dict[str, Any]:
-    """Synchronize Hermes active models into shortlist.json."""
+    """Import Hermes active models into Anticharon shortlist.json."""
     hermes_info = get_hermes_models(custom_path=hermes_config_path, prompt_if_missing=False)
     if not hermes_info:
         return {
             "status": "warning",
             "detected": False,
+            "direction": "hermes→anticharon",
+            "hermes_untouched": True,
             "message": "Hermes configuration not found at ~/.hermes/config.yaml or via $HERMES_HOME.",
             "hint": "Specify hermes_config_path parameter or ensure ~/.hermes/config.yaml is present."
         }
@@ -172,8 +176,18 @@ def sync_hermes_models(
     changed, new_shortlist, saved_path = sync_hermes_to_config(
         hermes_info, dry_run=dry_run
     )
+
+    if dry_run:
+        notice = "ℹ️ PREVIEW ONLY: Hermes models detected but Anticharon shortlist was not modified. Pass dry_run=False to persist."
+    elif changed:
+        notice = "💾 SHORTLIST UPDATED: Hermes models successfully written to Anticharon shortlist."
+    else:
+        notice = "✅ SHORTLIST UP TO DATE: Anticharon shortlist already matches Hermes models."
+
     return {
         "status": "success",
+        "direction": "hermes→anticharon",
+        "hermes_untouched": True,
         "detected": True,
         "source": hermes_info.get("source"),
         "method": hermes_info.get("method"),
@@ -181,6 +195,7 @@ def sync_hermes_models(
         "models_count": len(hermes_info.get("all_models", [])),
         "changed": changed,
         "dry_run": dry_run,
+        "notice": notice,
         "shortlist": new_shortlist,
         "config_path": str(saved_path)
     }

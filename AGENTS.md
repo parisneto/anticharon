@@ -13,10 +13,9 @@ Welcome, Agent. This document defines the mandatory operating guidelines, archit
 
 ### Rule 2: Specification Lifecycle & Staging Pipeline
 To maintain a clean public repository while preserving exploratory thought, adhere to the following specification stages:
-1. **`docs/specs/pre-work/` (Transient):** Place incoming raw notes, exploratory calculations, and prompt scraps here before formal processing.
-2. **`docs/specs/` (Active Source of Truth):** The Agent Architect formalizes pre-work into an authoritative English specification (`spec_vX_*.md`).
-3. **`docs/specs/backlog/` (Approved Future Scope):** Store approved design documents for future versions (e.g. `mcp_integration_v2.md`).
-4. **`dev_bucket/` (Private Git-Ignored Archive):** Once a pre-work document or draft has been fully incorporated into the official spec, move the raw notes to `dev_bucket/` preserving relative paths.
+1. **`docs/specs/` (Active Source of Truth):** The authoritative English specifications (`spec_vX_*.md`) and architectural decision records (`adr/`).
+2. **`docs/BACKLOG.md` (Public Roadmap):** Public sprint milestones, prioritized backlog, and checklist tracking.
+3. **`.local/` (Private Git-Ignored Scratchpad):** Incoming exploratory notes, transient prompt scraps, sensitive deployment scripts, and private assets live strictly in `.local/` (ignored by git). Never commit anything from `.local/` to the public repository.
 
 ### Rule 3: Plain Markdown & Unicode Math Notation (No LaTeX)
 - **Do NOT use LaTeX, math-mode syntax, or LaTeX-style notation** in Markdown (`$...$`, `$$...$$`, or `$\command$`).
@@ -86,46 +85,50 @@ The agent MUST update all 3 files in a single atomic commit:
 
 ```text
 anticharon/
-├── .gitignore                      # Python, venv, data, IDE, and dev_bucket/ ignore rules
+├── .gitignore                      # Python, venv, data, IDE, and .local/ ignore rules
 ├── .python-version                 # Python version pin (3.12)
 ├── pyproject.toml                  # PEP 621 package metadata & CLI entrypoint
 ├── README.md                       # Comprehensive user guide, lore, and setup
 ├── CHANGELOG.md                    # Changelog tracking all versions & unreleased work
 ├── AGENTS.md                       # This agent guideline file
+├── llms.txt                        # Self-describing Agent-to-Agent briefing
 ├── config/
 │   └── shortlist.example.json      # Default model shortlist & calibrated weight configuration
 ├── docs/
+│   ├── BACKLOG.md                  # Public sprint backlog and roadmap
 │   ├── images/
-│   │   └── logo.jpeg               # Official public logo
+│   │   ├── logo.jpeg               # Official public logo
+│   │   └── MCP Inspector_price_change.png # Analytical case study artifact
 │   ├── sample/
 │   │   └── openrouter_activity_2026-08-24.csv # Test dataset fixture
 │   └── specs/
 │       ├── spec_v1_anticharon.md   # Authoritative source of truth specification
-│       └── backlog/
-│           └── mcp_integration_v2.md # Deferred MCP server design
+│       └── adr/
+│           └── 0001_mcp_unified_repo_and_stdio_architecture.md # MCP architecture decision
 ├── src/
 │   └── anticharon/
 │       ├── __init__.py             # Version and package exports
+│       ├── __main__.py             # python -m anticharon entrypoint
+│       ├── cli.py                  # CLI commands (run, check, test, calibrate, model)
 │       ├── config.py               # Config & environment variable loader
 │       ├── models.py               # Dataclasses & types
 │       ├── storage.py              # history.csv compact sliding window & cold-start logic
 │       ├── tracker.py              # OpenRouter API fetcher, calculations & alerts
 │       ├── log_parser.py           # OpenRouter activity CSV parser & prompt mix calculator
 │       ├── tester.py               # anticharon test self-check implementation
-│       └── cli.py                  # CLI commands (run, check, test, calibrate)
+│       ├── hermes.py               # Hermes config detector, stream-grep & auto-sync
+│       ├── discovery.py            # Live OpenRouter catalog search & filters
+│       ├── chart.py                # TUI ASCII price spectrum chart
+│       ├── analytics.py            # 30-day historical intelligence engine
+│       ├── mcp.py                  # FastMCP server (tools, resources, prompts)
+│       └── llms.txt                # Package-bundled A2A discovery briefing
 ├── tests/
-│   └── run_tests.py                # Zero-dependency test suite
-└── dev_bucket/                     # [GIT-IGNORED] Private drafts & raw scratch archive
+│   └── run_tests.py                # Zero-dependency test suite (11/11 passing in <1s)
+└── .local/                         # [GIT-IGNORED] Private developer environment & scratchpad
     └── docs/
-        ├── TO_add.md
-        ├── MCP_operouter_modelprice_optimizer.md
-        ├── Image_logos_prompts.md
-        ├── images/
-        │   ├── logo_alt.jpeg
-        │   └── socia_spike.png
+        ├── github_release_and_pr_playbook.md
+        ├── deploy_hermes.sh
         └── specs/
-            └── pre-work/
-                └── Token Weighting.md
 ```
 
 ---

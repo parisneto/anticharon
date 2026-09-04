@@ -68,7 +68,7 @@ Anticharon monitors OpenRouter pricing for models configured in `~/.hermes/confi
    - `check_prices(force_refresh, dry_run, include_analytics)`: Fetches live prices, alerts, and 30d profiles.
    - `get_model_history(model_id, format)`: Retrieves 30d trajectories, CV%, and recommendations (json or csv).
    - `discover_models(query, promo_only, modality, max_price, limit)`: Live OpenRouter catalog search.
-   - `sync_hermes_models(hermes_config_path, dry_run)`: Bi-directional model sync with Hermes.
+   - `import_hermes_models(hermes_config_path, dry_run)`: One-way import from Hermes config into Anticharon shortlist (read-only on Hermes; default dry_run=true).
 
    **MCP Resources Available:**
    - `anticharon://llms.txt`: Machine-readable briefing and glossary.
@@ -78,6 +78,8 @@ Anticharon monitors OpenRouter pricing for models configured in `~/.hermes/confi
 #### A2A JSON Schema & Field Glossary:
 - `data_source` (`"live_api"` | `"cached_history"`): Whether pricing was retrieved live from OpenRouter or loaded from local cache during API downtime.
 - `api_offline_fallback` (boolean): `true` only if OpenRouter API network call failed. *(Note: This is strictly an HTTP cache fallback indicator; it has NO relation to Hermes model `fallback_providers`).*
+- `direction` (`"hermes→anticharon"`): Explicitly confirms one-way data flow from Hermes configuration into Anticharon shortlist.
+- `hermes_untouched` (boolean): `true` confirms Hermes configuration (~/.hermes/config.yaml) is never modified.
 - `fallback` (boolean): Legacy alias for `api_offline_fallback` maintained for backward compatibility.
 - `_hints` (object): In-band explanatory glossary generated when `--hints` flag is passed or in MCP tool responses.
 - `hermes_integration.models_count`: Total active models detected from Hermes (`model.default` + `fallback_providers`).

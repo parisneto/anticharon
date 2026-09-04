@@ -344,11 +344,15 @@ Anticharon natively exposes a standard Model Context Protocol (MCP) server over 
   - `max_price` (number, optional): Maximum blended price per 1M tokens ($).
   - `limit` (integer, optional, default: `15`): Maximum number of matching models to return.
 
-#### 4. `sync_hermes_models`
-- **Description:** Inspects Hermes Agent configuration (`~/.hermes/config.yaml` or `$HERMES_HOME`) and synchronizes the active default model and fallback providers into Anticharon's shortlist.
+#### 4. `import_hermes_models`
+- **Description:** Imports active default and fallback models from Hermes Agent configuration (`~/.hermes/config.yaml` or `$HERMES_HOME`) into Anticharon's shortlist. **Strictly read-only on Hermes**: never modifies Hermes configuration.
 - **Parameters:**
   - `hermes_config_path` (string, optional): Explicit custom path to Hermes `config.yaml`.
-  - `dry_run` (boolean, optional, default: `false`): Preview synchronized models without writing to disk.
+  - `dry_run` (boolean, optional, default: `true`): Safe-by-default preview mode. When `true`, detects and returns Hermes models without modifying disk; set `dry_run=false` to persist into Anticharon's `shortlist.json`.
+- **Response Safety Fields:**
+  - `direction` (`"hermes→anticharon"`): Confirms one-way data flow.
+  - `hermes_untouched` (`true`): Confirms Hermes configuration was not mutated.
+  - `notice`: Explicit notification on preview vs persistence status.
 
 ### 10.3 Exposed MCP Resources
 - `anticharon://llms.txt`: Machine-readable Agent-to-Agent operational briefing and schema definitions.

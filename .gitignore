@@ -34,5 +34,5 @@ anticharon.code-workspace
 *.code-workspace
 .antigravity
 
-# Private developer bucket (scratch, pre-specs, drafts, and raw assets)
-dev_bucket/
+# local temp folder
+.local/
