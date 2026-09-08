@@ -19,6 +19,12 @@ This backlog tracks completed milestones, upcoming sprint priorities, and long-t
 
 ## 🚀 Priority Backlog (Sprint Next - Ecosystem Expansion & MCP Tooling)
 
+- [ ] **Eval Harness & Eval-Driven Development (EDD) Gate (`anticharon eval` + MCP Tool/Prompt)**:
+  - Implement zero-dependency shortlist resilience evaluation ([`docs/specs/pre-work/draft_eval_harness.md`](docs/specs/pre-work/draft_eval_harness.md)).
+  - Dual-mode support:
+    1. Automated CI / CLI runner (`anticharon eval`) asserting candidate shortlist adequacy (`is_adequate: bool`).
+    2. FastMCP tool (`eval_shortlist`) and agent prompt (`anticharon_eval_advisor`) enabling host agents (Hermes, Open Claw) on Day 1 to detect single-vendor monocultures, alias volatility (`:latest`, `:free`), and cold-start models (<15d old).
+  - Add golden benchmark test matrix (`tests/fixtures/eval_test_matrix.json`) covering modern model families (Gemini 2.5, DeepSeek R1/V3, Llama 3.3, Claude 3.5).
 - [ ] **Expose `calibrate` as an MCP Tool (`calibrate_token_weights`)**:
   - Expose the OpenRouter activity log parser directly as an MCP tool so orchestrators (Hermes, Claude Desktop, Cursor) can calibrate agent token mixes (`weight_prompt` / `weight_completion`) on the fly.
 - [ ] **Universal One-Way Shortlist Importers**:
@@ -28,6 +34,9 @@ This backlog tracks completed milestones, upcoming sprint priorities, and long-t
   - Add interactive multi-select TUI menu (`anticharon model select`) for selecting candidate models from discovery directly into the shortlist.
 - [ ] **Extended Latency & Quality Metadata**:
   - Ingest Berkeley Function Calling Leaderboard (BFCL) scores and median OpenRouter generation latency when available in API payloads to display alongside price-per-1M tokens.
+- [ ] **Model Metadata Storage & Multi-Dimensional Comparator Tool (`anticharon model compare`)**:
+  - Ingest and persist structured model metadata from OpenRouter (`knowledge_cutoff`, `context_length`, `max_completion_tokens`, `architecture.modality`, `architecture.input_modalities`, `architecture.output_modalities`, `created`, `supported_parameters`, `reasoning.supported_efforts`) alongside pricing.
+  - Transform candidate model discovery from a simple slug grep into a rich comparative helper tool allowing users and agents to filter models by context size, release recency, multimodal capabilities, and price efficiency.
 
 ---
 
