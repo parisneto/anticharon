@@ -523,6 +523,51 @@ def test_mcp_server_suite():
         loop.close()
 
 
+def test_cli_help_subcommand():
+    print("Testing CLI help subcommand and target ergonomics...")
+    from anticharon.cli import cmd_help
+    import argparse
+    import io
+    from contextlib import redirect_stdout, redirect_stderr
+
+    parser = argparse.ArgumentParser(prog="anticharon")
+    subparsers = parser.add_subparsers(dest="command")
+    run_p = subparsers.add_parser("run", help="Run help")
+    model_p = subparsers.add_parser("model", help="Model help")
+    model_subparsers = model_p.add_subparsers(dest="model_action")
+    disc_p = model_subparsers.add_parser("discover", help="Discover help")
+
+    # 1. anticharon help -> top-level help exit 0
+    f = io.StringIO()
+    with redirect_stdout(f):
+        code = cmd_help(parser, subparsers, model_subparsers, argparse.Namespace(target=[]))
+    assert code == 0
+    assert "anticharon" in f.getvalue()
+
+    # 2. anticharon help run -> run help exit 0
+    f = io.StringIO()
+    with redirect_stdout(f):
+        code = cmd_help(parser, subparsers, model_subparsers, argparse.Namespace(target=["run"]))
+    assert code == 0
+    assert "run" in f.getvalue()
+
+    # 3. anticharon help model discover -> model discover help exit 0
+    f = io.StringIO()
+    with redirect_stdout(f):
+        code = cmd_help(parser, subparsers, model_subparsers, argparse.Namespace(target=["model", "discover"]))
+    assert code == 0
+    assert "discover" in f.getvalue()
+
+    # 4. anticharon help unknown -> stderr error and exit 2
+    f_err = io.StringIO()
+    with redirect_stderr(f_err):
+        code = cmd_help(parser, subparsers, model_subparsers, argparse.Namespace(target=["unknown"]))
+    assert code == 2
+    assert "unknown help target 'unknown'" in f_err.getvalue()
+
+    print("  [OK] CLI help subcommand and target routing tests passed")
+
+
 def main():
     print("\n🚀 Running Anticharon Test Suite...")
     print("-" * 50)
@@ -538,8 +583,9 @@ def main():
         test_hermes_integration()
         test_historical_analytics_and_profiles()
         test_mcp_server_suite()
+        test_cli_help_subcommand()
         print("-" * 50)
-        print("✨ ALL TESTS PASSED SUCCESSFULLY! (11/11)")
+        print("✨ ALL TESTS PASSED SUCCESSFULLY! (12/12)")
         print("💡 Note: [WARN] network messages above are simulated 1ms timeout tests")
         print("   verifying Anticharon's offline cache resilience engine (100% expected).\n")
         return 0

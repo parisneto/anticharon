@@ -139,7 +139,7 @@ anticharon/
 │       ├── mcp.py                  # FastMCP server (tools, resources, prompts)
 │       └── llms.txt                # Package-bundled A2A discovery briefing
 ├── tests/
-│   └── run_tests.py                # Zero-dependency test suite (11/11 passing in <1s)
+│   └── run_tests.py                # Zero-dependency test suite (12/12 passing in <1s)
 └── .local/                         # [GIT-IGNORED] Private developer environment & scratchpad
     └── docs/
         ├── github_release_and_pr_playbook.md

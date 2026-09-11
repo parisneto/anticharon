@@ -478,6 +478,34 @@ def cmd_model(args) -> int:
     return 0
 
 
+def cmd_help(
+    parser: argparse.ArgumentParser,
+    subparsers: argparse._SubParsersAction,
+    model_subparsers: argparse._SubParsersAction,
+    args: argparse.Namespace
+) -> int:
+    """Display general or subcommand-specific help."""
+    target = args.target if isinstance(args.target, list) else ([args.target] if args.target else [])
+    if not target:
+        parser.print_help()
+        return 0
+
+    primary = target[0]
+    if primary in subparsers.choices:
+        sub = subparsers.choices[primary]
+        if len(target) > 1 and primary == "model" and target[1] in model_subparsers.choices:
+            model_subparsers.choices[target[1]].print_help()
+            return 0
+        sub.print_help()
+        return 0
+
+    print(
+        f"anticharon: error: unknown help target '{primary}'. Run 'anticharon help' for available commands.",
+        file=sys.stderr
+    )
+    return 2
+
+
 def main() -> None:
     """Main CLI entrypoint."""
     parser = argparse.ArgumentParser(
@@ -630,7 +658,18 @@ def main() -> None:
     disc_p.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json (for token weights)")
     disc_p.add_argument("--json", action="store_true", help="Output catalog results in JSON format")
 
+    # Command: help
+    help_parser = subparsers.add_parser(
+        "help",
+        help="Display general or subcommand help",
+        description="Display general help or detailed usage for a specific subcommand."
+    )
+    help_parser.add_argument("target", nargs="*", help="Subcommand to display help for (e.g. 'run', 'model', 'model discover')")
+
     args = parser.parse_args()
+
+    if args.command == "help":
+        sys.exit(cmd_help(parser, subparsers, model_subparsers, args))
 
     if args.test or args.command == "test":
         sys.exit(cmd_test(args))

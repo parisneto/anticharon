@@ -285,6 +285,12 @@ anticharon model discover "gemini"
 anticharon model discover --promo
 anticharon model discover "qwen" --modality text --max-price 0.50
 anticharon model discover --filter "openai" --filter "price < 10"
+
+# 15. Ergonomic Help Subcommand: Display top-level or subcommand usage
+anticharon help
+anticharon help run
+anticharon help model
+anticharon help model discover
 ```
 
 ---

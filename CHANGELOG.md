@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-09-10
+
+### Added
+- **Ergonomic `help` Subcommand (`src/anticharon/cli.py`):**
+  - Added native `anticharon help` subcommand displaying top-level help with exit code 0, resolving issue [#1](https://github.com/parisneto/anticharon/issues/1).
+  - Added target subcommand help routing (e.g. `anticharon help run`, `anticharon help model`, and nested `anticharon help model discover`).
+  - Added clean stderr error messaging and standard exit code 2 when an unknown help target is requested.
+- **Automated Validation Suite Expansion (`tests/run_tests.py`):**
+  - Added automated unit test (`test_cli_help_subcommand`) covering top-level help, subcommand help, nested subcommand help, and unknown target error routing (expanding test suite to 12/12 passing).
+
+### Changed
+- **CLI Specification Sync (`docs/specs/spec_v1_anticharon.md`):**
+  - Documented the `anticharon help` command and nested target options in Section 7.
+
 ## [0.4.2] - 2026-09-04
 
 ### Added
