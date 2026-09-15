@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Governance Directive Evolution (`AGENTS.md`):**
+  - Evolved Rule 8 from zero-dependency testing to Deterministic, Behavior-Based Testing with `pytest` as the default offline test gate (`uv run pytest`).
+- **Roadmap & Backlog Modernization (`docs/BACKLOG.md`):**
+  - Tracked Milestone 4 completion, updated milestones 1 & 2 formatting, and added upcoming priorities (ADR 0002 ingestion, ZDR super discovery, and MCP calibrate).
+
+### Added
+- **Project Test & Tooling Dependencies (`pyproject.toml`):**
+  - Added `pytest` and `ruff` to project dependencies and configured `[tool.pytest.ini_options]` for test runner discovery and markers.
+- **Reference Fixtures & Documentation Assets:**
+  - Added `docs/sample/openrouter_activity_2026-09-15.csv` empirical activity log sample.
+  - Added ZDR OpenRouter reference visual artifacts (`docs/images/ZDR example Qwen3.8/`).
+
 ## [0.4.3] - 2026-09-10
 
 ### Added

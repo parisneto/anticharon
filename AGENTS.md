@@ -55,12 +55,19 @@ To maintain a clean public repository while preserving exploratory thought, adhe
   - `refactor:` Code restructuring without behavioral change
   - `chore:` Dependency, packaging, or tooling maintenance
 
-### Rule 8: Lightweight, Zero-Dependency Testing
-- Do NOT install heavy test frameworks (e.g. pytest, tox, coverage) unless explicitly requested.
-- Verification is done via:
-  1. Built-in CLI command: `uv run anticharon test`
-  2. Standalone zero-dependency test script: `uv run python tests/run_tests.py`
-- Tests must execute in < 2 seconds, be deterministic, and avoid making un-mocked live network requests during CI/test runs.
+### Rule 8: Deterministic, Behavior-Based Testing
+
+- Every behavior change MUST include tests; every bug fix MUST add a regression test.
+- Use `pytest`. New test dependencies require approval.
+- `uv run pytest` is the default offline gate and MUST pass before work is complete.
+- Test at the cheapest layer that proves the behavior: unit → realistic fixture → mocked integration.
+- Critical calculations MUST use reference cases with independently derived expected values.
+- Tests MUST be deterministic and isolated: no live network, environment dependence, or test-order dependence.
+- Live contract tests MUST use `@pytest.mark.live` and run only when explicitly requested.
+- Tests that merely execute code, mirror the implementation, or mock away the behavior under test are invalid.
+- Agents MUST disclose any skipped, removed, weakened, or changed test expectation.
+- Keep the default suite fast (target <30s).
+
 
 ### Rule 9: Strict English Language Policy
 - All code, variable names, function names, docstrings, inline comments, specifications, documentation, and commit messages MUST be in English.
