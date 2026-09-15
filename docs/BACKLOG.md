@@ -13,17 +13,12 @@ This backlog tracks completed milestones, upcoming sprint priorities, and long-t
     2. FastMCP tool (`eval_shortlist`) and agent prompt (`anticharon_eval_advisor`) enabling host agents (Hermes, Claude Desktop) on Day 1 to detect single-vendor monocultures, alias volatility (`:latest`, `:free`), and cold-start models (<15d old).
   - Add golden benchmark test matrix (`tests/fixtures/eval_test_matrix.json`) covering modern model families (Gemini 2.5, DeepSeek R1/V3, Llama 3.3, Claude 3.5).
 
-- [ ] **Historical Trajectory Ingestion & Day 1 Cold-Start Bootstrapping (ADR 0002)**:
-  - Implement unauthenticated OpenRouter frontend stats API ingestion (`/api/frontend/v1/stats/effective-pricing` with `shape=v7&range=1m` & canonical `permaslug`) as defined in [`docs/specs/adr/0002_internal_frontend_stats_api_for_historical_trajectories.md`](docs/specs/adr/0002_internal_frontend_stats_api_for_historical_trajectories.md).
-  - Dual-tier storage architecture: compact sliding `history.csv` + granular multi-provider `fullhistory.csv`.
-  - Immediate 30-day behavioral profile classification on Day 1 without waiting 30 days for cron accumulation.
-  - Smart selective sync policy (on spike ≥ +20%, on stale >7d, or via `anticharon sync --full`).
-
-- [ ] **Policy-Aware "Super Discovery" & ZDR Inflation Engine**:
-  - Integrate Zero Data Retention (ZDR) and workspace privacy routing filters into discovery.
-  - Detect when headline prices are driven by non-routable providers (e.g. Darkbloom at $0.15 vs real ZDR floor at $0.214, +42.7% to +180% inflation).
-  - Multi-tier tokenized fallback search (e.g., when `qwen/qwen3.8-flash` has 0 routable ZDR endpoints, fall back to viable siblings like `qwen/qwen3.8-27b`).
-  - FastMCP tool `anticharon_super_discovery` and CLI flag `--zdr --explain-inflation`.
+- [ ] **Pricing Engine v2: Cache-Aware + Provider-Routable Pricing + 28-Day Backfill**:
+  - Unifies three prior threads into one initiative — see [`docs/plans/pricing-engine-v2/`](docs/plans/pricing-engine-v2/) (`EXECUTION_CONTRACT.md`, `PLAN.md`, `ADR_CANDIDATE_TOKENS_CACHED.md`) for the full plan and evidence.
+  - **Cache-aware 3-component blended pricing:** `tokens_cached` was never read from activity logs, overestimating real cost by 55–75% for cache-heavy agents.
+  - **Provider-routable pricing:** headline/listed prices are often not what an account can actually route to under a policy constraint (Zero Data Retention is the verified case — e.g. `openai/gpt-5.6-sol` listed $2/$10 vs. ZDR-routable $5–$5.50/$30–$33, +150–200%). Surfaced via CLI flag `--zdr`.
+  - **28-day historical backfill on cold start:** dual-source (public catalog + OpenRouter's internal effective-pricing route, cross-validated) replaces fabricated flat-padding with real observations; dual storage (`history.csv` compact summary + a new granular effective-pricing store).
+  - Test suite matures to `pytest` with golden pricing cases as part of this initiative (tracked in `AGENTS.md` Rule 8).
 
 - [ ] **Expose `calibrate` as an MCP Tool (`calibrate_token_weights`)**:
   - Expose the OpenRouter activity log parser directly as an MCP tool so orchestrators can calibrate agent token mixes (`weight_prompt` / `weight_completion`) on the fly from log snippets or paths.

@@ -29,8 +29,9 @@ Welcome, Agent. This document defines the mandatory operating guidelines, archit
 ### Rule 4: Specification Lifecycle & Staging Pipeline
 To maintain a clean public repository while preserving exploratory thought, adhere to the following specification stages:
 1. **`docs/specs/` (Active Source of Truth):** The authoritative English specifications (`spec_vX_*.md`) and architectural decision records (`adr/`).
-2. **`docs/BACKLOG.md` (Public Roadmap):** Public sprint milestones, prioritized backlog, and checklist tracking.
-3. **`.local/` (Private Git-Ignored Scratchpad):** Incoming exploratory notes, transient prompt scraps, sensitive deployment scripts, and private assets live strictly in `.local/` (ignored by git). Never commit anything from `.local/` to the public repository.
+2. **`docs/plans/<initiative>/` (Major Cross-Cutting Initiative Working Set):** For an initiative too large for a single ADR (touches many modules, unifies multiple prior threads, needs its own evidence gallery) — a folder containing `EXECUTION_CONTRACT.md` (authoritative TL;DR: scope, acceptance criteria, non-goals, testing strategy — must stay synchronized with the rest in the same change), `PLAN.md` (reconciled long-form implementation plan, open questions marked `OPEN` rather than guessed), any candidate ADRs feeding it, and promoted evidence assets (screenshots, sample payloads) so the folder is self-contained for anyone browsing the public repo. First used for `docs/plans/pricing-engine-v2/`.
+3. **`docs/BACKLOG.md` (Public Roadmap):** Public sprint milestones, prioritized backlog, and checklist tracking.
+4. **`.local/` (Private Git-Ignored Scratchpad):** Incoming exploratory notes, transient prompt scraps, sensitive deployment scripts, and private assets live strictly in `.local/` (ignored by git). Never commit anything from `.local/` to the public repository — when a document or evidence asset is promoted out of `.local/` into `docs/specs/` or `docs/plans/`, strip any private local filesystem paths from it first (see Rule 12).
 
 ### Rule 5: Plain Markdown & Unicode Math Notation (No LaTeX)
 - **Do NOT use LaTeX, math-mode syntax, or LaTeX-style notation** in Markdown (`$...$`, `$$...$$`, or `$\command$`).
