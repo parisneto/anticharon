@@ -2,7 +2,7 @@
 
 > Long-form plan behind `EXECUTION_CONTRACT.md` (authoritative TL;DR — this document must not contradict it; where something below is not yet settled, it is marked **OPEN** rather than guessed).
 >
-> Revision 2 (2026-09-15): incorporates decisions made after the first draft — dual-source/dual-file backfill, corrected advertised-vs-blended pricing semantics, the same-day-rerun bug, and answers to all six original divergences. Superseded text from revision 1 has been replaced, not appended.
+> Revision 3 (2026-09-15): all `OPEN` items from revision 2 are now resolved — the JSON store's filename, the analytics minimum-tracking-time threshold, and the `current_price_1m` rename. This plan has no remaining open decisions blocking implementation; the new-session handoff prompt in this conversation should be updated to drop the "ask me about these" paragraph accordingly.
 
 ## Context
 
@@ -21,7 +21,7 @@ This resolves an earlier ambiguity — worth stating precisely since it's founda
 
 - **"Blended price" is one concept, always 3-component.** `Price = (P_uncached × w_uncached) + (P_cache_read × w_cached) + (P_out × w_completion)`. There is no second, cache-blind "blended" number anywhere in the system, calibrated or not. Any code path that still does a 2-component blend after this change is a bug.
 - **"Advertised" is never blended, and never pinned to whichever endpoint wins.** It's the raw listed reference from the bulk catalog headline, stored as a pair — `advertised_prompt_1m`, `advertised_completion_1m` — regardless of which specific endpoint `effective_price_1m`/`policy_price_1m` end up routing through. Which endpoint OpenRouter actually serves a request from is OpenRouter's routing decision, not Anticharon's — Anticharon only surfaces the shortlist and highlights how routing can impact or benefit real cost; it never decides or reroutes on the agent's/user's behalf (see Non-Goals: no dynamic rerouting). `advertised` exists purely as a transparency/comparison anchor, not as an input to any calculation.
-- **`effective_price_1m`** (replaces `current_price_1m` as the canonical tracked number — kept as a legacy-named alias field during transition if that helps downstream code, **OPEN**: confirm whether to rename outright or alias) is the 3-component blend computed against the cheapest endpoint's real pricing.
+- **`effective_price_1m`** (renamed outright from `current_price_1m` — decided 2026-09-15, for clarity) is the 3-component blend computed against the cheapest endpoint's real pricing. This is a breaking rename of the public-facing field: it changes the JSON key in CLI `--json` output and the `check_prices` MCP tool's return shape, which will break any existing consumer parsing `price_1m`/`current_price_1m` — including Hermes Agent itself if it depends on that field name. `CHANGELOG.md` must call this out explicitly as a breaking rename, not just as a semantic-meaning change (see Docs section below). To avoid destroying users' accumulated local data on upgrade: `read_history()` must still accept the *old* `current_price_1m` column header when reading an existing `history.csv` (map it internally), while `write_history()` always writes the new `effective_price_1m` header going forward.
 - **`policy_price_1m`** (optional) is the same 3-component blend, restricted to endpoints passing an active policy filter (ZDR to start).
 - **Calibrated users** get `(w_uncached, w_cached, w_completion)` from `anticharon calibrate` against real activity logs (now reading `tokens_cached`).
 - **Non-calibrated users (default/cold-start)** currently get `weight_prompt=0.9971 / weight_completion=0.0029` from the TraceLab paper citation in `config.py`. That default now needs a third number — a default cache-hit-rate — which no equivalent public paper covers. Per your instruction, use what we actually have: pooling the two real activity-log samples in `docs/sample/` (`70,516,104` cached tokens over `91,973,374` total prompt tokens across both files) gives an interim default **cache-hit-rate ≈ 0.7667**. Decompose the existing default: `w_cached = 0.9971 × 0.7667 ≈ 0.7645`, `w_uncached = 0.9971 × (1 − 0.7667) ≈ 0.2326`, `w_completion = 0.0029` (unchanged). **Backlog task added** (see Deferred below): find a public/documented source for a better default cache-hit-rate assumption, same as TraceLab justified the existing prompt/completion split — this interim number is admittedly just "what we happened to observe in two personal exports," not independently validated.
@@ -36,7 +36,7 @@ Per your direction, replacing the single-file "add one column" idea from revisio
 - **Same-day-rerun bug fix (your catch):** current `tracker.py` does `new_prices = [current_1m] + prev_prices[:8]` unconditionally on every run — no check against `last_updated`'s calendar date, so running `anticharon run` twice in one day silently corrupts the `d1..d7` window (each run counts as a full day-shift). Fix: only shift the window when `last_updated`'s date differs from today's; a same-day rerun updates today's slot in place. This is being fixed as part of this same storage rework since it touches identical code.
 - Nullable slots: empty string = "no real observation yet," not a fabricated duplicate of the current price (unchanged from revision 1's plan, still correct).
 
-**New granular JSON store (`data/effective_pricing.json` or similar — exact name/path **OPEN**, follows the same path-resolution hierarchy as `history.csv`):**
+**New granular JSON store (`effective_prices.json`, decided 2026-09-15 — same data directory as `history.csv`, following the same path-resolution hierarchy):**
 - Per-model, per-provider daily time series pulled from OpenRouter's internal `effective-pricing` route: date, provider, effective price (cache/volume-weighted), listed price, cache hit rate, token share where available.
 - Its own staleness/refresh policy, independent of `history.csv`'s per-run cadence — e.g. refresh only when data is older than N hours/days, not on every `anticharon run`. Exact cadence **OPEN**.
 - `history.csv`'s precalculated stats are *derived from* this file, not the other way around — this file is the source of truth for history, `history.csv` is a fast-read cache of summary stats over it.
@@ -61,12 +61,12 @@ Graceful degradation: if the internal route fails or its shape has changed, fall
 - `PriceWarning` gains `POLICY_UNROUTABLE` (message + policy name + excluded providers + reason).
 
 **`src/anticharon/analytics.py` (`calculate_model_analytics`):**
-- Rework to compute mean/CV/profile only over non-null slots actually present; `NEWLY_TRACKED` means "fewer than N real observations," not "fewer than 28 days elapsed." **OPEN**: exact minimum N for a non-`NEWLY_TRACKED` classification (1 point is confirmed `NEWLY_TRACKED` per the Execution Contract's own golden case; the floor for `STABLE`/`VOLATILE` etc. isn't specified yet).
+- Rework to compute mean/CV/profile only over non-null slots actually present; `NEWLY_TRACKED` means "insufficient tracking history," not "fewer than 28 days elapsed." **Threshold decided 2026-09-15:** a model qualifies for `STABLE`/`VOLATILE`/etc. classification once **14 calendar days have elapsed since it was first tracked** (50% of the 28-day window) — measured as elapsed time since `first_seen`, not as a count of non-null slots (those aren't the same thing once backfill can leave gaps, e.g. `d1` and `d15` populated but nothing between). Below 14 days elapsed, always `NEWLY_TRACKED`, matching the single-observation golden case in `EXECUTION_CONTRACT.md`. This constant is intentionally a rough starting guess — configurable, and expected to be revisited with real production data in a future PATCH/MINOR release rather than over-engineered now.
 
 ## Module-by-module implementation
 
 - **`log_parser.py`:** read `tokens_cached`; compute uncached/cached/completion weights + cache-hit-rate per the ADR formula.
-- **`config.py`:** default config's `weight_prompt`/`weight_completion` decomposed into the 3-way default described above; add the pooled cache-hit-rate constant with a comment citing its provisional/interim status.
+- **`config.py`:** default config's `weight_prompt`/`weight_completion` decomposed into the 3-way default described above; add the pooled cache-hit-rate constant with a comment citing its provisional/interim status. Also add the `min_tracking_days_for_profile` constant (default `14`, configurable in `shortlist.json` like `spike_threshold_pct` already is) backing the analytics threshold above.
 - **`tracker.py`:** fetch bulk catalog (advertised price/metadata) + `/models/{slug}/endpoints` (effective/policy price) + internal effective-pricing route (backfill, on first sight of a model or per the JSON store's own staleness policy). Apply the same-day-rerun guard.
 - **`discovery.py`:** add `zdr_only: bool = False` to `fetch_catalog()`.
 - **`cli.py` / `mcp.py`:** surface `advertised` / `effective` / `policy` (when active) as three distinct, clearly-labeled numbers everywhere a price is shown — never collapse them back into one.
@@ -81,7 +81,7 @@ Graceful degradation: if the internal route fails or its shape has changed, fall
 
 - `docs/specs/spec_v1_anticharon.md`: new section replacing the current single-price framing with the three-price model + dual storage.
 - `AGENTS.md`: amend Rule 8 (pytest adoption) and Rule 4 (add `docs/plans/<initiative>/` as a documented convention — confirmed, see below).
-- `CHANGELOG.md`: MINOR bump to `v0.5.0`, with an explicit callout that historical `history.csv` values now mean something semantically different even though the file format is backward-compatible.
+- `CHANGELOG.md`: MINOR bump to `v0.5.0`, with two explicit callouts: (1) **breaking field rename** — `current_price_1m` → `effective_price_1m` in CLI `--json` output and the `check_prices` MCP tool's return shape (existing consumers, including Hermes Agent, must update); (2) historical `history.csv` values now mean something semantically different even where the file format stays readable.
 - `docs/BACKLOG.md`: confirmed OK to edit — collapse the two currently-staged separate items (historical backfill, ZDR/super-discovery) into one "Pricing Engine v2" entry pointing at this plan folder.
 
 ## Explicitly paused / non-goals (unchanged)
@@ -99,7 +99,7 @@ Graceful degradation: if the internal route fails or its shape has changed, fall
 
 ---
 
-## Resolved divergences (all six from revision 1)
+## Resolved divergences (all nine — six from revision 1, three from revision 2)
 
 1. **`advertised_price_1m` column** — resolved: stored as a raw pair (`advertised_prompt_1m`/`advertised_completion_1m`), never blended. See "Core pricing semantics" above.
 2. **28-day backfill data source** — resolved: use both public and internal sources, cross-validated.
@@ -107,6 +107,11 @@ Graceful degradation: if the internal route fails or its shape has changed, fall
 4. **Retiring `tests/run_tests.py`** — resolved: retire outright.
 5. **`docs/plans/<initiative>/` convention** — resolved: yes, document in AGENTS.md Rule 4.
 6. **`docs/BACKLOG.md` reconciliation** — resolved: approved, collapse to one entry.
+7. **Granular JSON store filename/path** — resolved: `effective_prices.json`, same data directory as `history.csv`.
+8. **Analytics minimum-sample threshold** — resolved: 14 calendar days elapsed since first tracked (configurable, `min_tracking_days_for_profile`), not a slot-count.
+9. **`current_price_1m` rename** — resolved: rename outright to `effective_price_1m`, flagged as a breaking change in `CHANGELOG.md`, with `read_history()` kept backward-compatible for existing local files.
+
+This plan now has **no remaining open decisions**. The next session should implement per this document without needing further sign-off on scope — only genuine new discoveries during implementation should come back as questions.
 
 ## Verification
 
