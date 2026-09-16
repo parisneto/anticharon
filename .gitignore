@@ -22,6 +22,9 @@ build/
 .idea/
 .vscode/
 
+Claude outputs/
+data/
+
 # Local runtime data & environment files
 data/history.csv
 *.log
