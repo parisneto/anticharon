@@ -7,8 +7,8 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-from anticharon.pricing import is_valid_listed_price
-from anticharon.tracker import OPENROUTER_MODELS_URL
+from anticharon.pricing import blended_rate_1m, is_valid_listed_price, resolve_cache_read_price_1m
+from anticharon.tracker import OPENROUTER_MODELS_URL, fetch_endpoint_policy_pricing
 
 
 @dataclass
@@ -40,10 +40,24 @@ class CatalogModel:
 
 def fetch_catalog(
     timeout: float = 10.0,
-    weight_prompt: float = 0.9971,
-    weight_completion: float = 0.0029
+    weight_uncached_prompt: float = 0.232622,
+    weight_cached_prompt: float = 0.764478,
+    weight_completion: float = 0.0029,
+    zdr_only: bool = False,
 ) -> List[CatalogModel]:
-    """Fetch and parse all models from OpenRouter API."""
+    """Fetch and parse all models from OpenRouter API.
+
+    `blended_price_1m` is the cache-aware 3-component blend (ADR-2026-0002-TOKENS-CACHED),
+    using each model's own `pricing.input_cache_read` from the bulk catalog (confirmed
+    present per-model, not just per-endpoint) with calibrated/default weights -- not a
+    per-provider routing decision, since the bulk catalog has no per-endpoint data.
+
+    `zdr_only=True` additionally live-checks each candidate model's real ZDR signal
+    (`provider_info.dataPolicy.retainsPrompts`, see tracker.py) and excludes any model
+    with no ZDR-compliant endpoint. This is one extra HTTP call per model still in the
+    catalog after the sentinel-price guard below (~440 on an unfiltered browse) -- opt-in
+    and slower by design, not something the default `zdr_only=False` browse pays for.
+    """
     try:
         resp = requests.get(OPENROUTER_MODELS_URL, timeout=timeout)
         if resp.status_code != 200:
@@ -79,7 +93,24 @@ def fetch_catalog(
             # skip rather than let a negative sentinel masquerade as "cheapest".
             continue
 
-        blended = (p_in * weight_prompt) + (p_out * weight_completion)
+        if zdr_only:
+            canonical_slug = item.get("canonical_slug") or model_id
+            endpoints = fetch_endpoint_policy_pricing(canonical_slug, timeout=timeout)
+            is_zdr_compliant = any(
+                ((ep.get("provider_info") or {}).get("dataPolicy") or {}).get("retainsPrompts") is False
+                for ep in endpoints
+            )
+            if not is_zdr_compliant:
+                continue
+
+        cache_read_raw = pricing.get("input_cache_read")
+        try:
+            p_cache_raw = float(cache_read_raw) * 1_000_000 if cache_read_raw not in (None, "") else None
+        except (ValueError, TypeError):
+            p_cache_raw = None
+        p_cache = resolve_cache_read_price_1m(p_in, p_cache_raw)
+
+        blended = blended_rate_1m(p_in, p_cache, p_out, weight_uncached_prompt, weight_cached_prompt, weight_completion)
 
         # Promo / Discount detection
         is_promo = (

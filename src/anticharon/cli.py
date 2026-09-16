@@ -57,7 +57,7 @@ def format_human_output(result) -> None:
         if shortlist:
             default_model = shortlist[0]
 
-    print(f"{'MODEL':<38} {'PRICE/1M':<12} {'MA 7D':<12} {'CHANGE (7D)':<10}")
+    print(f"{'MODEL':<34} {'EFFECTIVE/1M':<13} {'MA 7D':<12} {'CHANGE (7D)':<10}")
     print("-" * 74)
 
     for idx, p in enumerate(result.prices_shortlist):
@@ -68,7 +68,16 @@ def format_human_output(result) -> None:
         if default_model and p.model == default_model:
             badges.append("★ [DEFAULT]")
         badge_str = f" {' '.join(badges)}" if badges else ""
-        print(f"{p.model:<38} ${p.price_1m:<11.5f} ${p.ma_7d:<11.5f} {change_str:<10}{badge_str}")
+        print(f"{p.model:<34} ${p.price_1m:<12.5f} ${p.ma_7d:<11.5f} {change_str:<10}{badge_str}")
+        if p.price:
+            # Advertised is a raw (never blended) prompt/completion pair -- a
+            # transparency anchor only, distinct from the effective blend above.
+            detail = f"    ↳ advertised: ${p.price.advertised_prompt_1m:.4f} in / ${p.price.advertised_completion_1m:.4f} out /1M"
+            if p.price.policy_price_1m is not None:
+                detail += f"  |  policy (ZDR): ${p.price.policy_price_1m:.5f}/1M"
+            elif p.price.is_policy_routable is False:
+                detail += "  |  policy (ZDR): unroutable"
+            print(detail)
 
     print("-" * 74)
 
@@ -87,6 +96,8 @@ def format_human_output(result) -> None:
                 print(f"  🟢 [DROP]  {w.message}")
             elif w.type == "BEST_OPTION_CHANGED":
                 print(f"  💡 [TIP]   {w.message}")
+            elif w.type == "POLICY_UNROUTABLE":
+                print(f"  🚫 [POLICY] {w.message}")
     else:
         print("\n✅ All monitored models are within normal price fluctuation boundaries.")
     print("=" * 74 + "\n")
@@ -184,6 +195,8 @@ def format_analytics_human_output(result: TrackerResult) -> None:
                 print(f"  🟢 [DROP]  {w.message}")
             elif w.type == "BEST_OPTION_CHANGED":
                 print(f"  💡 [TIP]   {w.message}")
+            elif w.type == "POLICY_UNROUTABLE":
+                print(f"  🚫 [POLICY] {w.message}")
 
     print("=" * 104 + "\n")
 
@@ -207,7 +220,8 @@ def cmd_run(args) -> int:
         hermes_config_path=getattr(args, "hermes_config", None),
         no_hermes=getattr(args, "no_hermes", False),
         enable_analytics=is_analytics,
-        hints_enabled=getattr(args, "hints", False)
+        hints_enabled=getattr(args, "hints", False),
+        zdr_only=getattr(args, "zdr", False)
     )
 
     if args.json:
@@ -331,12 +345,15 @@ def cmd_calibrate(args) -> int:
             print("📊 OpenRouter Token Mix & Calibration Analysis")
             print("=" * 60)
             print(f" Records processed:       {mix.records_count:,}")
-            print(f" Total Prompt Tokens:     {mix.total_prompt_tokens:,} ({mix.weight_prompt*100:.2f}%)")
+            print(f" Total Prompt Tokens:     {mix.total_prompt_tokens:,}")
+            print(f"   Uncached: {mix.total_uncached_tokens:,} ({mix.weight_uncached_prompt*100:.2f}%)")
+            print(f"   Cached:   {mix.total_cached_tokens:,} ({mix.weight_cached_prompt*100:.2f}%, cache-hit-rate {mix.cache_hit_rate*100:.2f}%)")
             print(f" Total Completion Tokens: {mix.total_completion_tokens:,} ({mix.weight_completion*100:.2f}%)")
             print(f" Total Tokens:            {mix.total_tokens:,}")
             print("-" * 60)
-            print(f" Calculated Weight Prompt:     {mix.weight_prompt:.6f}")
-            print(f" Calculated Weight Completion: {mix.weight_completion:.6f}")
+            print(f" Calculated Weight Uncached Prompt: {mix.weight_uncached_prompt:.6f}")
+            print(f" Calculated Weight Cached Prompt:    {mix.weight_cached_prompt:.6f}")
+            print(f" Calculated Weight Completion:       {mix.weight_completion:.6f}")
             print("-" * 60)
             print(" 💡 TraceLab Real-World Context (UW TraceLab Dataset):")
             print("    Claude Code / Codex traces report 99.63% in / 0.37% out.")
@@ -346,7 +363,9 @@ def cmd_calibrate(args) -> int:
 
         if not is_dry_run:
             cfg_path = Path(args.config) if args.config else get_config_path()
-            updated_path = update_config_weights(mix.weight_prompt, mix.weight_completion, cfg_path)
+            updated_path = update_config_weights(
+                mix.weight_uncached_prompt, mix.weight_cached_prompt, mix.weight_completion, cfg_path
+            )
             print(f"✅ Configuration calibrated & saved at: {updated_path}\n")
         else:
             print("ℹ️ [DRY RUN] Configuration was not modified.\n")
@@ -412,10 +431,16 @@ def cmd_model(args) -> int:
 
     elif action == "discover":
         cfg = load_config(cfg_path)
-        w_in = cfg.get("weight_prompt", 0.9971)
-        w_out = cfg.get("weight_completion", 0.0029)
+        w_uncached = cfg.get("weight_uncached_prompt", 0.232622)
+        w_cached = cfg.get("weight_cached_prompt", 0.764478)
+        w_completion = cfg.get("weight_completion", 0.0029)
 
-        catalog = fetch_catalog(weight_prompt=w_in, weight_completion=w_out)
+        catalog = fetch_catalog(
+            weight_uncached_prompt=w_uncached,
+            weight_cached_prompt=w_cached,
+            weight_completion=w_completion,
+            zdr_only=getattr(args, "zdr", False),
+        )
         filtered = filter_catalog(
             models=catalog,
             query=args.query,
@@ -537,6 +562,7 @@ def main() -> None:
     run_parser.add_argument("--data-dir", type=str, default=None, help="Directory to store history.csv")
     run_parser.add_argument("--hermes-config", type=str, default=None, help="Path to custom Hermes config.yaml")
     run_parser.add_argument("--no-hermes", action="store_true", help="Disable Hermes auto-detection and run in standalone mode")
+    run_parser.add_argument("--zdr", action="store_true", help="Restrict effective price to Zero Data Retention-compliant endpoints")
 
     # Command: check (alias for run --dry-run)
     check_parser = subparsers.add_parser("check", help="Check current prices without updating history.csv")
@@ -551,6 +577,7 @@ def main() -> None:
     check_parser.add_argument("--data-dir", type=str, default=None, help="Directory to store history.csv")
     check_parser.add_argument("--hermes-config", type=str, default=None, help="Path to custom Hermes config.yaml")
     check_parser.add_argument("--no-hermes", action="store_true", help="Disable Hermes auto-detection and run in standalone mode")
+    check_parser.add_argument("--zdr", action="store_true", help="Restrict effective price to Zero Data Retention-compliant endpoints")
 
     # Command: history
     history_parser = subparsers.add_parser("history", help="Audit 30-day historical intelligence and export CSV")
@@ -657,6 +684,7 @@ def main() -> None:
     disc_p.add_argument("--max-output-price", type=float, default=None, help="Maximum output completion price per 1M tokens ($)")
     disc_p.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json (for token weights)")
     disc_p.add_argument("--json", action="store_true", help="Output catalog results in JSON format")
+    disc_p.add_argument("--zdr", action="store_true", help="Only include models with a Zero Data Retention-compliant endpoint (slower: one extra live check per candidate model)")
 
     # Command: help
     help_parser = subparsers.add_parser(

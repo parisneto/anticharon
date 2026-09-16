@@ -6,13 +6,19 @@ from typing import List, Optional, Dict, Any
 
 @dataclass
 class PriceRecord:
-    """Historical price record for a single model in CSV."""
+    """Historical price record for a single model in CSV (ADR-2026-0002-TOKENS-CACHED schema).
+
+    `prices` slots are nullable: `None` means "no real observation for that day
+    yet" (e.g. partial backfill), never a fabricated duplicate of the current price.
+    """
     model: str
     last_updated: str
-    current: float
+    effective_price_1m: float
     ma_3d: float
     ma_7d: float
-    prices: List[float]  # 9-element array: [d1, d2, d3, d4, d5, d6, d7, d15, d30]
+    prices: List[Optional[float]]  # 9-element array: [d1, d2, d3, d4, d5, d6, d7, d15, d30]
+    advertised_prompt_1m: float = 0.0
+    advertised_completion_1m: float = 0.0
 
 
 @dataclass
@@ -46,7 +52,7 @@ class ModelAnalytics:
     recommendation: str
     secondary_badge: Optional[str] = None
     sibling_alternatives: List[SiblingAlternative] = field(default_factory=list)
-    history_vector: Dict[str, float] = field(default_factory=dict)
+    history_vector: Dict[str, Optional[float]] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -61,13 +67,51 @@ class ModelAnalytics:
             "trajectory_sparkline": self.trajectory_sparkline,
             "recommendation": self.recommendation,
             "sibling_alternatives": [s.to_dict() for s in self.sibling_alternatives],
-            "history_vector": {k: round(v, 5) for k, v in self.history_vector.items()}
+            "history_vector": {k: (round(v, 5) if v is not None else None) for k, v in self.history_vector.items()}
         }
 
 
 @dataclass
+class PricePoint:
+    """Cache-aware, provider-routable pricing snapshot for a model (ADR-2026-0002-TOKENS-CACHED).
+
+    Three deliberately distinct numbers, never collapsed into one:
+    - `advertised_*`: raw listed reference from the bulk catalog headline. A
+      transparency/comparison anchor only, never an input to any calculation.
+    - `effective_price_1m`: the 3-component cache-aware blend against the
+      cheapest real endpoint.
+    - `policy_price_1m`: the same blend restricted to endpoints passing an
+      active policy filter (ZDR to start) — `None` when no policy is active.
+    """
+    advertised_prompt_1m: float
+    advertised_completion_1m: float
+    effective_price_1m: float
+    policy_price_1m: Optional[float] = None
+    is_policy_routable: Optional[bool] = None
+    cache_hit_rate_used: float = 0.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        data: Dict[str, Any] = {
+            "advertised_prompt_1m": round(self.advertised_prompt_1m, 6),
+            "advertised_completion_1m": round(self.advertised_completion_1m, 6),
+            "effective_price_1m": round(self.effective_price_1m, 6),
+            "cache_hit_rate_used": round(self.cache_hit_rate_used, 6),
+        }
+        if self.policy_price_1m is not None:
+            data["policy_price_1m"] = round(self.policy_price_1m, 6)
+        if self.is_policy_routable is not None:
+            data["is_policy_routable"] = self.is_policy_routable
+        return data
+
+
+@dataclass
 class ModelPrice:
-    """Calculated current price and moving average metrics for a model."""
+    """Calculated current price and moving average metrics for a model.
+
+    `price_1m` is the effective (cache-aware) price and remains the sort/chart
+    key throughout the codebase. `price`, when populated by the tracker, carries
+    the full advertised/effective/policy breakdown for display surfaces.
+    """
     model: str
     price_1m: float
     ma_7d: float
@@ -76,14 +120,19 @@ class ModelPrice:
     prompt_price_raw: Optional[float] = None
     completion_price_raw: Optional[float] = None
     analytics: Optional[ModelAnalytics] = None
+    price: Optional[PricePoint] = None
 
     def to_dict(self) -> Dict[str, Any]:
         data: Dict[str, Any] = {
             "model": self.model,
-            "price_1m": round(self.price_1m, 5),
+            "effective_price_1m": round(self.price_1m, 5),
             "ma_7d": round(self.ma_7d, 5),
             "change_vs_7d_pct": round(self.change_vs_7d_pct, 2)
         }
+        if self.price:
+            price_dict = self.price.to_dict()
+            price_dict.pop("effective_price_1m", None)
+            data.update(price_dict)
         if self.analytics:
             data["analytics"] = self.analytics.to_dict()
         return data
@@ -91,12 +140,15 @@ class ModelPrice:
 
 @dataclass
 class PriceWarning:
-    """Warning structure for volatility or cheapest model alerts."""
-    type: str  # 'PRICE_SPIKE', 'PRICE_DROP', 'BEST_OPTION_CHANGED'
+    """Warning structure for volatility, cheapest-model, or policy-routability alerts."""
+    type: str  # 'PRICE_SPIKE', 'PRICE_DROP', 'BEST_OPTION_CHANGED', 'POLICY_UNROUTABLE'
     message: str
     model: Optional[str] = None
     current_default: Optional[str] = None
     suggested_cheapest: Optional[str] = None
+    policy: Optional[str] = None
+    excluded_providers: Optional[List[str]] = None
+    reason: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         data: Dict[str, Any] = {
@@ -109,6 +161,12 @@ class PriceWarning:
             data["current_default"] = self.current_default
         if self.suggested_cheapest:
             data["suggested_cheapest"] = self.suggested_cheapest
+        if self.policy:
+            data["policy"] = self.policy
+        if self.excluded_providers:
+            data["excluded_providers"] = self.excluded_providers
+        if self.reason:
+            data["reason"] = self.reason
         return data
 
 
@@ -179,17 +237,14 @@ class TrackerResult:
 
 @dataclass
 class PromptMixResult:
-    """Result of prompt/completion ratio calculation from activity logs.
-
-    `weight_prompt`/`weight_completion` are the legacy 2-way split (kept for
-    backward compatibility with existing config/CLI consumers). The
-    cache-aware 3-way split (`weight_uncached_prompt` + `weight_cached_prompt`
-    + `weight_completion`) is the one ADR-2026-0002-TOKENS-CACHED formulas use.
+    """Result of the cache-aware 3-way token mix calculation from activity logs
+    (ADR-2026-0002-TOKENS-CACHED). The legacy 2-way `weight_prompt`/`weight_completion`
+    split is removed as an independent downstream path — `weight_uncached_prompt`
+    + `weight_cached_prompt` together are what `weight_prompt` used to be.
     """
     total_prompt_tokens: int
     total_completion_tokens: int
     total_tokens: int
-    weight_prompt: float
     weight_completion: float
     records_count: int
     total_cached_tokens: int = 0
@@ -206,11 +261,11 @@ class PromptMixResult:
             "total_cached_tokens": self.total_cached_tokens,
             "total_uncached_tokens": self.total_uncached_tokens,
             "total_tokens": self.total_tokens,
-            "weight_prompt": round(self.weight_prompt, 6),
             "weight_completion": round(self.weight_completion, 6),
             "weight_uncached_prompt": round(self.weight_uncached_prompt, 6),
             "weight_cached_prompt": round(self.weight_cached_prompt, 6),
             "cache_hit_rate": round(self.cache_hit_rate, 6),
-            "prompt_pct": f"{self.weight_prompt * 100:.2f}%",
+            "uncached_pct": f"{self.weight_uncached_prompt * 100:.2f}%",
+            "cached_pct": f"{self.weight_cached_prompt * 100:.2f}%",
             "completion_pct": f"{self.weight_completion * 100:.2f}%"
         }

@@ -136,7 +136,8 @@ anticharon/
 │       ├── cli.py                  # CLI commands (run, check, test, calibrate, model)
 │       ├── config.py               # Config & environment variable loader
 │       ├── models.py               # Dataclasses & types
-│       ├── storage.py              # history.csv compact sliding window & cold-start logic
+│       ├── pricing.py              # Pure cache-aware 3-component pricing formulas
+│       ├── storage.py              # history.csv (nullable slots) + effective_prices.json granular store
 │       ├── tracker.py              # OpenRouter API fetcher, calculations & alerts
 │       ├── log_parser.py           # OpenRouter activity CSV parser & prompt mix calculator
 │       ├── tester.py               # anticharon test self-check implementation
@@ -147,7 +148,9 @@ anticharon/
 │       ├── mcp.py                  # FastMCP server (tools, resources, prompts)
 │       └── llms.txt                # Package-bundled A2A discovery briefing
 ├── tests/
-│   └── run_tests.py                # Zero-dependency test suite (12/12 passing in <1s)
+│   ├── conftest.py, test_*.py      # pytest suite (Rule 8) -- deterministic by default,
+│   │                               # @pytest.mark.live tests excluded unless run explicitly
+│   └── fixtures/                   # Sanitized real API payloads used by fixture-based tests
 └── .local/                         # [GIT-IGNORED] Private developer environment & scratchpad
     └── docs/
         ├── github_release_and_pr_playbook.md
@@ -178,8 +181,11 @@ uv pip install git+https://github.com/parisneto/anticharon.git
 # Run built-in self-check
 uv run anticharon test
 
-# Run standalone test runner
-uv run python tests/run_tests.py
+# Run the mandatory deterministic pytest gate (no network, excludes @pytest.mark.live)
+uv run pytest
+
+# Run live network contract tests explicitly (not part of the default gate)
+uv run pytest -m live
 
 # Test CLI dry run against OpenRouter live API
 uv run anticharon run --dry-run

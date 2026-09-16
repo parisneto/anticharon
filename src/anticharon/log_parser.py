@@ -45,13 +45,11 @@ def parse_activity_log(csv_path: Path | str) -> PromptMixResult:
     total_tokens = total_prompt + total_completion
 
     if total_tokens > 0:
-        weight_prompt = total_prompt / total_tokens
         weight_completion = total_completion / total_tokens
         weight_uncached_prompt = total_uncached / total_tokens
         weight_cached_prompt = total_cached / total_tokens
     else:
         # Fallback to default if log is empty
-        weight_prompt = 0.9922
         weight_completion = 0.0078
         weight_uncached_prompt = 0.9922
         weight_cached_prompt = 0.0
@@ -62,7 +60,6 @@ def parse_activity_log(csv_path: Path | str) -> PromptMixResult:
         total_prompt_tokens=total_prompt,
         total_completion_tokens=total_completion,
         total_tokens=total_tokens,
-        weight_prompt=weight_prompt,
         weight_completion=weight_completion,
         records_count=records_count,
         total_cached_tokens=total_cached,

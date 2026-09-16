@@ -73,16 +73,21 @@ def run_self_test(
         cfg_path = get_config_path()
         cfg = load_config(cfg_path)
         shortlist = cfg.get("shortlist", [])
-        w_in = cfg.get("weight_prompt", 0.9971)
+        w_uncached = cfg.get("weight_uncached_prompt", 0.232622)
+        w_cached = cfg.get("weight_cached_prompt", 0.764478)
         w_out = cfg.get("weight_completion", 0.0029)
         diag["configuration"] = {
             "path": str(cfg_path),
             "models_count": len(shortlist),
-            "weight_prompt": w_in,
+            "weight_uncached_prompt": w_uncached,
+            "weight_cached_prompt": w_cached,
             "weight_completion": w_out
         }
         if not json_mode:
-            print(f" [PASS] Configuration: {len(shortlist)} models shortlisted (In: {w_in*100:.2f}%, Out: {w_out*100:.2f}%)")
+            print(
+                f" [PASS] Configuration: {len(shortlist)} models shortlisted "
+                f"(Uncached: {w_uncached*100:.2f}%, Cached: {w_cached*100:.2f}%, Out: {w_out*100:.2f}%)"
+            )
     except Exception as e:
         diag["configuration"] = {"error": str(e)}
         if not json_mode:

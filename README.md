@@ -1,6 +1,6 @@
-# Anticharon 🪙⚖️ (v0.4.3)
+# Anticharon 🪙⚖️ (v0.5.0)
 
-[![Version](https://img.shields.io/badge/version-0.4.3-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/parisneto/anticharon/actions/workflows/ci.yml/badge.svg)](https://github.com/parisneto/anticharon/actions)
 
@@ -174,9 +174,11 @@ Anticharon looks for configuration in:
     "minimax/minimax-m2.7",
     "google/gemini-2.5-flash-lite"
   ],
-  "weight_prompt": 0.9922,
-  "weight_completion": 0.0078,
-  "spike_threshold_pct": 20.0
+  "weight_uncached_prompt": 0.2326,
+  "weight_cached_prompt": 0.7645,
+  "weight_completion": 0.0029,
+  "spike_threshold_pct": 20.0,
+  "min_tracking_days_for_profile": 14
 }
 ```
 
@@ -315,4 +317,4 @@ Anticharon is built for the agentic developer community. Contributions, suggesti
 
 - **Found a bug or price discrepancy?** Open an [Issue](https://github.com/parisneto/anticharon/issues).
 - **Want to add a feature or provider filter?** Fork the repo, create a branch, and submit a [Pull Request](https://github.com/parisneto/anticharon/pulls).
-- **Code Standards**: Anticharon follows spec-driven development, zero-dependency testing, and plain Markdown math. Always run `uv run python tests/run_tests.py` before submitting a PR.
+- **Code Standards**: Anticharon follows spec-driven development, deterministic `pytest`-based testing, and plain Markdown math. Always run `uv run pytest` before submitting a PR.

@@ -1,6 +1,6 @@
 [project]
 name = "anticharon"
-version = "0.4.3"
+version = "0.5.0"
 description = "OpenRouter model price tracker, volatility detector, and token cost optimizer for Hermes Agent and MCP pipelines"
 readme = "README.md"
 authors = [
@@ -27,7 +27,8 @@ packages = ["src/anticharon"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-python_files = ["test_*.py", "*_test.py", "run_tests.py"]
+python_files = ["test_*.py", "*_test.py"]
+addopts = "-m 'not live'"
 markers = [
-    "live: live network contract tests (deselect with '-m \"not live\"')",
+    "live: live network contract tests (run explicitly with -m live)",
 ]

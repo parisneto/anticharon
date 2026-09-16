@@ -22,7 +22,7 @@ jobs:
         run: uv python install 3.12
 
       - name: Run Test Suite
-        run: uv run python tests/run_tests.py
+        run: uv run pytest
 
       - name: Run CLI Diagnostic Self-Test
         run: uv run anticharon test

@@ -45,9 +45,6 @@ def test_parse_activity_log_cache_split_exact_math():
         == pytest.approx(1.0, abs=1e-9)
     )
 
-    # Legacy 2-way weight_prompt/weight_completion must still be populated
-    # and unchanged in meaning (backward compat for config.py/cli.py consumers).
-    assert result.weight_prompt == pytest.approx(3800 / 3980, abs=1e-6)
     assert result.weight_completion == pytest.approx(180 / 3980, abs=1e-6)
 
 
@@ -61,7 +58,7 @@ def test_parse_activity_log_no_cache_column_defaults_to_zero():
     assert result.total_uncached_tokens == 3000
     assert result.cache_hit_rate == 0.0
     assert result.weight_cached_prompt == 0.0
-    assert result.weight_uncached_prompt == pytest.approx(result.weight_prompt, abs=1e-9)
+    assert result.weight_uncached_prompt == pytest.approx(1.0 - result.weight_completion, abs=1e-9)
 
 
 @pytest.mark.parametrize(

@@ -13,15 +13,8 @@ This backlog tracks completed milestones, upcoming sprint priorities, and long-t
     2. FastMCP tool (`eval_shortlist`) and agent prompt (`anticharon_eval_advisor`) enabling host agents (Hermes, Claude Desktop) on Day 1 to detect single-vendor monocultures, alias volatility (`:latest`, `:free`), and cold-start models (<15d old).
   - Add golden benchmark test matrix (`tests/fixtures/eval_test_matrix.json`) covering modern model families (Gemini 2.5, DeepSeek R1/V3, Llama 3.3, Claude 3.5).
 
-- [ ] **Pricing Engine v2: Cache-Aware + Provider-Routable Pricing + 28-Day Backfill**:
-  - Unifies three prior threads into one initiative — see [`docs/plans/pricing-engine-v2/`](docs/plans/pricing-engine-v2/) (`EXECUTION_CONTRACT.md`, `PLAN.md`, `ADR_CANDIDATE_TOKENS_CACHED.md`) for the full plan and evidence.
-  - **Cache-aware 3-component blended pricing:** `tokens_cached` was never read from activity logs, overestimating real cost by 55–75% for cache-heavy agents.
-  - **Provider-routable pricing:** headline/listed prices are often not what an account can actually route to under a policy constraint (Zero Data Retention is the verified case — e.g. `openai/gpt-5.6-sol` listed $2/$10 vs. ZDR-routable $5–$5.50/$30–$33, +150–200%). Surfaced via CLI flag `--zdr`.
-  - **28-day historical backfill on cold start:** dual-source (public catalog + OpenRouter's internal effective-pricing route, cross-validated) replaces fabricated flat-padding with real observations; dual storage (`history.csv` compact summary + a new granular effective-pricing store).
-  - Test suite matures to `pytest` with golden pricing cases as part of this initiative (tracked in `AGENTS.md` Rule 8).
-
 - [ ] **Expose `calibrate` as an MCP Tool (`calibrate_token_weights`)**:
-  - Expose the OpenRouter activity log parser directly as an MCP tool so orchestrators can calibrate agent token mixes (`weight_prompt` / `weight_completion`) on the fly from log snippets or paths.
+  - Expose the OpenRouter activity log parser directly as an MCP tool so orchestrators can calibrate agent token mixes (`weight_uncached_prompt` / `weight_cached_prompt` / `weight_completion`) on the fly from log snippets or paths.
 
 - [ ] **Universal One-Way Shortlist Importers**:
   - Expand beyond Hermes to support one-way import of model slugs from other agent orchestrator configs and routing proxies (e.g. LiteLLM `config.yaml`, OpenRouter curated collections/rankings, Claude Code, and Cursor model definitions) into Anticharon's `shortlist.json`.
@@ -50,6 +43,16 @@ This backlog tracks completed milestones, upcoming sprint priorities, and long-t
 ---
 
 ## ✅ Completed Milestones
+
+### Milestone 5: Pricing Engine v2 — Cache-Aware + Provider-Routable Pricing + 28-Day Backfill (v0.5.0)
+- [x] Unifies three prior threads into one initiative — see [`docs/plans/pricing-engine-v2/`](docs/plans/pricing-engine-v2/) (`EXECUTION_CONTRACT.md`, `PLAN.md`, `ADR_CANDIDATE_TOKENS_CACHED.md`) for the full plan and evidence.
+- [x] Cache-aware 3-component blended pricing (`tokens_cached` was never read from activity logs, overestimating real cost by 55–75% for cache-heavy agents), validated against 5 golden cases.
+- [x] Provider-routable pricing via the real ZDR signal (`provider_info.dataPolicy.retainsPrompts`, live-verified — not the public `/endpoints` call's `status` field, which was initially assumed but doesn't carry it on an unauthenticated request). Surfaced via CLI flag `--zdr`.
+- [x] The three-price model (advertised / effective / policy) as distinct, never-collapsed numbers everywhere a price is shown.
+- [x] 28-day historical backfill on cold start (internal effective-pricing route with `range=1m`, live-verified required for ~30 days vs. the ~8-day default) replacing fabricated flat-padding with real observations; dual storage (`history.csv` compact summary + new granular `effective_prices.json` store).
+- [x] Same-day-rerun bug fixed: `d1..d30`/MA columns derived fresh from dated observations each sync instead of shifted per run.
+- [x] Elapsed-days `NEWLY_TRACKED` analytics threshold (`min_tracking_days_for_profile`), nullable history slots throughout.
+- [x] Test suite matured to `pytest` as part of this initiative (`tests/run_tests.py` retired outright as the CI gate, per `AGENTS.md` Rule 8).
 
 ### Milestone 4: Public Release, Community Hardening & Ergonomics (v0.4.1 - v0.4.3)
 - [x] GitHub Actions CI Automation (`.github/workflows/ci.yml`) on Python 3.12.

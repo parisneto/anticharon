@@ -45,66 +45,87 @@ Agentic coding workflows are overwhelmingly dominated by prompt tokens (context 
 
 ## 3. Mathematical Specifications & Formulas
 
-### 3.1 Weighted Effective Price per 1 Million Tokens (`Price_1M`)
+### 3.1 The Three-Price Model: Advertised, Effective, Policy (`ADR-2026-0002-TOKENS-CACHED`)
+
+Anticharon represents cost with three deliberately distinct numbers, never collapsed into one. The legacy single 2-component `Price_1M = (P_in × 0.9971) + (P_out × 0.0029)` formula is **removed** as an independent downstream path — every calculation below supersedes it.
+
+- **`advertised_prompt_1m` / `advertised_completion_1m`** — the raw listed pair from the bulk `/api/v1/models` catalog headline. Never blended, never pinned to whichever endpoint is actually used. A transparency/comparison anchor only, never an input to any calculation.
+- **`effective_price_1m`** — the cache-aware 3-component blend, computed against the *cheapest real endpoint* returned by the internal per-endpoint route (§ "Policy (ZDR) Pricing Data Source" below), not just the bulk catalog headline:
+  ```text
+  Effective_Cost = (Uncached_Tokens / 1e6 × P_uncached)
+                 + (Cached_Tokens   / 1e6 × P_cache_read)
+                 + (Completion_Tokens / 1e6 × P_completion)
+
+  Effective_Price_1M = Effective_Cost / Total_Tokens × 1,000,000
+  ```
+  Equivalently, from calibrated weights alone (no token counts needed — `src/anticharon/pricing.py`'s `blended_rate_1m`):
+  ```text
+  Effective_Price_1M = (P_uncached × W_uncached) + (P_cache_read × W_cached) + (P_out × W_completion)
+  ```
+  Implemented as a pure function in `src/anticharon/pricing.py`, validated against 5 independently-derived golden cases in `tests/test_golden_pricing.py`, and wired into the live tracking path in `src/anticharon/tracker.py` (`resolve_policy_pricing`).
+- **`policy_price_1m`** (optional) — the same blend, restricted to endpoints passing an active policy filter (Zero Data Retention to start, via `--zdr`). `None`/absent when no policy filter is active. `is_policy_routable` (`true`/`false`/`null`) reports whether at least one policy-compliant endpoint exists; `null` means "unknown" (the endpoint route failed), never a fabricated `false`.
+- **Default (non-calibrated) weights:** `weight_uncached_prompt=0.232622`, `weight_cached_prompt=0.764478`, `weight_completion=0.0029` — the TraceLab-cited 99.71%/0.29% split decomposed by an interim pooled cache-hit-rate of `0.766701` (from the two real activity-log samples in `docs/sample/`; see `docs/plans/pricing-engine-v2/PLAN.md`, Deferred, for the backlog to replace this with a documented public source).
+- **Cache-read price fallback:** when an endpoint omits `pricing.input_cache_read`, Anticharon defaults it to `10% of that endpoint's own uncached prompt price` (`resolve_cache_read_price_1m`), never `$0`.
+
+### 3.1a Sentinel/Invalid Listed Price Guard
+
+OpenRouter meta-router models (`openrouter/auto`, `auto-beta`, `fusion`, `pareto-code`, `bodybuilder` — live-verified 2026-09-16) list `pricing.prompt`/`pricing.completion` as the raw sentinel string `"-1"`, meaning "routes to whatever backing model at that model's own price," not a real fixed cost. §3.1's formulas convert raw pricing by multiplying by `1,000,000`; applied naively to a sentinel this produces `-1,000,000.0/1M`, which then sorts as the cheapest model everywhere pricing is compared. `src/anticharon/pricing.py`'s `is_valid_listed_price()` rejects any negative listed price (zero is still valid — that's how genuine free/promo-tier models are listed); `run_tracker` (`tracker.py`) and `fetch_catalog` (`discovery.py`) both skip a model failing this check rather than surfacing it.
+
+### 3.2 Policy (ZDR) Pricing Data Source
+
+Provider-routable pricing (`effective_price_1m`, `policy_price_1m`) comes from an internal, unauthenticated frontend route, not the public `/models/{slug}/endpoints` call originally assumed in an earlier revision of this initiative:
+
 ```text
-Price_1M = ((Prompt_Price_per_Token × Weight_Prompt) + (Completion_Price_per_Token × Weight_Completion)) × 1,000,000
+GET /api/frontend/v1/stats/endpoint
+    ?latencyMetric=latency&perfWorkload=text_generation
+    &permaslug={canonical_slug}&variant=standard
 ```
 
-* **Calibrated Default Prompt Weight (`Weight_Prompt`):** `0.9971` (99.71% input)
-* **Calibrated Default Completion Weight (`Weight_Completion`):** `0.0029` (0.29% output)
-* **Constraint:** `Weight_Prompt + Weight_Completion = 1.0`
+**Correction (live-verified 2026-09-16):** the public `/models/{slug}/endpoints` call's `status` field does **not** carry ZDR-routability on an unauthenticated request — it reports `0` (routable) for every provider regardless of real policy. The real, unauthenticated ZDR signal is `provider_info.dataPolicy.retainsPrompts` (bool) per endpoint in the frontend route's `data[]` array: `false` = Zero Data Retention compliant, `true` = not. This route returns a strict superset of the pricing fields already relied on (`pricing.prompt`/`completion`/`input_cache_read`/`input_cache_write`/`discount`/`overrides`) plus this policy data the public route can never provide, so it supersedes `/models/{slug}/endpoints` entirely for this project. `canonical_slug` is resolved directly from the bulk catalog's own `canonical_slug` field per model (confirmed present; no separate resolution call needed).
 
-### 3.1a Cache-Aware Effective Cost (`ADR-2026-0002-TOKENS-CACHED`, in progress)
+Graceful degradation: on failure (network error, malformed response, or a model with no endpoint data), Anticharon treats the model as policy-unknown (`is_policy_routable: null`) and falls back to the bulk catalog's own headline pricing for `effective_price_1m` — never a fabricated ZDR warning, never a crash.
 
-Per `docs/plans/pricing-engine-v2/` (`PLAN.md` + `ADR_CANDIDATE_TOKENS_CACHED.md`), §3.1's 2-component formula overestimates real cost for cache-heavy agent workloads because it never accounts for OpenRouter prompt-caching discounts. The corrected 3-component formula, implemented as a pure function in `src/anticharon/pricing.py` and validated against 5 independently-derived golden cases in `tests/test_golden_pricing.py`:
+### 3.3 Moving Averages (`MA_3d` and `MA_7d`)
+
+`MA_3d`/`MA_7d` are precalculated fresh each sync from the granular `effective_prices.json` store (§5.2), not accumulated by shifting a list — see §3.4. Both average only the **non-null** slots present in their window (`d1..d3` for `MA_3d`, `d1..d7` for `MA_7d`); a slot with no real observation contributes nothing and is never fabricated:
 
 ```text
-Effective_Cost = (Uncached_Tokens / 1e6 × P_uncached)
-               + (Cached_Tokens   / 1e6 × P_cache_read)
-               + (Completion_Tokens / 1e6 × P_completion)
-
-Effective_Price_1M = Effective_Cost / Total_Tokens × 1,000,000
+MA_3d = mean(non-null values among [d1, d2, d3])
+MA_7d = mean(non-null values among [d1, d2, d3, d4, d5, d6, d7])
 ```
 
-**Status:** the formula and its golden-case tests are implemented and passing. `src/anticharon/tracker.py` still computes `current_1m` via the legacy §3.1 2-component formula — wiring the cache-aware formula into the live tracking path (plus provider-routable pricing and the `effective_price_1m`/`policy_price_1m`/`advertised_*` field split) is the next phase of this initiative and will update this section again once complete. See "Core pricing semantics" in `PLAN.md` for the full target model.
+If none of a window's slots have data (e.g. day 1 with no backfill at all), `MA_3d`/`MA_7d` fall back to today's `effective_price_1m` — the same cold-start intent as before, applied per-window instead of by padding fabricated history.
 
-### 3.1b Sentinel/Invalid Listed Price Guard
+### 3.4 Historical Window Derivation (supersedes the old per-run "shift")
 
-OpenRouter meta-router models (`openrouter/auto`, `auto-beta`, `fusion`, `pareto-code`, `bodybuilder` — live-verified 2026-09-16) list `pricing.prompt`/`pricing.completion` as the raw sentinel string `"-1"`, meaning "routes to whatever backing model at that model's own price," not a real fixed cost. Both §3.1's legacy formula and §3.1a's cache-aware formula convert raw pricing by multiplying by `1,000,000`; applied naively to a sentinel this produces `-1,000,000.0/1M`, which then sorts as the cheapest model everywhere pricing is compared. `src/anticharon/pricing.py`'s `is_valid_listed_price()` rejects any negative listed price (zero is still valid — that's how genuine free/promo-tier models are listed); `run_tracker` (`tracker.py`) and `fetch_catalog` (`discovery.py`) both skip a model failing this check rather than surfacing it.
+Historical prices are still surfaced as a 9-slot array `[d1, d2, d3, d4, d5, d6, d7, d15, d30]`, but each slot is now **derived fresh, every sync**, from `effective_prices.json`'s dated daily observations (`derive_history_window` in `storage.py`) rather than shifted by one position per run:
 
-### 3.2 Moving Averages (`MA_3d` and `MA_7d`)
 ```text
-MA_3d = (Today_Price + Price_d1 + Price_d2) / 3
-
-MA_7d = (Today_Price + Price_d1 + Price_d2 + Price_d3 + Price_d4 + Price_d5 + Price_d6) / 7
+d{N} = the observation dated exactly N calendar days before today, if one exists, else null (never fabricated)
 ```
 
-Where `Price_dN` represents the recorded weighted price N days ago.
+**Same-day-rerun bug (fixed):** the previous mechanism did `New_Prices = [Today_Price] + Prev_Prices[:8]` unconditionally on every run, with no check against the calendar date — running `anticharon run` twice in one day silently corrupted the window (each run counted as a full day-shift). Deriving `d1..d30` fresh from dated observations makes this a structural non-issue: re-running any number of times on the same calendar day is idempotent, since there is no "shift" left to double-apply.
 
-### 3.3 Historical Sliding Window Shift
-Historical prices are tracked in a 9-element array corresponding to `[d1, d2, d3, d4, d5, d6, d7, d15, d30]`.
-When a new day's price (`Today_Price`) is recorded:
-```text
-New_Prices = [Today_Price, Prev_d1, Prev_d2, Prev_d3, Prev_d4, Prev_d5, Prev_d6, Prev_d7, Prev_d15]
-```
+### 3.5 Cold-Start & Backfill Handling
+When a model is first added to the tracking shortlist:
+- `effective_prices.json` gets a new entry with `first_seen` = today and up to ~30 days of real backfilled observations from the internal effective-pricing route (§5.2) — not a fabricated flat history.
+- Slots with no real observation (including a model with zero backfill available, e.g. a `~`-prefixed router alias with no fixed permaslug identity) stay `null`, never a duplicate of today's price.
+- `MA_3d`/`MA_7d` fall back to today's `effective_price_1m` only when their entire window is null (§3.3) — this prevents `NaN`, division-by-zero, or false volatility spikes on day 1 without fabricating history.
 
-### 3.4 Cold-Start Handling
-When a model is first added to the tracking shortlist and has no prior CSV history:
-- The initial price `Today_Price` is replicated across all 9 historical slots (`d1` through `d30`).
-- `MA_3d` and `MA_7d` are set equal to `Today_Price`.
-- This prevents `NaN`, division-by-zero, or false volatility spikes on day 1.
-
-### 3.5 Volatility & Anomaly Detection
+### 3.7 Volatility & Anomaly Detection
 Anticharon evaluates percentage variation against the 7-day moving average:
 
 ```text
-Delta_7d_Pct = ((Current_Price_1M - MA_7d) / MA_7d) × 100
+Delta_7d_Pct = ((Effective_Price_1M - MA_7d) / MA_7d) × 100
 ```
+
+(Under an active policy filter, `Policy_Price_1M` replaces `Effective_Price_1M` here — see §3.1.)
 
 #### Warning Trigger Rules:
 1. **`PRICE_SPIKE`**: Triggered when `Delta_7d_Pct ≥ +spike_threshold_pct` (default: `+20.0%`). Indicates a price hike.
 2. **`PRICE_DROP`**: Triggered when `Delta_7d_Pct ≤ -spike_threshold_pct` (default: `-20.0%`). Indicates a discount or promotion.
 3. **`BEST_OPTION_CHANGED`**: Triggered when the lowest-cost model in the shortlist is different from the configured `current_default` model (the first entry in `shortlist.json`).
+4. **`POLICY_UNROUTABLE`**: Triggered (only when a policy filter is active, e.g. `--zdr`) when no endpoint passes the filter for a model. Carries `policy`, `excluded_providers`, and `reason` fields; never blocks the run, only warns.
 
 ---
 
@@ -115,41 +136,34 @@ To update operational weights whenever a fresh CSV is exported from the OpenRout
 - Columns processed: `tokens_prompt`, `tokens_completion`, `tokens_cached`.
 
 ### Computation Formula:
+`parse_activity_log` (`src/anticharon/log_parser.py`) reads `tokens_prompt`, `tokens_completion`, and `tokens_cached` and computes the cache-aware 3-way split that feeds §3.1's formulas directly (the legacy 2-way `Weight_Prompt`/`Weight_Completion` split is removed — `Weight_Uncached_Prompt` + `Weight_Cached_Prompt` together are what `Weight_Prompt` used to be):
+
 ```text
-Total_Prompt_Tokens = sum(tokens_prompt)
+Total_Prompt_Tokens     = sum(tokens_prompt)
 Total_Completion_Tokens = sum(tokens_completion)
-Total_Tokens = Total_Prompt_Tokens + Total_Completion_Tokens
-
-Weight_Prompt = Total_Prompt_Tokens / Total_Tokens
-Weight_Completion = Total_Completion_Tokens / Total_Tokens
-```
-
-`Weight_Prompt`/`Weight_Completion` remain the 2-way weights `anticharon calibrate` writes to `shortlist.json` today (legacy §3.1 formula, unchanged in this pass).
-
-### Cache-Aware Split (`ADR-2026-0002-TOKENS-CACHED`, in progress)
-
-`parse_activity_log` (`src/anticharon/log_parser.py`) additionally reads `tokens_cached` and computes a 3-way split, feeding the §3.1a formula once it is wired into the live tracking path:
-
-```text
-Total_Cached_Tokens   = sum(tokens_cached)
-Total_Uncached_Tokens = Total_Prompt_Tokens - Total_Cached_Tokens
+Total_Cached_Tokens     = sum(tokens_cached)
+Total_Uncached_Tokens   = Total_Prompt_Tokens - Total_Cached_Tokens
+Total_Tokens             = Total_Prompt_Tokens + Total_Completion_Tokens
 
 Weight_Uncached_Prompt = Total_Uncached_Tokens / Total_Tokens
 Weight_Cached_Prompt   = Total_Cached_Tokens   / Total_Tokens
+Weight_Completion      = Total_Completion_Tokens / Total_Tokens
 Cache_Hit_Rate         = Total_Cached_Tokens   / Total_Prompt_Tokens
 ```
 
-Logs exported before `tokens_cached` existed (or missing the column) parse correctly: the cached bucket defaults to 0, i.e. 100% uncached — identical to pre-ADR behavior.
+`anticharon calibrate` persists `weight_uncached_prompt`/`weight_cached_prompt`/`weight_completion` to `shortlist.json` (§6). Logs exported before `tokens_cached` existed (or missing the column) still parse correctly: the cached bucket defaults to 0, i.e. 100% uncached.
 
 ---
 
-## 5. Data Storage Schema (`history.csv`)
+## 5. Data Storage: Two Files, Two Lifecycles
 
-Storage maintains exactly **one line per model**:
+### 5.1 `history.csv` — compact, fast-read summary (one line per model)
+
+**Breaking rename:** the blended-price column is `effective_price_1m`, not `current_price_1m` — pre-launch, single-digit testers, so there is deliberately no backward-compatibility shim; a stale local `history.csv` from before this change should be deleted/regenerated.
 
 ### Header Format:
 ```csv
-model,last_updated,current_price_1m,ma_3d,ma_7d,d1,d2,d3,d4,d5,d6,d7,d15,d30
+model,last_updated,effective_price_1m,advertised_prompt_1m,advertised_completion_1m,ma_3d,ma_7d,d1,d2,d3,d4,d5,d6,d7,d15,d30
 ```
 
 ### Column Definitions:
@@ -157,12 +171,37 @@ model,last_updated,current_price_1m,ma_3d,ma_7d,d1,d2,d3,d4,d5,d6,d7,d15,d30
 | :--- | :--- | :--- |
 | `model` | string | OpenRouter model ID / slug (e.g. `openai/gpt-5.6-luna`) |
 | `last_updated` | ISO-8601 string | UTC timestamp of last update |
-| `current_price_1m` | float | Latest weighted blended price per 1M tokens |
-| `ma_3d` | float | 3-day simple moving average |
-| `ma_7d` | float | 7-day simple moving average |
-| `d1` to `d7` | float | Prices from 1 to 7 days ago |
-| `d15` | float | Price recorded 15 days ago |
-| `d30` | float | Price recorded 30 days ago |
+| `effective_price_1m` | float | Cache-aware blended price per 1M tokens, cheapest real endpoint (§3.1) |
+| `advertised_prompt_1m` | float | Raw listed bulk-catalog prompt price (never blended, §3.1) |
+| `advertised_completion_1m` | float | Raw listed bulk-catalog completion price (never blended, §3.1) |
+| `ma_3d` | float | 3-day moving average, derived fresh each sync (§3.3) |
+| `ma_7d` | float | 7-day moving average, derived fresh each sync (§3.3) |
+| `d1` to `d7` | float or empty | Prices from 1 to 7 days ago. **Nullable** — empty means no real observation for that day, never a fabricated value (§3.4/§3.5). |
+| `d15` | float or empty | Price recorded 15 days ago. Nullable. |
+| `d30` | float or empty | Price recorded 30 days ago. Nullable. |
+
+### 5.2 `effective_prices.json` — granular per-model, per-provider daily observations
+
+Same data directory as `history.csv`, same path-resolution hierarchy (§6.1). This file is the **source of truth** for history; `history.csv`'s `d1..d30`/MA columns are derived from it (§3.4), not the other way around. Its refresh cadence is independent of `history.csv`'s per-run cadence — a model is only re-fetched when its entry is stale (default: older than 24 hours), not on every `anticharon run`.
+
+```json
+{
+  "openai/gpt-5.6-luna": {
+    "canonical_slug": "openai/gpt-5.6-luna-20260709",
+    "first_seen": "2026-08-16",
+    "last_synced": "2026-09-16T12:00:00+00:00",
+    "observations": [
+      {"date": "2026-08-16", "effective_price_1m": 0.0757},
+      {"date": "2026-08-17", "effective_price_1m": 0.0812}
+    ]
+  }
+}
+```
+
+- `first_seen`: the calendar date this model was first tracked. Drives the analytics `NEWLY_TRACKED` threshold (§"Historical Analytical Intelligence & Pricing Profiles" below) — never overwritten once set.
+- `observations`: one entry per calendar day, the cheapest endpoint's blended $/1M that day (input/output combined via the locally calibrated `weight_completion` split — the internal effective-pricing route's own per-endpoint series is already cache-weighted by that provider's real traffic that day, so only the input/output combination is Anticharon's to apply).
+- 28-day backfill source: `GET /api/frontend/v1/stats/effective-pricing?permaslug={canonical_slug}&shape=v7&variant=standard&range=1m`. **The `range=1m` parameter is required** — live-verified 2026-09-16: the bare/default call (no `range`) only returns the last ~8 days, not ~30.
+- Graceful degradation: a `~`-prefixed router alias (e.g. `~deepseek/deepseek-pro-latest`) returns an empty-but-200-OK payload (live-verified — "latest" has no fixed permaslug identity to have history against). A transient failure never overwrites previously accumulated real `observations` with empty data; `last_synced` still advances so a permanently-empty model isn't re-fetched every run.
 
 ---
 
@@ -179,11 +218,15 @@ model,last_updated,current_price_1m,ma_3d,ma_7d,d1,d2,d3,d4,d5,d6,d7,d15,d30
     "minimax/minimax-m2.7",
     "google/gemini-2.5-flash-lite"
   ],
-  "weight_prompt": 0.9971,
+  "weight_uncached_prompt": 0.232622,
+  "weight_cached_prompt": 0.764478,
   "weight_completion": 0.0029,
-  "spike_threshold_pct": 20.0
+  "spike_threshold_pct": 20.0,
+  "min_tracking_days_for_profile": 14
 }
 ```
+
+`min_tracking_days_for_profile` (default `14`, half the 28-day backfill window): elapsed calendar days since a model was first tracked before analytics classification ("Historical Analytical Intelligence & Pricing Profiles" below) moves past `NEWLY_TRACKED`. Configurable per shortlist, same as `spike_threshold_pct`.
 
 ### 6.1 Path Resolution Hierarchy:
 1. **CLI Arguments:** `--config <path>` and `--data-dir <path>` (highest priority).
@@ -221,8 +264,8 @@ When deployed in environments alongside **Hermes Agent**, Anticharon automatical
 ### Model Placement & Synchronization Rules:
 - The Hermes `default` model is always placed at index 0 (`shortlist[0]`), receiving the `★ [DEFAULT]` badge and serving as the baseline for `BEST_OPTION_CHANGED` alerts.
 - OpenRouter fallback models follow in order.
-- Newly discovered models are automatically initialized in `history.csv` using the cold-start replication rule (Section 3.4).
-- User-configured weights (`weight_prompt`, `weight_completion`, `spike_threshold_pct`) are preserved during synchronization.
+- Newly discovered models are automatically initialized in `history.csv`/`effective_prices.json` using the cold-start & backfill rule (§3.5).
+- User-configured weights (`weight_uncached_prompt`, `weight_cached_prompt`, `weight_completion`, `spike_threshold_pct`, `min_tracking_days_for_profile`) are preserved during synchronization.
 - Upgrades/reinstallation resilience: If `~/.anticharon/` is deleted during an update, the next execution re-creates `~/.anticharon/shortlist.json` automatically.
 - Opt-out: Pass `--no-hermes` to suppress Hermes auto-detection and run purely standalone.
 
@@ -258,8 +301,8 @@ Anticharon inspects the full 30-day temporal window stored in `history.csv` (`[d
    - Condition: Steady upward drift (`Price_d30 < Price_d15 < Price_d7 < Current_Price`) with total rise between `+5%` and `+25%` without triggering single-day spike alerts.
    - Meaning: Stealth inflation by provider.
 7. **`NEWLY_TRACKED` (`🌱 NEWLY_TRACKED`):**
-   - Condition: All historical price slots are identical due to day 1 cold-start padding.
-   - Meaning: Insufficient trend history. Observational baseline establishing.
+   - Condition: fewer than `min_tracking_days_for_profile` (default `14`) calendar days have elapsed since the model was first tracked (`effective_prices.json`'s `first_seen`) — **not** a count of populated history slots, since backfill can leave gaps (e.g. `d1` and `d15` populated but nothing between) or a model's elapsed-time-tracked state can outpace how many slots happen to be filled. Elapsed time unknown (no store entry yet) is treated the same as "not enough" — the safe default.
+   - Meaning: Insufficient tracking history yet, regardless of what the available slots show. Once `min_tracking_days_for_profile` is satisfied, a model can be classified `STABLE`/`VOLATILE`/etc. even with real gaps in its history.
 
 ---
 
@@ -320,8 +363,13 @@ anticharon model discover "gemini"
 anticharon model discover --promo
 anticharon model discover "qwen" --modality text --max-price 0.50
 anticharon model discover --filter "openai" --filter "price < 10"
+anticharon model discover --zdr  # slower: one extra live policy check per candidate model
 
-# 15. Ergonomic Help Subcommand: Display top-level or subcommand usage
+# 15. Policy (ZDR) Pricing: restrict effective/policy price to ZDR-compliant endpoints
+anticharon check --zdr --json
+anticharon run --zdr
+
+# 16. Ergonomic Help Subcommand: Display top-level or subcommand usage
 anticharon help
 anticharon help run
 anticharon help model
@@ -363,12 +411,13 @@ Anticharon natively exposes a standard Model Context Protocol (MCP) server over 
 ### 10.2 Exposed MCP Tools
 
 #### 1. `check_prices`
-- **Description:** Fetches current OpenRouter model pricing for the monitored shortlist, calculates weighted blended cost per 1M tokens, computes 7-day moving averages, evaluates volatility alerts (PRICE_SPIKE, PRICE_DROP, BEST_OPTION_CHANGED), and attaches 30-day analytical intelligence profiles.
+- **Description:** Fetches current OpenRouter model pricing for the monitored shortlist, calculates the cache-aware advertised/effective/policy price triple (§3.1), computes 7-day moving averages, evaluates volatility alerts (PRICE_SPIKE, PRICE_DROP, BEST_OPTION_CHANGED, POLICY_UNROUTABLE), and attaches 30-day analytical intelligence profiles.
 - **Parameters:**
   - `force_refresh` (boolean, optional, default: `false`): Force fresh HTTP fetch from OpenRouter API, ignoring local cache.
-  - `dry_run` (boolean, optional, default: `true`): Calculate prices without updating `history.csv` sliding window.
+  - `dry_run` (boolean, optional, default: `true`): Calculate prices without updating `history.csv`/`effective_prices.json`.
   - `include_analytics` (boolean, optional, default: `true`): Attach 30-day statistical profiles, badges, and sibling alternatives.
-- **Return Payload:** Self-describing JSON dictionary containing `timestamp`, `data_source` (`live_api` or `cached_history`), `api_offline_fallback` (boolean), `prices_shortlist`, `priceWarnings`, `hermes_integration`, and in-band `_hints`.
+  - `zdr_only` (boolean, optional, default: `false`): Restrict `policy_price_1m` to Zero Data Retention-compliant endpoints (§3.2) and surface `POLICY_UNROUTABLE` warnings.
+- **Return Payload:** Self-describing JSON dictionary containing `timestamp`, `data_source` (`live_api` or `cached_history`), `api_offline_fallback` (boolean), `prices_shortlist` (each entry carrying `effective_price_1m`, `advertised_prompt_1m`/`advertised_completion_1m`, and `policy_price_1m`/`is_policy_routable` when a policy filter is active), `priceWarnings`, `hermes_integration`, and in-band `_hints`.
 
 #### 2. `get_model_history`
 - **Description:** Audits 30-day temporal price history, volatility coefficient of variation (CV%), directional trends, and deterministic intelligence profiles (STABLE, PROMO_ENDED, SUNSETTING, VOLATILE, DISCOUNTED, CREEPING_INFLATION, NEWLY_TRACKED).
@@ -397,7 +446,7 @@ Anticharon natively exposes a standard Model Context Protocol (MCP) server over 
 
 ### 10.3 Exposed MCP Resources
 - `anticharon://llms.txt`: Machine-readable Agent-to-Agent operational briefing and schema definitions.
-- `anticharon://history.csv`: Raw 30-day sliding history table (`model,last_updated,current_price_1m,ma_3d,ma_7d,d1..d7,d15,d30`).
+- `anticharon://history.csv`: Raw 30-day sliding history table (`model,last_updated,effective_price_1m,advertised_prompt_1m,advertised_completion_1m,ma_3d,ma_7d,d1..d7,d15,d30`).
 - `anticharon://shortlist.json`: Active model shortlist and token weight configuration.
 
 ### 10.4 Exposed MCP Prompts

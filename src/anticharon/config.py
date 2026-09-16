@@ -15,11 +15,23 @@ DEFAULT_SHORTLIST: List[str] = [
     "google/gemini-2.5-flash-lite"
 ]
 
+# Interim, provisional default cache-hit-rate: no equivalent public paper covers this
+# third dimension the way TraceLab justified the prompt/completion split below, so this
+# is pooled from the two real activity-log samples in docs/sample/ (70,516,104 cached
+# tokens over 91,973,374 total prompt tokens). Backlog: replace with a documented
+# public source once one exists (docs/plans/pricing-engine-v2/PLAN.md, Deferred).
+DEFAULT_CACHE_HIT_RATE = 0.766701
+
+# TraceLab-cited 2-way split (weight_prompt=0.9971/weight_completion=0.0029), decomposed
+# into the cache-aware 3-way default: weight_cached = 0.9971 * DEFAULT_CACHE_HIT_RATE,
+# weight_uncached = 0.9971 * (1 - DEFAULT_CACHE_HIT_RATE), weight_completion unchanged.
 DEFAULT_CONFIG: Dict[str, Any] = {
     "shortlist": DEFAULT_SHORTLIST,
-    "weight_prompt": 0.9971,
+    "weight_uncached_prompt": 0.232622,
+    "weight_cached_prompt": 0.764478,
     "weight_completion": 0.0029,
-    "spike_threshold_pct": 20.0
+    "spike_threshold_pct": 20.0,
+    "min_tracking_days_for_profile": 14
 }
 
 
@@ -116,14 +128,16 @@ def load_config(config_path: Path | None = None) -> Dict[str, Any]:
 
 
 def update_config_weights(
-    weight_prompt: float,
+    weight_uncached_prompt: float,
+    weight_cached_prompt: float,
     weight_completion: float,
     config_path: Path | None = None
 ) -> Path:
-    """Update prompt and completion weights in the configuration file."""
+    """Update the cache-aware 3-way token weights in the configuration file."""
     path = config_path or get_config_path()
     config = load_config(path)
-    config["weight_prompt"] = round(weight_prompt, 6)
+    config["weight_uncached_prompt"] = round(weight_uncached_prompt, 6)
+    config["weight_cached_prompt"] = round(weight_cached_prompt, 6)
     config["weight_completion"] = round(weight_completion, 6)
 
     path.parent.mkdir(parents=True, exist_ok=True)

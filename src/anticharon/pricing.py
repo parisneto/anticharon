@@ -51,6 +51,38 @@ def price_per_1m(total_cost: float, total_tokens: int) -> float:
     return total_cost / total_tokens * 1_000_000
 
 
+def blended_rate_1m(
+    uncached_prompt_price_1m: float,
+    cache_read_price_1m: float,
+    completion_price_1m: float,
+    weight_uncached: float,
+    weight_cached: float,
+    weight_completion: float,
+) -> float:
+    """Blended $/1M rate directly from calibrated weights (no token counts needed).
+
+    Equivalent to `calculate_effective_cost` over a usage split whose
+    uncached/cached/completion token counts are in the same proportion as the
+    weights -- the form tracker.py/discovery.py use, since they only have a
+    calibrated *mix* (default or from `anticharon calibrate`), not per-request
+    token counts.
+    """
+    return (
+        uncached_prompt_price_1m * weight_uncached
+        + cache_read_price_1m * weight_cached
+        + completion_price_1m * weight_completion
+    )
+
+
+def resolve_cache_read_price_1m(prompt_price_1m: float, cache_read_price_1m: float | None) -> float:
+    """OpenRouter omits `pricing.input_cache_read` for some endpoints. Per the
+    original ADR's fallback rule, default it to 10% of the uncached prompt
+    price rather than treating missing cache pricing as free (0)."""
+    if cache_read_price_1m is None:
+        return prompt_price_1m * 0.10
+    return cache_read_price_1m
+
+
 def calculate_legacy_cost(
     prompt_price_1m: float,
     completion_price_1m: float,

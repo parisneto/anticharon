@@ -7,31 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- **Dev Tooling (`scripts/pick_random_test_models.py`):**
-  - Cherry-picked from `main` (`fde20ea`): draws a randomized, diverse set of real OpenRouter model slugs (newest/most-popular/cheapest/priciest/longest-context) for `@pytest.mark.live` tests instead of a fixed hardcoded pair.
-- **Sentinel/Negative-Price Guard (`src/anticharon/pricing.py`, `tracker.py`, `discovery.py`):**
-  - Added `is_valid_listed_price()`: OpenRouter meta-router models (`openrouter/auto`, `auto-beta`, `fusion`, `pareto-code`, `bodybuilder` — live-verified, not hypothetical) list `pricing.prompt`/`pricing.completion` as the raw sentinel `"-1"`, which the existing `× 1,000,000` conversion turned into a real-looking `-1,000,000.0/1M` that would rank as globally cheapest everywhere pricing is compared. Both `run_tracker`'s shortlist loop and `fetch_catalog`'s full-catalog browse now skip any model with a negative listed price (zero/free is still valid). Regression tests: `tests/test_pricing.py`, `tests/test_tracker.py`, `tests/test_discovery.py`.
-- **Cache-Aware Token Parsing (`src/anticharon/log_parser.py`):**
-  - `parse_activity_log` now reads `tokens_cached` from OpenRouter activity logs and splits prompt tokens into uncached/cached buckets, computing `weight_uncached_prompt`, `weight_cached_prompt`, and `cache_hit_rate` per `docs/plans/pricing-engine-v2/ADR_CANDIDATE_TOKENS_CACHED.md`. Legacy `weight_prompt`/`weight_completion` are unchanged for backward compatibility with existing config/CLI consumers. Older logs without a `tokens_cached` column still parse correctly (defaults to 0 cached).
-- **Cache-Aware Blended Pricing Formula (`src/anticharon/pricing.py`, new module):**
-  - Added `calculate_effective_cost` implementing the 3-component cache-aware blend (`Price = P_uncached × w_uncached + P_cache_read × w_cached + P_out × w_completion`), plus `price_per_1m` and a `calculate_legacy_cost` kept only to make the cached-token regression measurable in tests.
-- **Golden Pricing Test Suite (`tests/test_golden_pricing.py`, `tests/test_log_parser.py`):**
-  - Added the 5 golden pricing cases from `ADR_CANDIDATE_TOKENS_CACHED.md` as deterministic `pytest` cases (exact expected cost + $/1M for each), plus a regression test proving the legacy 2-component formula overestimates cache-heavy cost by >50%.
-  - Added fixture-based and real-sample-log tests for `log_parser.py`'s new `tokens_cached` handling, including missing-column and malformed-value edge cases.
-
-### Changed
-- **Governance Directive Evolution (`AGENTS.md`):**
-  - Evolved Rule 8 from zero-dependency testing to Deterministic, Behavior-Based Testing with `pytest` as the default offline test gate (`uv run pytest`).
-- **Roadmap & Backlog Modernization (`docs/BACKLOG.md`):**
-  - Tracked Milestone 4 completion, updated milestones 1 & 2 formatting, and added upcoming priorities (ADR 0002 ingestion, ZDR super discovery, and MCP calibrate).
+## [0.5.0] - 2026-09-16
 
 ### Added
 - **Project Test & Tooling Dependencies (`pyproject.toml`):**
-  - Added `pytest` and `ruff` to project dependencies and configured `[tool.pytest.ini_options]` for test runner discovery and markers.
+  - Added `pytest` and `ruff` to project dependencies; `[tool.pytest.ini_options]` now sets `addopts = "-m 'not live'"` so the bare `uv run pytest` gate is deterministic by default (a pre-existing gap — it previously ran live network tests unless `-m "not live"` was passed manually).
 - **Reference Fixtures & Documentation Assets:**
-  - Added `docs/sample/openrouter_activity_2026-09-15.csv` empirical activity log sample.
+  - Added `docs/sample/openrouter_activity_2026-09-15.csv` empirical activity log sample, and real live-captured API-payload fixtures under `tests/fixtures/` (sanitized/trimmed to the fields actually consumed).
   - Added ZDR OpenRouter reference visual artifacts (`docs/images/ZDR example Qwen3.8/`).
+- **Dev Tooling (`scripts/pick_random_test_models.py`):**
+  - Draws a randomized, diverse set of real OpenRouter model slugs (newest/most-popular/cheapest/priciest/longest-context) for `@pytest.mark.live` tests instead of a fixed hardcoded pair.
+
+### Changed — Pricing Engine v2 (cache-aware + provider-routable pricing + 28-day backfill)
+
+See `docs/plans/pricing-engine-v2/` (`EXECUTION_CONTRACT.md`, `PLAN.md`, `ADR_CANDIDATE_TOKENS_CACHED.md`) for the full plan and evidence. The legacy 2-component gross pricing formula is **removed** as an independent downstream path everywhere it was used (`tracker.py`, `discovery.py`) — not kept behind a flag.
+
+- **BREAKING: `current_price_1m` → `effective_price_1m`.** Renamed in the `history.csv` column header, the CLI `--json` output, and the `check_prices` MCP tool's return shape. No backward-compatibility shim (pre-launch, single-digit testers) — delete/regenerate a stale local `history.csv` from before this change.
+- **BREAKING: `history.csv` values now mean something semantically different**, even where the file format stays readable — the blended price is now cache-aware and provider-routable rather than a flat 2-component estimate, and it's the *cheapest real endpoint's* price rather than always the bulk-catalog headline.
+- **The Three-Price Model:** every price display/JSON output now surfaces `advertised_prompt_1m`/`advertised_completion_1m` (raw bulk-catalog headline, never blended, never an input to any calculation), `effective_price_1m` (3-component cache-aware blend against the cheapest real endpoint), and an optional `policy_price_1m`/`is_policy_routable` (restricted to Zero-Data-Retention-compliant endpoints when `--zdr`/`zdr_only` is active) as three deliberately distinct numbers — never collapsed into one (`ModelPrice.price: PricePoint`, `src/anticharon/models.py`).
+- **Cache-aware blended formula** (`src/anticharon/pricing.py`, new module): `Price = (P_uncached × w_uncached) + (P_cache_read × w_cached) + (P_out × w_completion)`, validated against 5 independently-derived golden cases (`tests/test_golden_pricing.py`) proving the legacy formula overestimated cache-heavy cost by 55–75%.
+- **Real ZDR data source correction (live-verified 2026-09-16):** the public `/models/{slug}/endpoints` call's `status` field does *not* carry ZDR-routability on an unauthenticated request — it reports `0`/routable for every provider regardless of real policy. The real, unauthenticated signal is `provider_info.dataPolicy.retainsPrompts` from the internal `GET /api/frontend/v1/stats/endpoint` route, which supersedes the public `/endpoints` call entirely for this project and also carries the same pricing fields already relied on.
+- **New CLI flag `--zdr`** on `run`/`check`/`model discover` restricts the policy price to ZDR-compliant endpoints and emits a new `POLICY_UNROUTABLE` price warning (with `policy`/`excluded_providers`/`reason`) when none exist. `discover --zdr` performs one extra live policy check per candidate model still in the catalog after the sentinel-price guard below — opt-in and slower by design, not something the default browse pays for.
+- **28-day historical backfill:** new granular `effective_prices.json` store (per-model `first_seen`/`last_synced`/daily `observations`), independently staleness-gated (default 24h) from `history.csv`'s per-run cadence. Backfilled from `GET /api/frontend/v1/stats/effective-pricing?...&range=1m` — **`range=1m` is required**; live-verified the bare/default call only returns ~8 days, not ~30 (undocumented publicly). Graceful degradation: a `~`-prefixed router alias (e.g. `~deepseek/deepseek-pro-latest`) returns an empty-but-200-OK payload (no fixed permaslug identity to have history against); a transient failure never overwrites previously accumulated real observations.
+- **Same-day-rerun bug fixed:** `history.csv`'s `d1..d7/d15/d30` and `ma_3d`/`ma_7d` are now derived fresh from the granular store every sync instead of shifted by one slot per run — running `anticharon run` twice in one calendar day no longer corrupts the window (live-verified end-to-end).
+- **Cache-aware 3-way calibration weights:** `anticharon calibrate` now persists `weight_uncached_prompt`/`weight_cached_prompt`/`weight_completion` (replacing the 2-way `weight_prompt`/`weight_completion`). Default config decomposes the existing TraceLab-cited 99.71%/0.29% split using an interim pooled cache-hit-rate (`0.766701`, from the two real activity-log samples in `docs/sample/` — flagged in `PLAN.md`'s Deferred section as needing a better documented source).
+- **Elapsed-days analytics threshold:** `calculate_model_analytics` now gates `NEWLY_TRACKED` on elapsed calendar days since a model was first tracked (new `min_tracking_days_for_profile`, default 14) instead of slot identity/count — a model with real backfill gaps (e.g. only `d1` and `d15` populated) can still classify `STABLE`/`VOLATILE`/etc. once enough time has elapsed. History slots are nullable throughout (`Optional[float]`); missing observations are never fabricated.
+- **Sentinel/negative-price guard** (`is_valid_listed_price`): OpenRouter meta-router models (`openrouter/auto`, `auto-beta`, `fusion`, `pareto-code`, `bodybuilder` — live-verified) list pricing as the raw sentinel `"-1"`, which the `× 1,000,000` conversion turned into a real-looking `-1,000,000.0/1M` that ranked as globally cheapest everywhere pricing is compared. Both the shortlist tracker and the full-catalog browse now skip any model with a negative listed price (zero/free is still valid).
+- **Governance & tooling:** Rule 8 (`AGENTS.md`) evolved from zero-dependency testing to deterministic `pytest`-based testing; `tests/run_tests.py` retired outright as the CI gate (`uv run pytest` replaces it in `.github/workflows/ci.yml`, `README.md`, `.github/PULL_REQUEST_TEMPLATE.md`) — its coverage was ported into focused `tests/test_*.py` files, updated where behavior genuinely changed (schema, weights, thresholds) and marked `@pytest.mark.live` where it made real network calls. `anticharon test` (the user-facing diagnostic command) is unaffected.
 
 ## [0.4.3] - 2026-09-10
 

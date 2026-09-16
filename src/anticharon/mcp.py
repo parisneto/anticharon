@@ -45,14 +45,16 @@ server = MCPServer("anticharon")
 def check_prices(
     force_refresh: bool = False,
     dry_run: bool = True,
-    include_analytics: bool = True
+    include_analytics: bool = True,
+    zdr_only: bool = False
 ) -> Dict[str, Any]:
     """Execute price monitoring check and return structured intelligence."""
     res = run_tracker(
         dry_run=dry_run,
         enable_analytics=include_analytics,
         hints_enabled=True,
-        timeout=10.0 if not force_refresh else 15.0
+        timeout=10.0 if not force_refresh else 15.0,
+        zdr_only=zdr_only
     )
     return res.to_dict()
 
@@ -118,10 +120,15 @@ def discover_models(
 ) -> Dict[str, Any]:
     """Query live catalog and return matching models with blended pricing."""
     cfg = load_config()
-    w_in = cfg.get("weight_prompt", 0.9971)
-    w_out = cfg.get("weight_completion", 0.0029)
+    w_uncached = cfg.get("weight_uncached_prompt", 0.232622)
+    w_cached = cfg.get("weight_cached_prompt", 0.764478)
+    w_completion = cfg.get("weight_completion", 0.0029)
 
-    catalog = fetch_catalog(weight_prompt=w_in, weight_completion=w_out)
+    catalog = fetch_catalog(
+        weight_uncached_prompt=w_uncached,
+        weight_cached_prompt=w_cached,
+        weight_completion=w_completion,
+    )
     filtered = filter_catalog(
         models=catalog,
         query=query,

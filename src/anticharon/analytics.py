@@ -67,28 +67,43 @@ def find_sibling_alternatives(
 def calculate_model_analytics(
     model_id: str,
     current_price: float,
-    history_prices: List[float],
+    history_prices: List[Optional[float]],
     candidate_prices: Optional[Dict[str, float]] = None,
-    current_default: Optional[str] = None
+    current_default: Optional[str] = None,
+    min_tracking_days_for_profile: int = 14,
+    tracking_days_elapsed: Optional[int] = None,
 ) -> ModelAnalytics:
-    """Calculate statistical variance, historical delta, and assign pricing profile."""
-    # Ensure history has 9 slots [d1..d7, d15, d30]
-    padded_hist = list(history_prices)
-    if len(padded_hist) < 9:
-        padded_hist.extend([current_price] * (9 - len(padded_hist)))
-    else:
-        padded_hist = padded_hist[:9]
+    """Calculate statistical variance, historical delta, and assign pricing profile.
 
-    all_prices = [current_price] + padded_hist
+    `history_prices` is the 9-slot [d1..d7, d15, d30] array with nullable
+    entries -- `None` means "no real observation for that day yet," never a
+    fabricated duplicate of `current_price` (ADR-2026-0002-TOKENS-CACHED /
+    PLAN.md "Storage architecture"). `tracking_days_elapsed` (elapsed calendar
+    days since the model was first tracked) drives `NEWLY_TRACKED`, not a
+    slot count -- those diverge once backfill can leave gaps (e.g. `d1` and
+    `d15` populated but nothing between). `tracking_days_elapsed=None` (unknown)
+    is treated the same as "not enough elapsed time" -- the safe default.
+    """
+    padded_hist: List[Optional[float]] = list(history_prices)[:9]
+    padded_hist.extend([None] * (9 - len(padded_hist)))
+
+    real_hist = [p for p in padded_hist if p is not None]
+    all_prices = [current_price] + real_hist
     mean_price = sum(all_prices) / len(all_prices)
     var_price = sum((p - mean_price) ** 2 for p in all_prices) / len(all_prices)
     std_price = math.sqrt(var_price)
     cv_pct = (std_price / mean_price * 100) if mean_price > 0 else 0.0
 
-    d1 = padded_hist[0]
-    d7 = padded_hist[6]
-    d15 = padded_hist[7]
-    d30 = padded_hist[8]
+    def _ref(value: Optional[float]) -> float:
+        """Defensive reference point for classification heuristics only. Never
+        exposed as a stored/fabricated observation -- `history_vector` below
+        keeps the real `None`."""
+        return value if value is not None else current_price
+
+    d1 = _ref(padded_hist[0])
+    d7 = _ref(padded_hist[6])
+    d15 = _ref(padded_hist[7])
+    d30 = _ref(padded_hist[8])
 
     price_min_30d = min(all_prices)
     price_max_30d = max(all_prices)
@@ -110,30 +125,34 @@ def calculate_model_analytics(
 
     history_vector = {
         "now": current_price,
-        "d1": d1,
+        "d1": padded_hist[0],
         "d2": padded_hist[1],
         "d3": padded_hist[2],
         "d4": padded_hist[3],
         "d5": padded_hist[4],
         "d6": padded_hist[5],
-        "d7": d7,
-        "d15": d15,
-        "d30": d30
+        "d7": padded_hist[6],
+        "d15": padded_hist[7],
+        "d30": padded_hist[8]
     }
 
     siblings = find_sibling_alternatives(model_id, current_price, candidate_prices or {})
     best_sibling = siblings[0] if siblings else None
 
     # Classification logic
-    is_cold_start = all(abs(p - current_price) < 1e-7 for p in padded_hist)
+    is_newly_tracked = tracking_days_elapsed is None or tracking_days_elapsed < min_tracking_days_for_profile
     prior_baseline = min(d30, d15, d7)
 
-    if is_cold_start:
+    if is_newly_tracked:
         profile = "NEWLY_TRACKED"
         badge = "🌱 NEWLY_TRACKED"
         secondary_badge = None
         trend_direction = "cold_start"
-        recommendation = "Day 1 cold start; identical slots observing."
+        elapsed_str = "unknown" if tracking_days_elapsed is None else f"{tracking_days_elapsed}d"
+        recommendation = (
+            f"Insufficient tracking history yet ({elapsed_str} elapsed, "
+            f"{min_tracking_days_for_profile}d required for classification)."
+        )
 
     elif ((current_price - prior_baseline) / prior_baseline >= 0.25) and abs(d1 - current_price) < 1e-4:
         profile = "PROMO_ENDED"
