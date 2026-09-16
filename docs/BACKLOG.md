@@ -20,6 +20,10 @@ This backlog tracks completed milestones, upcoming sprint priorities, and long-t
   - **28-day historical backfill on cold start:** dual-source (public catalog + OpenRouter's internal effective-pricing route, cross-validated) replaces fabricated flat-padding with real observations; dual storage (`history.csv` compact summary + a new granular effective-pricing store).
   - Test suite matures to `pytest` with golden pricing cases as part of this initiative (tracked in `AGENTS.md` Rule 8).
 
+- [ ] **Update default cache-hit-rate using TraceLab's cache breakdown**:
+  - TraceLab's dataset (Total input 114.2B / Cached-read 109.2B / Append 5.01B / Output 391.8M) implies a ~95.3% cache-hit-rate — materially higher than the current interim default (~76.4%, pooled from only two personal `docs/sample/` log exports).
+  - Update `DEFAULT_CACHE_HIT_RATE`/`DEFAULT_CONFIG` in `config.py`, reconcile `config/shortlist.example.json` to match exactly (currently off by ~0.00003 from `config.py`'s own default — separate small pre-existing drift, fix both together), and extend the README's "Backed by 114 Billion Tokens" TraceLab table with the cache-dimension row. Full computed numbers in [`docs/plans/pricing-engine-v2/PLAN.md`](docs/plans/pricing-engine-v2/PLAN.md) (Deferred section).
+
 - [ ] **Expose `calibrate` as an MCP Tool (`calibrate_token_weights`)**:
   - Expose the OpenRouter activity log parser directly as an MCP tool so orchestrators can calibrate agent token mixes (`weight_prompt` / `weight_completion`) on the fly from log snippets or paths.
 
