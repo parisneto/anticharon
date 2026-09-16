@@ -68,6 +68,10 @@ Effective_Price_1M = Effective_Cost / Total_Tokens × 1,000,000
 
 **Status:** the formula and its golden-case tests are implemented and passing. `src/anticharon/tracker.py` still computes `current_1m` via the legacy §3.1 2-component formula — wiring the cache-aware formula into the live tracking path (plus provider-routable pricing and the `effective_price_1m`/`policy_price_1m`/`advertised_*` field split) is the next phase of this initiative and will update this section again once complete. See "Core pricing semantics" in `PLAN.md` for the full target model.
 
+### 3.1b Sentinel/Invalid Listed Price Guard
+
+OpenRouter meta-router models (`openrouter/auto`, `auto-beta`, `fusion`, `pareto-code`, `bodybuilder` — live-verified 2026-09-16) list `pricing.prompt`/`pricing.completion` as the raw sentinel string `"-1"`, meaning "routes to whatever backing model at that model's own price," not a real fixed cost. Both §3.1's legacy formula and §3.1a's cache-aware formula convert raw pricing by multiplying by `1,000,000`; applied naively to a sentinel this produces `-1,000,000.0/1M`, which then sorts as the cheapest model everywhere pricing is compared. `src/anticharon/pricing.py`'s `is_valid_listed_price()` rejects any negative listed price (zero is still valid — that's how genuine free/promo-tier models are listed); `run_tracker` (`tracker.py`) and `fetch_catalog` (`discovery.py`) both skip a model failing this check rather than surfacing it.
+
 ### 3.2 Moving Averages (`MA_3d` and `MA_7d`)
 ```text
 MA_3d = (Today_Price + Price_d1 + Price_d2) / 3

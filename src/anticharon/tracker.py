@@ -3,13 +3,20 @@
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
 import requests
 
 from anticharon.analytics import calculate_model_analytics
-from anticharon.config import load_config, get_history_path, get_config_path
+from anticharon.config import get_config_path, get_history_path, load_config
 from anticharon.hermes import get_hermes_models, sync_hermes_to_config
-from anticharon.models import ModelPrice, PriceWarning, TrackerResult, HermesIntegrationStatus
+from anticharon.models import (
+    HermesIntegrationStatus,
+    ModelPrice,
+    PriceWarning,
+    TrackerResult,
+)
+from anticharon.pricing import is_valid_listed_price
 from anticharon.storage import read_history, write_history
 
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
@@ -148,6 +155,11 @@ def run_tracker(
             p_out = float(pricing.get("completion", 0)) * 1_000_000
         except (ValueError, TypeError):
             p_in, p_out = 0.0, 0.0
+
+        if not (is_valid_listed_price(p_in) and is_valid_listed_price(p_out)):
+            # Sentinel/non-priced model (e.g. a meta-router like openrouter/auto-beta) --
+            # skip rather than let a negative sentinel masquerade as "cheapest".
+            continue
 
         current_1m = (p_in * w_in) + (p_out * w_out)
 

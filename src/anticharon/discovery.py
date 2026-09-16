@@ -1,11 +1,13 @@
 """Model catalog discovery and multi-criteria exploration engine."""
 
-import re
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+
 import requests
 
+from anticharon.pricing import is_valid_listed_price
 from anticharon.tracker import OPENROUTER_MODELS_URL
 
 
@@ -71,6 +73,11 @@ def fetch_catalog(
             p_out = float(pricing.get("completion", 0)) * 1_000_000
         except (ValueError, TypeError):
             p_in, p_out = 0.0, 0.0
+
+        if not (is_valid_listed_price(p_in) and is_valid_listed_price(p_out)):
+            # Sentinel/non-priced model (e.g. a meta-router like openrouter/auto-beta) --
+            # skip rather than let a negative sentinel masquerade as "cheapest".
+            continue
 
         blended = (p_in * weight_prompt) + (p_out * weight_completion)
 

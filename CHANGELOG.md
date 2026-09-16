@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Dev Tooling (`scripts/pick_random_test_models.py`):**
+  - Cherry-picked from `main` (`fde20ea`): draws a randomized, diverse set of real OpenRouter model slugs (newest/most-popular/cheapest/priciest/longest-context) for `@pytest.mark.live` tests instead of a fixed hardcoded pair.
+- **Sentinel/Negative-Price Guard (`src/anticharon/pricing.py`, `tracker.py`, `discovery.py`):**
+  - Added `is_valid_listed_price()`: OpenRouter meta-router models (`openrouter/auto`, `auto-beta`, `fusion`, `pareto-code`, `bodybuilder` — live-verified, not hypothetical) list `pricing.prompt`/`pricing.completion` as the raw sentinel `"-1"`, which the existing `× 1,000,000` conversion turned into a real-looking `-1,000,000.0/1M` that would rank as globally cheapest everywhere pricing is compared. Both `run_tracker`'s shortlist loop and `fetch_catalog`'s full-catalog browse now skip any model with a negative listed price (zero/free is still valid). Regression tests: `tests/test_pricing.py`, `tests/test_tracker.py`, `tests/test_discovery.py`.
 - **Cache-Aware Token Parsing (`src/anticharon/log_parser.py`):**
   - `parse_activity_log` now reads `tokens_cached` from OpenRouter activity logs and splits prompt tokens into uncached/cached buckets, computing `weight_uncached_prompt`, `weight_cached_prompt`, and `cache_hit_rate` per `docs/plans/pricing-engine-v2/ADR_CANDIDATE_TOKENS_CACHED.md`. Legacy `weight_prompt`/`weight_completion` are unchanged for backward compatibility with existing config/CLI consumers. Older logs without a `tokens_cached` column still parse correctly (defaults to 0 cached).
 - **Cache-Aware Blended Pricing Formula (`src/anticharon/pricing.py`, new module):**

@@ -9,6 +9,20 @@ regression measurable (see `tests/test_golden_pricing.py`), not as a live path.
 """
 
 
+def is_valid_listed_price(price_1m: float) -> bool:
+    """False only for a negative sentinel price, true otherwise.
+
+    OpenRouter meta-router models (e.g. `openrouter/auto-beta`) list
+    `pricing.prompt`/`pricing.completion` as the raw string `"-1"` to mean
+    "no fixed price" (it routes to whatever backing model at that model's
+    own price). Naively multiplying by 1,000,000 like every real price
+    turns that into a -1,000,000.0/1M sentinel, which then sorts as the
+    globally cheapest model everywhere pricing is compared. Zero is not a
+    sentinel here — it's how genuine free/promo-tier models are listed.
+    """
+    return price_1m >= 0
+
+
 def calculate_effective_cost(
     uncached_prompt_price_1m: float,
     cache_read_price_1m: float,
