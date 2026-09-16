@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-09-16
+
+### Changed
+- **`model discover` wording no longer implies AI-powered curation (`src/anticharon/cli.py`, `README.md`):**
+  - The command's help/description text and README's feature description were written in a way that read like an AI-powered discovery/recommendation engine, when it's actually a plain multi-criteria filter (keyword substring, modality, price thresholds) over the live catalog, sorted cheapest-first. Reworded both to say "filters by criteria you provide" and explicitly disclaim "no AI ranking, curation, or recommendations." No behavior, flag, or command-name change — light-touch wording pass only. `discover_models` (the MCP tool name) and the `discover` subcommand name itself are unchanged, per explicit scope.
+
 ## [0.5.1] - 2026-09-16
 
 ### Fixed

@@ -679,8 +679,12 @@ def main() -> None:
     # model discover
     disc_p = model_subparsers.add_parser(
         "discover",
-        help="Search and filter OpenRouter's model catalog with multi-criteria filters",
-        description="Search OpenRouter catalog (~417+ models) with multi-criteria keywords, modality, and price filters."
+        help="Filter OpenRouter's model catalog by keyword, modality, and price criteria you specify",
+        description=(
+            "Filters OpenRouter's catalog (~417+ models) by the keyword, modality, and price criteria "
+            "you provide, then sorts matches cheapest-first. Plain substring/threshold matching only "
+            "-- no AI ranking, curation, or recommendations."
+        )
     )
     disc_p.add_argument("query", nargs="?", default=None, help="Optional search query (e.g. 'gemini', 'qwen', 'grok')")
     disc_p.add_argument("--promo", action="store_true", help="Filter for promotional and free (:free, $0.00) models")
