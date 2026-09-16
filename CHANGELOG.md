@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-09-16
+
+### Fixed
+- **`model discover --zdr` no longer live-checks the full catalog before filtering (`src/anticharon/discovery.py`, `cli.py`, `config.py`):**
+  - `fetch_catalog()` no longer performs any live ZDR check itself (the `zdr_only` param is removed from it entirely) — the live per-endpoint check is now a separate, opt-in step (`apply_zdr_filter()`) applied *after* `filter_catalog()`, so it only ever runs against models actually matching the user's query/filters, not the full ~440-model catalog. Live-verified: an unfiltered `discover --zdr` used to live-check every candidate still in the catalog after the sentinel-price guard; it's now capped (see below) regardless of how broad the query is.
+  - New config key `max_zdr_check_count` (default `10`, same pattern as `spike_threshold_pct`/`min_tracking_days_for_profile`): caps how many of the (already-filtered) candidates get a live ZDR check in one `discover --zdr` command, taking the cheapest N by blended price. **Never silently truncated** — when the filtered candidate list exceeds the cap, a clear warning is printed (and included as `zdr_warning` in `--json` output) naming exactly how many of how many were checked. `run`/`check --zdr` are unaffected — shortlists are inherently small (7–9 models typically), so this cap only matters for `discover`'s full-catalog case.
+
 ## [0.5.0] - 2026-09-16
 
 ### Added

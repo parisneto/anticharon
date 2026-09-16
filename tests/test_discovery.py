@@ -9,7 +9,12 @@ the globally cheapest model.
 
 import pytest
 
-from anticharon.discovery import CatalogModel, fetch_catalog, filter_catalog
+from anticharon.discovery import (
+    CatalogModel,
+    apply_zdr_filter,
+    fetch_catalog,
+    filter_catalog,
+)
 
 
 class _FakeResponse:
@@ -69,14 +74,38 @@ def test_fetch_catalog_uses_cache_aware_3way_blend(monkeypatch):
     assert m.blended_price_1m == pytest.approx(expected, abs=1e-6)
 
 
-def test_fetch_catalog_zdr_only_excludes_unroutable_models(monkeypatch):
-    fake_data = [
-        {"id": "openai/gpt-5.6-sol", "name": "Sol", "canonical_slug": "openai/gpt-5.6-sol-20260709",
-         "pricing": {"prompt": "0.000002", "completion": "0.00001"}},
-        {"id": "azure-friendly/model", "name": "Azure Friendly", "canonical_slug": "azure-friendly/model",
-         "pricing": {"prompt": "0.000002", "completion": "0.00001"}},
+def test_fetch_catalog_has_no_zdr_param_and_does_not_live_check():
+    """fetch_catalog() no longer performs any live ZDR check itself -- that's a
+    separate, opt-in, post-filter step (apply_zdr_filter) so a live per-endpoint
+    check only ever runs against an already-narrowed candidate list, not the
+    full ~440-model catalog."""
+    import inspect
+
+    from anticharon import discovery
+
+    params = inspect.signature(discovery.fetch_catalog).parameters
+    assert "zdr_only" not in params
+
+
+def _make_model(model_id: str, blended: float, canonical_slug: str = "") -> CatalogModel:
+    return CatalogModel(
+        id=model_id,
+        name=model_id,
+        context_length=100_000,
+        prompt_price_1m=blended,
+        completion_price_1m=blended,
+        blended_price_1m=blended,
+        is_promo=False,
+        output_modalities=["text"],
+        canonical_slug=canonical_slug or model_id,
+    )
+
+
+def test_apply_zdr_filter_excludes_unroutable_models(monkeypatch):
+    models = [
+        _make_model("openai/gpt-5.6-sol", 0.10, "openai/gpt-5.6-sol-20260709"),
+        _make_model("azure-friendly/model", 0.20, "azure-friendly/model"),
     ]
-    monkeypatch.setattr("anticharon.discovery.requests.get", lambda url, timeout=10.0: _FakeResponse(fake_data))
 
     def fake_endpoints(canonical_slug, timeout=10.0):
         if canonical_slug == "azure-friendly/model":
@@ -85,10 +114,44 @@ def test_fetch_catalog_zdr_only_excludes_unroutable_models(monkeypatch):
 
     monkeypatch.setattr("anticharon.discovery.fetch_endpoint_policy_pricing", fake_endpoints)
 
-    catalog = fetch_catalog(zdr_only=True)
-    ids = [m.id for m in catalog]
+    compliant, warning = apply_zdr_filter(models, max_check_count=10)
+    ids = [m.id for m in compliant]
     assert "openai/gpt-5.6-sol" not in ids
     assert "azure-friendly/model" in ids
+    assert warning is None
+
+
+def test_apply_zdr_filter_checks_only_cheapest_n_and_warns_when_capped(monkeypatch):
+    """Never silently truncate: exceeding max_check_count must both (a) only
+    live-check the cheapest N candidates and (b) return a non-None warning."""
+    models = [_make_model(f"provider/model-{i}", float(i), f"provider/model-{i}") for i in range(5)]
+    checked_slugs = []
+
+    def fake_endpoints(canonical_slug, timeout=10.0):
+        checked_slugs.append(canonical_slug)
+        return [{"provider_info": {"dataPolicy": {"retainsPrompts": False}}}]
+
+    monkeypatch.setattr("anticharon.discovery.fetch_endpoint_policy_pricing", fake_endpoints)
+
+    compliant, warning = apply_zdr_filter(models, max_check_count=2)
+
+    # Only the 2 cheapest (model-0, model-1) were live-checked -- not all 5.
+    assert set(checked_slugs) == {"provider/model-0", "provider/model-1"}
+    assert len(compliant) == 2
+    assert warning is not None
+    assert "2 of 5" in warning
+    assert "max_zdr_check_count" in warning
+
+
+def test_apply_zdr_filter_no_warning_when_under_cap(monkeypatch):
+    models = [_make_model("provider/model-0", 0.0, "provider/model-0")]
+    monkeypatch.setattr(
+        "anticharon.discovery.fetch_endpoint_policy_pricing",
+        lambda canonical_slug, timeout=10.0: [{"provider_info": {"dataPolicy": {"retainsPrompts": False}}}],
+    )
+    compliant, warning = apply_zdr_filter(models, max_check_count=10)
+    assert len(compliant) == 1
+    assert warning is None
 
 
 def test_filter_catalog_multi_criteria():

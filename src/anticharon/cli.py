@@ -8,7 +8,7 @@ from pathlib import Path
 from anticharon import __version__
 from anticharon.chart import render_ascii_price_bar
 from anticharon.config import update_config_weights, get_config_path, get_history_path, load_config
-from anticharon.discovery import fetch_catalog, filter_catalog, format_discovery_output
+from anticharon.discovery import apply_zdr_filter, fetch_catalog, filter_catalog, format_discovery_output
 from anticharon.hermes import get_hermes_models, sync_hermes_to_config
 from anticharon.log_parser import parse_activity_log
 from anticharon.manager import add_model, remove_model, list_models
@@ -439,7 +439,6 @@ def cmd_model(args) -> int:
             weight_uncached_prompt=w_uncached,
             weight_cached_prompt=w_cached,
             weight_completion=w_completion,
-            zdr_only=getattr(args, "zdr", False),
         )
         filtered = filter_catalog(
             models=catalog,
@@ -451,7 +450,15 @@ def cmd_model(args) -> int:
             max_output_price=args.max_output_price,
             filter_expressions=args.filter
         )
-        format_discovery_output(filtered, json_mode=args.json)
+
+        zdr_warning = None
+        if getattr(args, "zdr", False):
+            # Live ZDR check runs only against the already-narrowed local-filter
+            # result, not the full catalog -- and is itself capped (see apply_zdr_filter).
+            max_zdr_check_count = cfg.get("max_zdr_check_count", 10)
+            filtered, zdr_warning = apply_zdr_filter(filtered, max_check_count=max_zdr_check_count)
+
+        format_discovery_output(filtered, json_mode=args.json, zdr_warning=zdr_warning)
         return 0
 
     elif action in ("sync", "import-hermes"):
@@ -684,7 +691,7 @@ def main() -> None:
     disc_p.add_argument("--max-output-price", type=float, default=None, help="Maximum output completion price per 1M tokens ($)")
     disc_p.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json (for token weights)")
     disc_p.add_argument("--json", action="store_true", help="Output catalog results in JSON format")
-    disc_p.add_argument("--zdr", action="store_true", help="Only include models with a Zero Data Retention-compliant endpoint (slower: one extra live check per candidate model)")
+    disc_p.add_argument("--zdr", action="store_true", help="Only include models with a Zero Data Retention-compliant endpoint (checked live, after other filters, capped at max_zdr_check_count models -- default 10)")
 
     # Command: help
     help_parser = subparsers.add_parser(

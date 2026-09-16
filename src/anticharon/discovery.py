@@ -3,11 +3,15 @@
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
-from anticharon.pricing import blended_rate_1m, is_valid_listed_price, resolve_cache_read_price_1m
+from anticharon.pricing import (
+    blended_rate_1m,
+    is_valid_listed_price,
+    resolve_cache_read_price_1m,
+)
 from anticharon.tracker import OPENROUTER_MODELS_URL, fetch_endpoint_policy_pricing
 
 
@@ -23,6 +27,9 @@ class CatalogModel:
     is_promo: bool
     output_modalities: List[str] = field(default_factory=list)
     description: str = ""
+    # Not surfaced in to_dict() -- internal use only, e.g. by apply_zdr_filter()'s
+    # live per-endpoint lookup, which needs the real permaslug, not the display id.
+    canonical_slug: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -43,7 +50,6 @@ def fetch_catalog(
     weight_uncached_prompt: float = 0.232622,
     weight_cached_prompt: float = 0.764478,
     weight_completion: float = 0.0029,
-    zdr_only: bool = False,
 ) -> List[CatalogModel]:
     """Fetch and parse all models from OpenRouter API.
 
@@ -52,11 +58,10 @@ def fetch_catalog(
     present per-model, not just per-endpoint) with calibrated/default weights -- not a
     per-provider routing decision, since the bulk catalog has no per-endpoint data.
 
-    `zdr_only=True` additionally live-checks each candidate model's real ZDR signal
-    (`provider_info.dataPolicy.retainsPrompts`, see tracker.py) and excludes any model
-    with no ZDR-compliant endpoint. This is one extra HTTP call per model still in the
-    catalog after the sentinel-price guard below (~440 on an unfiltered browse) -- opt-in
-    and slower by design, not something the default `zdr_only=False` browse pays for.
+    Does not live-check ZDR routability -- that's a separate, opt-in, post-filter step
+    (see `apply_zdr_filter`) applied *after* local filtering, so a live per-endpoint
+    check only ever runs against the small set of models actually matching the user's
+    query/filters, not the full ~440-model catalog.
     """
     try:
         resp = requests.get(OPENROUTER_MODELS_URL, timeout=timeout)
@@ -93,16 +98,6 @@ def fetch_catalog(
             # skip rather than let a negative sentinel masquerade as "cheapest".
             continue
 
-        if zdr_only:
-            canonical_slug = item.get("canonical_slug") or model_id
-            endpoints = fetch_endpoint_policy_pricing(canonical_slug, timeout=timeout)
-            is_zdr_compliant = any(
-                ((ep.get("provider_info") or {}).get("dataPolicy") or {}).get("retainsPrompts") is False
-                for ep in endpoints
-            )
-            if not is_zdr_compliant:
-                continue
-
         cache_read_raw = pricing.get("input_cache_read")
         try:
             p_cache_raw = float(cache_read_raw) * 1_000_000 if cache_read_raw not in (None, "") else None
@@ -129,7 +124,8 @@ def fetch_catalog(
             blended_price_1m=blended,
             is_promo=is_promo,
             output_modalities=output_modalities,
-            description=desc
+            description=desc,
+            canonical_slug=item.get("canonical_slug") or model_id
         ))
 
     return catalog
@@ -219,7 +215,51 @@ def filter_catalog(
     return results
 
 
-def format_discovery_output(models: List[CatalogModel], json_mode: bool = False) -> None:
+def apply_zdr_filter(
+    models: List[CatalogModel],
+    timeout: float = 10.0,
+    max_check_count: int = 10,
+) -> Tuple[List[CatalogModel], Optional[str]]:
+    """Live-check ZDR routability, but only against an already-narrowed candidate list.
+
+    Must run *after* `filter_catalog()`, not before -- a live per-endpoint check is one
+    extra HTTP call per model, so checking the full ~440-model catalog before any local
+    filter is applied is needlessly slow. `models` is expected pre-sorted by
+    `blended_price_1m` ascending (what `filter_catalog()` already returns).
+
+    If more than `max_check_count` models remain after local filtering, only the
+    cheapest `max_check_count` are live-checked -- never silently truncated without
+    saying so: the second element of the returned tuple is a warning string describing
+    exactly how many of how many were checked, or `None` when no cap was needed.
+    """
+    if len(models) > max_check_count:
+        candidates = models[:max_check_count]
+        warning = (
+            f"Only checking ZDR for {max_check_count} of {len(models)} matching models; "
+            f"narrow your filters or raise max_zdr_check_count to check more."
+        )
+    else:
+        candidates = models
+        warning = None
+
+    compliant: List[CatalogModel] = []
+    for m in candidates:
+        endpoints = fetch_endpoint_policy_pricing(m.canonical_slug, timeout=timeout)
+        is_zdr_compliant = any(
+            ((ep.get("provider_info") or {}).get("dataPolicy") or {}).get("retainsPrompts") is False
+            for ep in endpoints
+        )
+        if is_zdr_compliant:
+            compliant.append(m)
+
+    return compliant, warning
+
+
+def format_discovery_output(
+    models: List[CatalogModel],
+    json_mode: bool = False,
+    zdr_warning: Optional[str] = None,
+) -> None:
     """Format and print discovered catalog models."""
     if json_mode:
         payload = {
@@ -227,12 +267,18 @@ def format_discovery_output(models: List[CatalogModel], json_mode: bool = False)
             "count": len(models),
             "models": [m.to_dict() for m in models]
         }
+        if zdr_warning:
+            payload["zdr_warning"] = zdr_warning
         print(json.dumps(payload, indent=2))
         return
 
     print("\n" + "=" * 90)
     print(f"🔍 ANTICHARON — OpenRouter Model Discovery (Found: {len(models)} models)")
     print("=" * 90)
+
+    if zdr_warning:
+        print(f"⚠️  {zdr_warning}")
+        print("-" * 90)
 
     if not models:
         print("  No models matched your search or filter criteria.")

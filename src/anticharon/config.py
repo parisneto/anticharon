@@ -31,7 +31,12 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "weight_cached_prompt": 0.764478,
     "weight_completion": 0.0029,
     "spike_threshold_pct": 20.0,
-    "min_tracking_days_for_profile": 14
+    "min_tracking_days_for_profile": 14,
+    # Cap on how many `model discover --zdr` candidates get a live per-endpoint ZDR
+    # check in one command. Applied *after* local filters narrow the candidate list
+    # (see discovery.py's apply_zdr_filter) -- never silently truncated past this
+    # without a warning.
+    "max_zdr_check_count": 10
 }
 
 

@@ -222,11 +222,14 @@ Same data directory as `history.csv`, same path-resolution hierarchy (§6.1). Th
   "weight_cached_prompt": 0.764478,
   "weight_completion": 0.0029,
   "spike_threshold_pct": 20.0,
-  "min_tracking_days_for_profile": 14
+  "min_tracking_days_for_profile": 14,
+  "max_zdr_check_count": 10
 }
 ```
 
 `min_tracking_days_for_profile` (default `14`, half the 28-day backfill window): elapsed calendar days since a model was first tracked before analytics classification ("Historical Analytical Intelligence & Pricing Profiles" below) moves past `NEWLY_TRACKED`. Configurable per shortlist, same as `spike_threshold_pct`.
+
+`max_zdr_check_count` (default `10`): caps how many candidate models `anticharon model discover --zdr` will live-check for ZDR routability in a single command (§7 CLI Command Interface). Applied only after local filters (`query`, `--filter`, `--promo`, price/modality bounds) narrow the candidate list — never before — and only to the cheapest N candidates by blended price. If the filtered list still exceeds the cap, Anticharon never silently checks a subset and presents it as complete: it prints an explicit warning naming how many of how many were checked (`zdr_warning` in `--json` output) and proceeds with the cheapest N. `run`/`check --zdr` are unaffected by this cap — shortlists are inherently small (7–9 models typically), so the cap only matters for `discover`'s full-catalog case.
 
 ### 6.1 Path Resolution Hierarchy:
 1. **CLI Arguments:** `--config <path>` and `--data-dir <path>` (highest priority).
@@ -363,7 +366,8 @@ anticharon model discover "gemini"
 anticharon model discover --promo
 anticharon model discover "qwen" --modality text --max-price 0.50
 anticharon model discover --filter "openai" --filter "price < 10"
-anticharon model discover --zdr  # slower: one extra live policy check per candidate model
+anticharon model discover --zdr  # live-checks only the (already-filtered) cheapest max_zdr_check_count candidates
+anticharon model discover "gemini" --zdr  # narrow filters first to check more of your actual matches
 
 # 15. Policy (ZDR) Pricing: restrict effective/policy price to ZDR-compliant endpoints
 anticharon check --zdr --json
