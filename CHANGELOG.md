@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Cache-Aware Token Parsing (`src/anticharon/log_parser.py`):**
+  - `parse_activity_log` now reads `tokens_cached` from OpenRouter activity logs and splits prompt tokens into uncached/cached buckets, computing `weight_uncached_prompt`, `weight_cached_prompt`, and `cache_hit_rate` per `docs/plans/pricing-engine-v2/ADR_CANDIDATE_TOKENS_CACHED.md`. Legacy `weight_prompt`/`weight_completion` are unchanged for backward compatibility with existing config/CLI consumers. Older logs without a `tokens_cached` column still parse correctly (defaults to 0 cached).
+- **Cache-Aware Blended Pricing Formula (`src/anticharon/pricing.py`, new module):**
+  - Added `calculate_effective_cost` implementing the 3-component cache-aware blend (`Price = P_uncached × w_uncached + P_cache_read × w_cached + P_out × w_completion`), plus `price_per_1m` and a `calculate_legacy_cost` kept only to make the cached-token regression measurable in tests.
+- **Golden Pricing Test Suite (`tests/test_golden_pricing.py`, `tests/test_log_parser.py`):**
+  - Added the 5 golden pricing cases from `ADR_CANDIDATE_TOKENS_CACHED.md` as deterministic `pytest` cases (exact expected cost + $/1M for each), plus a regression test proving the legacy 2-component formula overestimates cache-heavy cost by >50%.
+  - Added fixture-based and real-sample-log tests for `log_parser.py`'s new `tokens_cached` handling, including missing-column and malformed-value edge cases.
+
 ### Changed
 - **Governance Directive Evolution (`AGENTS.md`):**
   - Evolved Rule 8 from zero-dependency testing to Deterministic, Behavior-Based Testing with `pytest` as the default offline test gate (`uv run pytest`).

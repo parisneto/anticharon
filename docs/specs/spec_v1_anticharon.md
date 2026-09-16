@@ -54,6 +54,20 @@ Price_1M = ((Prompt_Price_per_Token × Weight_Prompt) + (Completion_Price_per_To
 * **Calibrated Default Completion Weight (`Weight_Completion`):** `0.0029` (0.29% output)
 * **Constraint:** `Weight_Prompt + Weight_Completion = 1.0`
 
+### 3.1a Cache-Aware Effective Cost (`ADR-2026-0002-TOKENS-CACHED`, in progress)
+
+Per `docs/plans/pricing-engine-v2/` (`PLAN.md` + `ADR_CANDIDATE_TOKENS_CACHED.md`), §3.1's 2-component formula overestimates real cost for cache-heavy agent workloads because it never accounts for OpenRouter prompt-caching discounts. The corrected 3-component formula, implemented as a pure function in `src/anticharon/pricing.py` and validated against 5 independently-derived golden cases in `tests/test_golden_pricing.py`:
+
+```text
+Effective_Cost = (Uncached_Tokens / 1e6 × P_uncached)
+               + (Cached_Tokens   / 1e6 × P_cache_read)
+               + (Completion_Tokens / 1e6 × P_completion)
+
+Effective_Price_1M = Effective_Cost / Total_Tokens × 1,000,000
+```
+
+**Status:** the formula and its golden-case tests are implemented and passing. `src/anticharon/tracker.py` still computes `current_1m` via the legacy §3.1 2-component formula — wiring the cache-aware formula into the live tracking path (plus provider-routable pricing and the `effective_price_1m`/`policy_price_1m`/`advertised_*` field split) is the next phase of this initiative and will update this section again once complete. See "Core pricing semantics" in `PLAN.md` for the full target model.
+
 ### 3.2 Moving Averages (`MA_3d` and `MA_7d`)
 ```text
 MA_3d = (Today_Price + Price_d1 + Price_d2) / 3
@@ -94,7 +108,7 @@ Delta_7d_Pct = ((Current_Price_1M - MA_7d) / MA_7d) × 100
 
 To update operational weights whenever a fresh CSV is exported from the OpenRouter dashboard:
 - Navigation: OpenRouter → Sidebar Logs → Select Period (e.g. Past 1 Month) → 3 dots menu → Export CSV.
-- Columns processed: `tokens_prompt`, `tokens_completion`.
+- Columns processed: `tokens_prompt`, `tokens_completion`, `tokens_cached`.
 
 ### Computation Formula:
 ```text
@@ -105,6 +119,23 @@ Total_Tokens = Total_Prompt_Tokens + Total_Completion_Tokens
 Weight_Prompt = Total_Prompt_Tokens / Total_Tokens
 Weight_Completion = Total_Completion_Tokens / Total_Tokens
 ```
+
+`Weight_Prompt`/`Weight_Completion` remain the 2-way weights `anticharon calibrate` writes to `shortlist.json` today (legacy §3.1 formula, unchanged in this pass).
+
+### Cache-Aware Split (`ADR-2026-0002-TOKENS-CACHED`, in progress)
+
+`parse_activity_log` (`src/anticharon/log_parser.py`) additionally reads `tokens_cached` and computes a 3-way split, feeding the §3.1a formula once it is wired into the live tracking path:
+
+```text
+Total_Cached_Tokens   = sum(tokens_cached)
+Total_Uncached_Tokens = Total_Prompt_Tokens - Total_Cached_Tokens
+
+Weight_Uncached_Prompt = Total_Uncached_Tokens / Total_Tokens
+Weight_Cached_Prompt   = Total_Cached_Tokens   / Total_Tokens
+Cache_Hit_Rate         = Total_Cached_Tokens   / Total_Prompt_Tokens
+```
+
+Logs exported before `tokens_cached` existed (or missing the column) parse correctly: the cached bucket defaults to 0, i.e. 100% uncached — identical to pre-ADR behavior.
 
 ---
 

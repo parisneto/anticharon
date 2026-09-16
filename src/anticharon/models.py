@@ -179,22 +179,38 @@ class TrackerResult:
 
 @dataclass
 class PromptMixResult:
-    """Result of prompt/completion ratio calculation from activity logs."""
+    """Result of prompt/completion ratio calculation from activity logs.
+
+    `weight_prompt`/`weight_completion` are the legacy 2-way split (kept for
+    backward compatibility with existing config/CLI consumers). The
+    cache-aware 3-way split (`weight_uncached_prompt` + `weight_cached_prompt`
+    + `weight_completion`) is the one ADR-2026-0002-TOKENS-CACHED formulas use.
+    """
     total_prompt_tokens: int
     total_completion_tokens: int
     total_tokens: int
     weight_prompt: float
     weight_completion: float
     records_count: int
+    total_cached_tokens: int = 0
+    total_uncached_tokens: int = 0
+    weight_uncached_prompt: float = 0.0
+    weight_cached_prompt: float = 0.0
+    cache_hit_rate: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "records_count": self.records_count,
             "total_prompt_tokens": self.total_prompt_tokens,
             "total_completion_tokens": self.total_completion_tokens,
+            "total_cached_tokens": self.total_cached_tokens,
+            "total_uncached_tokens": self.total_uncached_tokens,
             "total_tokens": self.total_tokens,
             "weight_prompt": round(self.weight_prompt, 6),
             "weight_completion": round(self.weight_completion, 6),
+            "weight_uncached_prompt": round(self.weight_uncached_prompt, 6),
+            "weight_cached_prompt": round(self.weight_cached_prompt, 6),
+            "cache_hit_rate": round(self.cache_hit_rate, 6),
             "prompt_pct": f"{self.weight_prompt * 100:.2f}%",
             "completion_pct": f"{self.weight_completion * 100:.2f}%"
         }
