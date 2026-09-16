@@ -13,6 +13,15 @@ This backlog tracks completed milestones, upcoming sprint priorities, and long-t
     2. FastMCP tool (`eval_shortlist`) and agent prompt (`anticharon_eval_advisor`) enabling host agents (Hermes, Claude Desktop) on Day 1 to detect single-vendor monocultures, alias volatility (`:latest`, `:free`), and cold-start models (<15d old).
   - Add golden benchmark test matrix (`tests/fixtures/eval_test_matrix.json`) covering modern model families (Gemini 2.5, DeepSeek R1/V3, Llama 3.3, Claude 3.5).
 
+- [ ] **Update default cache-hit-rate using TraceLab's cache breakdown**:
+  - TraceLab's dataset (Total input 114.2B / Cached-read 109.2B / Append 5.01B / Output 391.8M) implies a ~95.3% cache-hit-rate — materially higher than the current interim default (~76.4%, pooled from only two personal `docs/sample/` log exports).
+  - Update `DEFAULT_CACHE_HIT_RATE`/`DEFAULT_CONFIG` in `config.py`, reconcile `config/shortlist.example.json` to match exactly (currently off by ~0.00003 from `config.py`'s own default — separate small pre-existing drift, fix both together), and extend the README's "Backed by 114 Billion Tokens" TraceLab table with the cache-dimension row. Full computed numbers in [`docs/plans/pricing-engine-v2/PLAN.md`](docs/plans/pricing-engine-v2/PLAN.md) (Deferred section).
+
+- [ ] **Pareto cutoff on provider token share before per-provider work**:
+  - Long-tail providers with negligible token share (e.g. `deepseek/deepseek-v4.1-flash` has 12+ providers, but the top 3 already cover ~70% of daily volume) add cost to per-provider operations (live ZDR checks, weighted effective-price averaging) without materially changing the result.
+  - Proposal: cut off providers once cumulative token share exceeds ~80% (configurable), skipping the remainder for these purposes.
+  - **Needs verification first**: confirm whether `token_share`/similar is a clean field in the `effective-pricing` or `/stats/endpoint` raw JSON responses, or whether it must be derived from something like relative `request_count` across a model's endpoints.
+
 - [ ] **Expose `calibrate` as an MCP Tool (`calibrate_token_weights`)**:
   - Expose the OpenRouter activity log parser directly as an MCP tool so orchestrators can calibrate agent token mixes (`weight_uncached_prompt` / `weight_cached_prompt` / `weight_completion`) on the fly from log snippets or paths.
 

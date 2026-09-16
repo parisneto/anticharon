@@ -105,7 +105,7 @@ Revision 3 assumed ZDR routability would come from the public `/models/{slug}/en
 
 ## Deferred / future backlog tasks surfaced by this round
 
-- Find a public/documented source for a better default cache-hit-rate assumption (current interim default is derived from two personal log exports only).
+- **Update `DEFAULT_CACHE_HIT_RATE` using the newer TraceLab cache breakdown (found 2026-09-16, not yet applied):** TraceLab's dataset reports Total input 114.2B / Cached-read 109.2B / Append (uncached) input 5.01B / Total output 391.8M. Computed 3-way split: `weight_uncached_prompt ≈ 0.043717`, `weight_cached_prompt ≈ 0.952864`, `weight_completion ≈ 0.003419` (sums to 1.000000). This is a materially different, broader-sourced number than the current interim default (`0.232622`/`0.764478`/`0.0029`, pooled from just the two personal `docs/sample/` exports) — TraceLab shows ~95.3% cache-hit-rate vs. the interim ~76.4%. When this is picked up: update `DEFAULT_CACHE_HIT_RATE`/`DEFAULT_CONFIG` in `config.py`, reconcile the same numbers into `config/shortlist.example.json` (which should already match `config.py` exactly and currently doesn't, off by ~0.00003 — separate small pre-existing inconsistency, fix both at once), and extend the README's existing "Backed by 114 Billion Tokens" TraceLab comparison table with the cache-dimension row.
 - Revisit whether `status` values other than `-2`/`0` (e.g. `-5`, observed but unexplained in the live payload) need distinct handling.
 - `pricing.overrides` (long-context pricing tiers) and `pricing.discount` — noted, not modeled yet.
 
