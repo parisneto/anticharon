@@ -8,6 +8,7 @@ start) are three distinct numbers, never collapsed into one. The legacy
 2-component gross formula is removed as an independent downstream path.
 """
 
+import math
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -422,11 +423,17 @@ def run_tracker(
                 message=f"Model {model_id} has no ZDR-compliant endpoint; policy price unavailable."
             ))
 
-        # Under an active policy filter, the number that matters for sort/display/alerts
-        # is the policy-constrained price -- fall back to the unconstrained effective
-        # price only when no policy-compliant endpoint exists at all (the warning above
-        # already flags that this number doesn't reflect ZDR compliance).
-        display_price_1m = policy_price_1m if (zdr_only and policy_price_1m is not None) else effective_price_1m
+        # PE2-001 fix: price_1m (ModelPrice's sort/chart/delta key) is ALWAYS the
+        # unconstrained effective price -- never replaced by the policy price, even
+        # when zdr_only is active. effective_prices.json only ever stores unconstrained
+        # effective observations, so ma_3d/ma_7d/delta_7d_pct/spike-drop comparisons
+        # must stay on that same axis to remain like-for-like; mixing a
+        # policy-constrained *current* price with an unconstrained *historical*
+        # average would be an apples-to-oranges comparison
+        # (docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-001). The
+        # policy-constrained price is still surfaced separately via
+        # PricePoint.policy_price_1m and only overrides *ranking* for sort/
+        # BEST_OPTION_CHANGED below, never price_1m itself.
 
         # 28-day backfill: refresh the granular per-model store per its own staleness
         # policy (independent of this run's cadence), then derive history.csv's
@@ -437,29 +444,29 @@ def run_tracker(
         )
         observations = (effective_store.get(model_id) or {}).get("observations", [])
         derived = derive_history_window(observations, today=today)
-        ma_3d = derived["ma_3d"] if derived["ma_3d"] is not None else display_price_1m
-        ma_7d = derived["ma_7d"] if derived["ma_7d"] is not None else display_price_1m
+        ma_3d = derived["ma_3d"] if derived["ma_3d"] is not None else effective_price_1m
+        ma_7d = derived["ma_7d"] if derived["ma_7d"] is not None else effective_price_1m
         slots = derived["slots"]
 
-        delta_7d_pct = ((display_price_1m - ma_7d) / ma_7d) * 100 if ma_7d > 0 else 0.0
+        delta_7d_pct = ((effective_price_1m - ma_7d) / ma_7d) * 100 if ma_7d > 0 else 0.0
 
         # Anomaly / Spikes / Drops detection
         if delta_7d_pct >= threshold:
             warnings.append(PriceWarning(
                 type="PRICE_SPIKE",
                 model=model_id,
-                message=f"Model {model_id} price spiked +{delta_7d_pct:.1f}% vs 7-day MA. Current: ${display_price_1m:.5f}/1M."
+                message=f"Model {model_id} price spiked +{delta_7d_pct:.1f}% vs 7-day MA. Current: ${effective_price_1m:.5f}/1M."
             ))
         elif delta_7d_pct <= -threshold:
             warnings.append(PriceWarning(
                 type="PRICE_DROP",
                 model=model_id,
-                message=f"Model {model_id} price dropped {abs(delta_7d_pct):.1f}% vs 7-day MA. Current: ${display_price_1m:.5f}/1M."
+                message=f"Model {model_id} price dropped {abs(delta_7d_pct):.1f}% vs 7-day MA. Current: ${effective_price_1m:.5f}/1M."
             ))
 
         prices_shortlist.append(ModelPrice(
             model=model_id,
-            price_1m=display_price_1m,
+            price_1m=effective_price_1m,
             ma_7d=ma_7d,
             ma_3d=ma_3d,
             change_vs_7d_pct=delta_7d_pct,
@@ -487,20 +494,37 @@ def run_tracker(
         write_history(updated_records, hist_path)
         write_effective_prices(effective_store, effective_prices_path)
 
-    # Sort shortlist by cheapest (policy-constrained, if active) price
-    prices_shortlist.sort(key=lambda x: x.price_1m)
+    # PE2-001 fix: rank by the policy-constrained price when a policy filter is
+    # active, but a model with no policy-compliant endpoint (policy_price_1m is
+    # None -- whether explicitly unroutable or policy-unknown) must never be
+    # treated as "the cheapest option": it ranks last (math.inf) and is
+    # therefore never recommended via BEST_OPTION_CHANGED. This ranking is
+    # display/recommendation-only -- it does not change price_1m (always the
+    # unconstrained effective price, see above) or persisted history.
+    def _rank_price_1m(model_price: ModelPrice) -> float:
+        if zdr_only:
+            if model_price.price and model_price.price.policy_price_1m is not None:
+                return model_price.price.policy_price_1m
+            return math.inf
+        return model_price.price_1m
+
+    prices_shortlist.sort(key=_rank_price_1m)
 
     # Check if lowest-cost option differs from default (first in shortlist)
     if shortlist:
         current_default = shortlist[0]
         if prices_shortlist and prices_shortlist[0].model != current_default:
             cheapest = prices_shortlist[0]
-            warnings.append(PriceWarning(
-                type="BEST_OPTION_CHANGED",
-                current_default=current_default,
-                suggested_cheapest=cheapest.model,
-                message=f"Model {cheapest.model} (${cheapest.price_1m:.5f}/1M) is cheaper than configured default {current_default}."
-            ))
+            cheapest_rank = _rank_price_1m(cheapest)
+            # Never recommend a model that isn't actually the cheapest *routable*
+            # option under the active policy filter (PE2-001).
+            if cheapest_rank != math.inf:
+                warnings.append(PriceWarning(
+                    type="BEST_OPTION_CHANGED",
+                    current_default=current_default,
+                    suggested_cheapest=cheapest.model,
+                    message=f"Model {cheapest.model} (${cheapest_rank:.5f}/1M) is cheaper than configured default {current_default}."
+                ))
 
     if enable_analytics:
         if updated_records:

@@ -108,9 +108,14 @@ class PricePoint:
 class ModelPrice:
     """Calculated current price and moving average metrics for a model.
 
-    `price_1m` is the effective (cache-aware) price and remains the sort/chart
-    key throughout the codebase. `price`, when populated by the tracker, carries
-    the full advertised/effective/policy breakdown for display surfaces.
+    `price_1m` is ALWAYS the unconstrained effective (cache-aware) price and
+    remains the sort/chart key throughout the codebase -- it is never replaced
+    by a policy-constrained price, even when a policy filter (e.g. `--zdr`) is
+    active (see docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-001).
+    `price`, when populated by the tracker, carries the full advertised/
+    effective/policy breakdown for display surfaces; policy-aware ranking for
+    sort/recommendation under an active policy filter is computed separately
+    in tracker.py from `price.policy_price_1m`, never by mutating `price_1m`.
     """
     model: str
     price_1m: float
@@ -123,9 +128,16 @@ class ModelPrice:
     price: Optional[PricePoint] = None
 
     def to_dict(self) -> Dict[str, Any]:
+        # PE2-001 defense-in-depth: always serialize the true unconstrained
+        # effective price under the "effective_price_1m" key from `self.price`
+        # (the ground truth for the three-price distinction) when available,
+        # rather than trusting `self.price_1m` blindly -- so this boundary
+        # cannot silently re-collapse effective/policy even if a future caller
+        # mis-set price_1m the way tracker.py previously did.
+        effective_price = self.price.effective_price_1m if self.price else self.price_1m
         data: Dict[str, Any] = {
             "model": self.model,
-            "effective_price_1m": round(self.price_1m, 5),
+            "effective_price_1m": round(effective_price, 5),
             "ma_7d": round(self.ma_7d, 5),
             "change_vs_7d_pct": round(self.change_vs_7d_pct, 2)
         }

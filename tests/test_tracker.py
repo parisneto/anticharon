@@ -5,7 +5,7 @@ test_effective_pricing_backfill.py and test_policy_pricing.py.
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -157,10 +157,14 @@ def test_run_tracker_zdr_only_routable_uses_policy_price(monkeypatch, tmp_path, 
     model_price = result.prices_shortlist[0]
     assert model_price.price.is_policy_routable is True
     assert model_price.price.policy_price_1m is not None
-    # Under an active ZDR filter, the display/sort price is policy-constrained,
-    # which must be at least as expensive as the unconstrained effective price
-    # here (the only ZDR-compliant endpoint is the pricier Azure one).
-    assert model_price.price_1m == pytest.approx(model_price.price.policy_price_1m)
+    # PE2-001 fix (corrected 2026-09-16): price_1m is ALWAYS the unconstrained
+    # effective price, never replaced by the policy price -- even under an
+    # active ZDR filter. This assertion previously encoded the opposite
+    # (price_1m == policy_price_1m), which was RELEASE_VALIDATION.md#PE2-001's
+    # exact defect ("ZDR output mislabeled policy price as effective").
+    # Policy-aware ranking for sort/BEST_OPTION_CHANGED is computed separately
+    # in run_tracker from price.policy_price_1m, not by mutating price_1m.
+    assert model_price.price_1m == pytest.approx(model_price.price.effective_price_1m)
     assert model_price.price.policy_price_1m > model_price.price.effective_price_1m
 
 
@@ -221,3 +225,195 @@ def test_run_tracker_same_day_rerun_does_not_shift_d1(monkeypatch, tmp_path):
     d1_after_second_run = read_history(hist_path)["openai/gpt-5.6-luna"].prices[0]
 
     assert d1_after_first_run == d1_after_second_run
+
+
+# --- PE2-001 regression tests: effective and policy prices collapse under ZDR ---
+# See docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-001.
+
+
+def test_run_tracker_zdr_effective_price_field_not_collapsed_with_policy(monkeypatch, tmp_path, no_backfill):
+    """PE2-001 evidence #1: the serialized `effective_price_1m` field (what CLI
+    --json / the check_prices MCP tool actually return) must report the true
+    unconstrained effective price, never the policy-constrained price, even
+    when they differ substantially under an active policy filter."""
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {
+        "openai/gpt-5.6-sol": {
+            "id": "openai/gpt-5.6-sol",
+            "canonical_slug": "openai/gpt-5.6-sol-20260709",
+            "pricing": {"prompt": "0.000002", "completion": "0.00001"},
+        },
+    })
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **kw: [
+        {
+            "provider_name": "OpenAI",
+            "pricing": {"prompt": "0.000001", "completion": "0.000005"},
+            "provider_info": {"dataPolicy": {"retainsPrompts": True}},  # not ZDR -- cheap
+        },
+        {
+            "provider_name": "Azure",
+            "pricing": {"prompt": "0.000005", "completion": "0.00003"},
+            "provider_info": {"dataPolicy": {"retainsPrompts": False}},  # ZDR-compliant -- expensive
+        },
+    ])
+
+    cfg_path = _write_shortlist(tmp_path, ["openai/gpt-5.6-sol"])
+    result = run_tracker(
+        dry_run=True, config_path=cfg_path, history_path=tmp_path / "history.csv", no_hermes=True, zdr_only=True
+    )
+    model_price = result.prices_shortlist[0]
+    assert model_price.price.policy_price_1m > model_price.price.effective_price_1m  # sanity: they really differ
+
+    serialized = model_price.to_dict()
+    assert serialized["effective_price_1m"] == pytest.approx(model_price.price.effective_price_1m, abs=1e-5)
+    assert serialized["effective_price_1m"] != pytest.approx(model_price.price.policy_price_1m, abs=1e-3)
+    assert serialized["policy_price_1m"] == pytest.approx(model_price.price.policy_price_1m, abs=1e-5)
+
+
+def test_run_tracker_zdr_never_recommends_unroutable_model_as_best_option(monkeypatch, tmp_path, no_backfill):
+    """PE2-001 evidence #2: a model with NO ZDR-compliant endpoint at all must
+    never be ranked first or recommended via BEST_OPTION_CHANGED under an
+    active policy filter, even if its unconstrained effective price is the
+    cheapest in the whole shortlist. Reproduces the exact scenario from
+    RELEASE_VALIDATION.md#PE2-001 ("Unroutable Qwen model was recommended as
+    BEST_OPTION_CHANGED")."""
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {
+        "provider/expensive-default": {
+            "id": "provider/expensive-default", "canonical_slug": "provider/expensive-default",
+            "pricing": {"prompt": "0.000002", "completion": "0.00001"},
+        },
+        "provider/cheap-routable": {
+            "id": "provider/cheap-routable", "canonical_slug": "provider/cheap-routable",
+            "pricing": {"prompt": "0.000002", "completion": "0.00001"},
+        },
+        "provider/cheap-unroutable": {
+            "id": "provider/cheap-unroutable", "canonical_slug": "provider/cheap-unroutable",
+            "pricing": {"prompt": "0.000002", "completion": "0.00001"},
+        },
+    })
+
+    def fake_endpoints(canonical_slug, timeout=10.0):
+        if canonical_slug == "provider/expensive-default":
+            return [{  # ZDR-compliant, expensive
+                "provider_name": "Azure",
+                "pricing": {"prompt": "0.000005", "completion": "0.00003"},
+                "provider_info": {"dataPolicy": {"retainsPrompts": False}},
+            }]
+        if canonical_slug == "provider/cheap-routable":
+            return [
+                {  # ZDR-compliant, moderate -- this is the actual policy-cheapest option
+                    "provider_name": "Azure",
+                    "pricing": {"prompt": "0.000001", "completion": "0.000005"},
+                    "provider_info": {"dataPolicy": {"retainsPrompts": False}},
+                },
+                {  # non-ZDR, cheaper but irrelevant to policy ranking
+                    "provider_name": "OpenAI",
+                    "pricing": {"prompt": "0.0000005", "completion": "0.0000025"},
+                    "provider_info": {"dataPolicy": {"retainsPrompts": True}},
+                },
+            ]
+        if canonical_slug == "provider/cheap-unroutable":
+            return [{  # only endpoint retains prompts -- fully unroutable under ZDR,
+                       # but the cheapest unconstrained effective price of all three
+                "provider_name": "OpenAI",
+                "pricing": {"prompt": "0.0000001", "completion": "0.0000005"},
+                "provider_info": {"dataPolicy": {"retainsPrompts": True}},
+            }]
+        return []
+
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", fake_endpoints)
+
+    cfg_path = _write_shortlist(tmp_path, [
+        "provider/expensive-default", "provider/cheap-routable", "provider/cheap-unroutable"
+    ])
+    result = run_tracker(
+        dry_run=True, config_path=cfg_path, history_path=tmp_path / "history.csv", no_hermes=True, zdr_only=True
+    )
+
+    # Sanity: the unroutable model really does have the cheapest unconstrained
+    # effective price -- otherwise this test wouldn't distinguish old vs new behavior.
+    by_model = {p.model: p for p in result.prices_shortlist}
+    assert by_model["provider/cheap-unroutable"].price.effective_price_1m < by_model["provider/cheap-routable"].price.effective_price_1m
+
+    model_ids_in_order = [p.model for p in result.prices_shortlist]
+    assert model_ids_in_order[0] != "provider/cheap-unroutable"
+    assert model_ids_in_order[0] == "provider/cheap-routable"
+
+    best_option_warnings = [w for w in result.price_warnings if w.type == "BEST_OPTION_CHANGED"]
+    assert len(best_option_warnings) == 1
+    assert best_option_warnings[0].suggested_cheapest == "provider/cheap-routable"
+    assert best_option_warnings[0].suggested_cheapest != "provider/cheap-unroutable"
+
+
+def test_run_tracker_zdr_delta_compares_effective_not_policy_price(monkeypatch, tmp_path):
+    """PE2-001 evidence #3 ("Compare like-for-like current and historical
+    prices"): delta_7d_pct (and PRICE_SPIKE/PRICE_DROP) must compare the
+    unconstrained effective price against ma_7d, never the policy price --
+    ma_7d/ma_3d are always derived from unconstrained effective observations
+    in effective_prices.json, so mixing a policy-constrained *current* price
+    with an unconstrained *historical* average would be an apples-to-oranges
+    comparison."""
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {
+        "openai/gpt-5.6-sol": {
+            "id": "openai/gpt-5.6-sol",
+            "canonical_slug": "openai/gpt-5.6-sol-20260709",
+            "pricing": {"prompt": "0.000002", "completion": "0.00001"},
+        },
+    })
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **kw: [
+        {
+            "provider_name": "OpenAI",
+            "pricing": {"prompt": "0.000001", "completion": "0.000005", "input_cache_read": "0.0000001"},
+            "provider_info": {"dataPolicy": {"retainsPrompts": True}},  # not ZDR -- cheapest overall
+        },
+        {
+            "provider_name": "Azure",
+            "pricing": {"prompt": "0.000005", "completion": "0.00003", "input_cache_read": "0.0000005"},
+            "provider_info": {"dataPolicy": {"retainsPrompts": False}},  # ZDR-compliant -- pricier
+        },
+    ])
+
+    cfg_path = _write_shortlist(tmp_path, ["openai/gpt-5.6-sol"])
+    hist_path = tmp_path / "history.csv"
+    effective_prices_path = tmp_path / "effective_prices.json"
+
+    fixed_now = datetime(2026, 9, 16, 10, 0, 0, tzinfo=timezone.utc)
+    known_ma_price = 0.5
+    seeded_observations = [
+        {"date": (fixed_now.date() - timedelta(days=n)).isoformat(), "effective_price_1m": known_ma_price}
+        for n in range(1, 8)
+    ]
+    effective_prices_path.write_text(json.dumps({
+        "openai/gpt-5.6-sol": {
+            "canonical_slug": "openai/gpt-5.6-sol-20260709",
+            "first_seen": "2026-08-01",
+            "last_synced": fixed_now.isoformat(),  # fresh -- backfill fetch must not run
+            "observations": seeded_observations,
+        }
+    }), encoding="utf-8")
+
+    def _fail_if_called(*a, **kw):
+        raise AssertionError("fetch_effective_pricing_history must not be called -- store entry is fresh")
+
+    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", _fail_if_called)
+
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now
+
+    monkeypatch.setattr("anticharon.tracker.datetime", _FixedDatetime)
+
+    result = run_tracker(
+        dry_run=True, config_path=cfg_path, history_path=hist_path, no_hermes=True, zdr_only=True
+    )
+
+    model_price = result.prices_shortlist[0]
+    effective = model_price.price.effective_price_1m
+    policy = model_price.price.policy_price_1m
+    assert policy is not None and policy != pytest.approx(effective)  # sanity: they really differ
+
+    assert model_price.ma_7d == pytest.approx(known_ma_price)
+    expected_delta = ((effective - known_ma_price) / known_ma_price) * 100
+    wrong_delta_if_using_policy = ((policy - known_ma_price) / known_ma_price) * 100
+    assert model_price.change_vs_7d_pct == pytest.approx(expected_delta, abs=1e-4)
+    assert model_price.change_vs_7d_pct != pytest.approx(wrong_delta_if_using_policy, abs=1e-4)

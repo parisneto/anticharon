@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **PE2-001 — Effective and policy prices no longer collapse under `--zdr` (`src/anticharon/tracker.py`, `src/anticharon/models.py`):**
+  - `ModelPrice.price_1m` (and the serialized `effective_price_1m` field in CLI `--json`/`check_prices` MCP output) is now ALWAYS the unconstrained effective price, never silently replaced by the policy-constrained price when `--zdr` is active. Previously, an active ZDR filter collapsed the two into one number under the `effective_price_1m` label — e.g. Luna's real effective price ($0.03267/1M) was reported as $0.06534/1M (its ZDR policy price) once `--zdr` was passed.
+  - `ma_3d`/`ma_7d`/`delta_7d_pct`/`PRICE_SPIKE`/`PRICE_DROP` now always compare against the unconstrained effective price, matching the axis `effective_prices.json`'s historical observations are stored on (previously these silently switched to comparing the policy price against effective-price history under `--zdr` — an apples-to-oranges comparison).
+  - A model with no ZDR-compliant endpoint at all is now excluded from being ranked "cheapest" and can no longer trigger `BEST_OPTION_CHANGED` under an active policy filter (previously an entirely unroutable model — e.g. a ZDR-blocked Qwen model — could be recommended as the best option, since sort/recommendation silently fell back to its unconstrained effective price).
+  - Status: `Ready for Retest`. Full evidence, root cause, and regression tests in `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-001`. Spec updated: `docs/specs/spec_v1_anticharon.md` §3.1 and §3.7 rule 3.
+
 ## [0.5.2] - 2026-09-16
 
 ### Changed
