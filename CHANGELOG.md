@@ -46,6 +46,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New deterministic CLI tests assert `anticharon check --zdr --json`'s printed JSON shape and `anticharon check --zdr`'s human-readable output actually render the `POLICY_UNROUTABLE` warning line, not just that the underlying warning object exists.
   - Status: `Ready for Retest`. Full evidence in `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-006`.
 
+### Fixed
+- **PE2-007 — `anticharon test`'s Mathematical Engine check now verifies the actual production pricing formula (`src/anticharon/tester.py`):**
+  - The diagnostic previously evaluated an arbitrary, hardcoded `(1.0 * 0.99) + (2.0 * 0.01)` two-component calculation with no connection to the production pricing function at all — it would still report `[PASS] Mathematical Engine: Verified` even if the real cache-aware three-component formula (ADR-2026-0002-TOKENS-CACHED) regressed or were removed entirely.
+  - Now calls the actual production `calculate_effective_cost` (`src/anticharon/pricing.py`) with two of the ADR's independently-derived golden cases as reference values: a cache-heavy case (85% cached — fails if cached-token pricing is ignored/omitted) and a zero-cache case (confirms the uncached path stayed correct).
+  - New `tests/test_tester.py` proves the fix is load-bearing: injects a broken (legacy 2-component-equivalent) `calculate_effective_cost` and confirms `run_self_test()` now genuinely reports failure — something the original hardcoded check could never have caught, by construction.
+  - Status: `Ready for Retest`. Full evidence in `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-007`.
+
 ## [0.5.2] - 2026-09-16
 
 ### Changed

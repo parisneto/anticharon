@@ -9,6 +9,7 @@ import requests
 from anticharon.config import load_config, get_data_dir, get_config_path
 from anticharon.hermes import get_hermes_models
 from anticharon.models import ModelPrice
+from anticharon.pricing import calculate_effective_cost, price_per_1m
 from anticharon.tracker import OPENROUTER_MODELS_URL
 
 
@@ -136,14 +137,35 @@ def run_self_test(
         all_passed = False
 
     # 5. Mathematical Formula Verification
+    # PE2-007 (corrected 2026-09-17): this previously evaluated an arbitrary
+    # `(1.0 * 0.99) + (2.0 * 0.01)` two-component calculation that had no
+    # connection to the production pricing function at all -- it would still
+    # report "Verified" even if the real cache-aware three-component formula
+    # (ADR-2026-0002-TOKENS-CACHED) regressed or were removed entirely. Now
+    # calls the actual production function, `calculate_effective_cost`, with
+    # two of the ADR's independently-derived golden cases (also used verbatim,
+    # unrounded, in tests/test_golden_pricing.py) as reference values:
+    #   - Golden Case #1 (cache-heavy, 85% cached): fails if cached-token
+    #     pricing is ignored/omitted -- a 2-component blend would compute
+    #     roughly $2.04/1M here, not the correct $0.5174/1M.
+    #   - Golden Case #4 (zero-cache): the cache-aware and legacy formulas
+    #     agree exactly here, confirming the new formula didn't break the
+    #     uncached/zero-cache path while fixing the cached one.
     try:
-        test_cost = (1.0 * 0.99) + (2.0 * 0.01)
-        assert abs(test_cost - 1.01) < 1e-6, "Weighted price calculation mismatch"
-        prices = [0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10]
-        ma_3d = sum(prices[:3]) / 3
-        ma_7d = sum(prices[:7]) / 7
-        assert abs(ma_3d - 0.10) < 1e-6, "MA_3d calculation mismatch"
-        assert abs(ma_7d - 0.10) < 1e-6, "MA_7d calculation mismatch"
+        cache_heavy_cost = calculate_effective_cost(
+            uncached_prompt_price_1m=2.00, cache_read_price_1m=0.20, completion_price_1m=10.00,
+            uncached_tokens=30_000, cached_tokens=170_000, completion_tokens=1_000,
+        )
+        cache_heavy_per_1m = price_per_1m(cache_heavy_cost, 30_000 + 170_000 + 1_000)
+        assert abs(cache_heavy_per_1m - 0.5174) < 1e-3, "Cache-aware pricing formula mismatch (cache-heavy case)"
+
+        zero_cache_cost = calculate_effective_cost(
+            uncached_prompt_price_1m=2.00, cache_read_price_1m=0.20, completion_price_1m=10.00,
+            uncached_tokens=50_000, cached_tokens=0, completion_tokens=2_000,
+        )
+        zero_cache_per_1m = price_per_1m(zero_cache_cost, 50_000 + 2_000)
+        assert abs(zero_cache_per_1m - 2.3077) < 1e-3, "Cache-aware pricing formula mismatch (zero-cache case)"
+
         diag["math_engine"] = {"verified": True}
         if not json_mode:
             print(" [PASS] Mathematical Engine: Verified")
