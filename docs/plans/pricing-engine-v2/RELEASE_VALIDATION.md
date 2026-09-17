@@ -136,7 +136,7 @@ The candidate ADR and empirical artifacts provide supporting evidence.
 ### PE2-002 — Missing or partial pricing becomes a valid zero-cost endpoint
 
 - Severity: P1
-- Status: `Open`
+- Status: `Ready for Retest`
 - Contract impact:
   - Missing/partial pricing fallback
   - Provider-level price correctness
@@ -180,8 +180,61 @@ The candidate ADR and empirical artifacts provide supporting evidence.
   - Mixed malformed and valid endpoints.
   - All endpoints malformed.
   - Bulk-catalog partial-pricing fallback.
-- Resolution commit:
-  - Pending
+- Implementation evidence:
+  - `src/anticharon/pricing.py` gains `parse_required_price_1m(pricing, field)`,
+    returning `None` (never `0.0`) for a missing key, `None` value, blank
+    string, or non-numeric value; a genuine `"0"` still parses as a real `0.0`.
+    Live-verified 2026-09-17 that every real bulk-catalog model and every real
+    per-endpoint entry (including genuine free `:free` models) always includes
+    both `prompt` and `completion` as present keys — never by omission — so
+    requiring presence does not risk rejecting a real free model.
+  - `src/anticharon/tracker.py`'s `_endpoint_blended_rate_1m()` (per-endpoint
+    pricing) and `run_tracker()`'s bulk-catalog advertised-price parsing both
+    now use `parse_required_price_1m()` and skip the endpoint/model entirely
+    (rather than pricing it at `$0`) when either required field is missing.
+  - `src/anticharon/discovery.py`'s `fetch_catalog()` uses the same helper and
+    skips the catalog model entirely under the same condition.
+  - Reconciliation discovered while writing PE2-002's regression tests, fixed
+    in the same commit: `resolve_policy_pricing()` (`tracker.py`) previously
+    gated `is_policy_routable`/`policy_price_1m` on whether the raw `endpoints`
+    list was non-empty, not on whether any endpoint actually produced a usable
+    price via `_endpoint_blended_rate_1m()`. A non-empty `endpoints` list where
+    every entry has missing/malformed pricing (this finding's exact scenario)
+    was therefore reported as `is_policy_routable=false` ("confirmed
+    unroutable") instead of `is_policy_routable=None` ("policy-unknown") —
+    the same class of defect PE2-003 describes for the fetch layer, found here
+    one level down in the resolution layer. Fixed by gating on `rates` (the
+    list of endpoints that actually parsed) instead of `endpoints`.
+  - `docs/specs/spec_v1_anticharon.md` §3.1a documents the required-field rule
+    and the distinction from `input_cache_read`'s legitimate optional-with-
+    fallback status.
+  - Regression tests added, one per required-tests bullet above:
+    `tests/test_pricing.py` (7 unit tests on `parse_required_price_1m` itself:
+    missing field, both fields missing, null value, blank string, malformed
+    value, legitimate zero, real value), `tests/test_policy_pricing.py` (6:
+    the exact `pricing={}` evidence scenario, missing completion, blank
+    prompt, mixed malformed+valid, all endpoints malformed, legitimate zero
+    endpoint), `tests/test_tracker.py` (2: missing bulk-catalog field skips
+    the model end-to-end, the exact evidence scenario reproduced through
+    `run_tracker` end-to-end), `tests/test_discovery.py` (3: missing field,
+    empty pricing dict, legitimate free model kept).
+- Remediation-agent verification:
+  - `uv run pytest`: 107 passed, 3 deselected.
+  - Manual: reproduced normal (non-degenerate) operation live against
+    `openai/gpt-5.6-luna` + `qwen/qwen3.7-flash` in an isolated temp data dir —
+    confirmed both models' `effective_price_1m` unchanged from pre-fix values
+    ($0.03265 / $0.01194), i.e. the fix does not alter real pricing for real
+    endpoints. The exact `pricing={}` scenario itself cannot be forced against
+    the live API (OpenRouter does not serve malformed pricing on demand) --
+    covered by the unit/fixture/mocked-integration tests above instead, per
+    the Execution Contract's trust hierarchy (pure logic → known payload →
+    mocked flow → failure fallback → optional live API).
+  - `git diff --check`: clean.
+  - `ruff`: zero new findings introduced (verified line-by-line against the
+    diff hunks in all three touched source files; `pricing.py`'s new code has
+    zero findings, and the findings ruff reports on `tracker.py`/`discovery.py`
+    are all on lines this change did not modify).
+- Resolution commit: `8cccc19`
 - Independent retest:
   - Pending
 
