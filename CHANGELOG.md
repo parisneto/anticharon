@@ -38,6 +38,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New `extract_endpoint_listed_prices_1m()` extracts each endpoint's own raw listed prompt price from `/stats/endpoint` (the route already used for policy/effective pricing elsewhere). The corrected canary asserts the bulk catalog's `advertised_prompt_1m` exactly matches at least one real endpoint's listed price (tight float-rounding tolerance, not a loose multiplier) — live-verified 2 of 7 endpoints matched for `openai/gpt-5.6-luna`.
   - Status: `Ready for Retest`. Full evidence and rationale in `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-005`. Plan corrected: `docs/plans/pricing-engine-v2/PLAN.md`'s "28-Day Backfill" section.
 
+### Added
+- **PE2-006 — Deterministic failure-path, realistic-fixture, and MCP/CLI three-price coverage (new `tests/test_network_failure_paths.py`; extended `tests/test_mcp.py`, `test_cli.py`, `test_effective_pricing_backfill.py`):**
+  - `fetch_openrouter_models()` and `fetch_effective_pricing_history()` (previously only `fetch_endpoint_policy_pricing()`, from PE2-003) now have direct, deterministic, mocked coverage of every distinct failure mode — timeout, connection error, HTTP error, malformed JSON, wrong response shape — proving each degrades to its documented empty value (`{}`) rather than raising or returning partial garbage.
+  - New sanitized fixture `tests/fixtures/openrouter_effective_pricing_gpt-5.6-luna_trimmed.json` (a real, live-captured, trimmed-to-5-days `/stats/effective-pricing` response) plus a deterministic test parsing it through `_reduce_to_daily_observations` — backfill parsing was previously exercised only against synthetic dictionaries, so a genuine payload-shape regression in this route could pass the offline suite undetected.
+  - `tests/test_mcp.py` was entirely `@pytest.mark.live` and never deterministically asserted the three-price (advertised/effective/policy) payload. Two new deterministic (mocked, no network) tests exercise `check_prices(zdr_only=True)` through the actual MCP tool boundary, proving PE2-001/PE2-003's fixes survive there too, not just in `run_tracker` directly.
+  - New deterministic CLI tests assert `anticharon check --zdr --json`'s printed JSON shape and `anticharon check --zdr`'s human-readable output actually render the `POLICY_UNROUTABLE` warning line, not just that the underlying warning object exists.
+  - Status: `Ready for Retest`. Full evidence in `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-006`.
+
 ## [0.5.2] - 2026-09-16
 
 ### Changed

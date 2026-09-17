@@ -4,6 +4,9 @@ returns 8 days), the daily-observation reduction, and graceful degradation.
 The cross-validation canary against the live API is @pytest.mark.live.
 """
 
+import json
+from pathlib import Path
+
 import pytest
 
 from anticharon.tracker import (
@@ -14,6 +17,8 @@ from anticharon.tracker import (
     fetch_openrouter_models,
     sync_effective_prices_for_model,
 )
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
 def test_reduce_to_daily_observations_picks_cheapest_endpoint_per_day():
@@ -76,6 +81,27 @@ def test_reduce_to_daily_observations_provider_identity_is_intentionally_discard
     # only transiently during this reduction, never persisted.
     azure_rate = 0.05 * (1 - 0.0029) + 2.0 * 0.0029
     assert observations[0]["effective_price_1m"] == pytest.approx(azure_rate)
+
+
+def test_reduce_to_daily_observations_parses_realistic_captured_fixture():
+    """PE2-006: 'realistic captured effective-pricing parsing' -- backfill
+    parsing was previously tested only against synthetic dictionaries. This
+    uses a real, live-captured (2026-09-17), sanitized/trimmed-to-5-days
+    `/stats/effective-pricing` response for `openai/gpt-5.6-luna`, so a
+    genuine shape regression in this route fails the OFFLINE suite, not only
+    the opt-in live canary."""
+    with open(FIXTURES_DIR / "openrouter_effective_pricing_gpt-5.6-luna_trimmed.json", encoding="utf-8") as f:
+        payload = json.load(f)
+    history_data = payload["data"]
+
+    observations = _reduce_to_daily_observations(history_data, w_completion=0.0029)
+
+    assert len(observations) == 5  # trimmed fixture has exactly 5 days
+    for obs in observations:
+        assert set(obs.keys()) == {"date", "effective_price_1m"}
+        assert obs["effective_price_1m"] > 0
+    dates = [o["date"] for o in observations]
+    assert dates == sorted(dates)  # chronological, matching the route's own ordering
 
 
 def test_sync_effective_prices_for_model_graceful_degradation_on_empty_fetch(monkeypatch):

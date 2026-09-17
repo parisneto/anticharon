@@ -3,6 +3,10 @@
 Marked @pytest.mark.live: check_prices (and get_model_history) call run_tracker
 without mocking the network, so this exercises the real OpenRouter API contract.
 Excluded from the default `uv run pytest` gate per EXECUTION_CONTRACT.md.
+
+The deterministic (mocked, no network) tests below cover PE2-006's "MCP suite
+is live-only and does not deterministically assert the complete three-price
+payload" gap -- see docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-006.
 """
 
 import asyncio
@@ -87,3 +91,100 @@ def test_mcp_server_suite():
         assert len(p_discover.messages) > 0
     finally:
         loop.close()
+
+
+def _run_async(coro):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+def test_check_prices_zdr_preserves_three_price_distinction_deterministic(monkeypatch, tmp_path):
+    """Deterministic (mocked, no network) coverage of PE2-001/PE2-003's fix
+    surviving through the actual MCP tool boundary, not just run_tracker
+    directly -- check_prices(zdr_only=True) must return effective_price_1m
+    and policy_price_1m as distinct values in its JSON payload."""
+    cfg_path = tmp_path / "shortlist.json"
+    cfg_path.write_text(json.dumps({
+        "shortlist": ["openai/gpt-5.6-sol"],
+        "weight_uncached_prompt": 0.232622,
+        "weight_cached_prompt": 0.764478,
+        "weight_completion": 0.0029,
+    }), encoding="utf-8")
+    monkeypatch.setenv("ANTICHARON_CONFIG", str(cfg_path))
+    monkeypatch.setenv("ANTICHARON_DATA_DIR", str(tmp_path))
+
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {
+        "openai/gpt-5.6-sol": {
+            "id": "openai/gpt-5.6-sol",
+            "canonical_slug": "openai/gpt-5.6-sol-20260709",
+            "pricing": {"prompt": "0.000002", "completion": "0.00001"},
+        },
+    })
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **kw: [
+        {"provider_name": "OpenAI", "pricing": {"prompt": "0.000001", "completion": "0.000005"},
+         "provider_info": {"dataPolicy": {"retainsPrompts": True}}},
+        {"provider_name": "Azure", "pricing": {"prompt": "0.000005", "completion": "0.00003"},
+         "provider_info": {"dataPolicy": {"retainsPrompts": False}}},
+    ])
+    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", lambda *a, **kw: {})
+
+    res = _run_async(server.call_tool("check_prices", {"dry_run": True, "zdr_only": True, "force_refresh": True}))
+    assert not res.is_error
+    payload = json.loads(res.content[0].text)
+
+    model = payload["prices_shortlist"][0]
+    assert model["effective_price_1m"] != model["policy_price_1m"]
+    assert model["policy_price_1m"] > model["effective_price_1m"]
+    assert model["is_policy_routable"] is True
+
+
+def test_check_prices_zdr_unroutable_never_recommended_deterministic(monkeypatch, tmp_path):
+    """Deterministic MCP-boundary coverage of PE2-001's BEST_OPTION_CHANGED fix."""
+    cfg_path = tmp_path / "shortlist.json"
+    cfg_path.write_text(json.dumps({
+        "shortlist": ["provider/expensive-default", "provider/cheap-unroutable"],
+        "weight_uncached_prompt": 0.232622,
+        "weight_cached_prompt": 0.764478,
+        "weight_completion": 0.0029,
+    }), encoding="utf-8")
+    monkeypatch.setenv("ANTICHARON_CONFIG", str(cfg_path))
+    monkeypatch.setenv("ANTICHARON_DATA_DIR", str(tmp_path))
+
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {
+        "provider/expensive-default": {
+            "id": "provider/expensive-default", "canonical_slug": "provider/expensive-default",
+            "pricing": {"prompt": "0.000002", "completion": "0.00001"},
+        },
+        "provider/cheap-unroutable": {
+            "id": "provider/cheap-unroutable", "canonical_slug": "provider/cheap-unroutable",
+            "pricing": {"prompt": "0.0000001", "completion": "0.0000005"},
+        },
+    })
+
+    def fake_endpoints(canonical_slug, timeout=10.0):
+        if canonical_slug == "provider/expensive-default":
+            return [{"provider_name": "Azure", "pricing": {"prompt": "0.000005", "completion": "0.00003"},
+                     "provider_info": {"dataPolicy": {"retainsPrompts": False}}}]
+        return [{"provider_name": "OpenAI", "pricing": {"prompt": "0.0000001", "completion": "0.0000005"},
+                 "provider_info": {"dataPolicy": {"retainsPrompts": True}}}]
+
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", fake_endpoints)
+    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", lambda *a, **kw: {})
+
+    res = _run_async(server.call_tool("check_prices", {"dry_run": True, "zdr_only": True, "force_refresh": True}))
+    assert not res.is_error
+    payload = json.loads(res.content[0].text)
+
+    model_ids_in_order = [m["model"] for m in payload["prices_shortlist"]]
+    assert model_ids_in_order[0] == "provider/expensive-default"  # the only confirmed-routable model
+
+    warning_types_by_model = {
+        w["model"]: w["type"] for w in payload["priceWarnings"] if w.get("model") == "provider/cheap-unroutable"
+    }
+    assert warning_types_by_model.get("provider/cheap-unroutable") == "POLICY_UNROUTABLE"
+    best_option_warnings = [w for w in payload["priceWarnings"] if w["type"] == "BEST_OPTION_CHANGED"]
+    assert all(w.get("suggested_cheapest") != "provider/cheap-unroutable" for w in best_option_warnings)

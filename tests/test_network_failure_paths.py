@@ -1,19 +1,23 @@
 """Deterministic, mocked failure-path tests for network calls in tracker.py.
 
 See docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-003 and #PE2-006:
-`fetch_endpoint_policy_pricing()` must degrade to `[]` uniformly across every
-distinct failure mode (timeout, connection failure, HTTP error, malformed
-JSON, wrong response shape) -- never raise, never return partial garbage --
-so every downstream consumer (`resolve_policy_pricing`, `apply_zdr_filter`)
-can treat that single `[]` signal as "policy-unknown" consistently.
+every network-facing fetch function in tracker.py must degrade to its documented
+empty value ([] or {}) uniformly across every distinct failure mode (timeout,
+connection failure, HTTP error, malformed JSON, wrong response shape) -- never
+raise, never return partial garbage -- so every downstream consumer can treat
+that one signal consistently (AGENTS.md Rule 10: graceful fallback, never crash
+the calling agent/cron script).
 """
 
 import json
 
-import pytest
 import requests
 
-from anticharon.tracker import fetch_endpoint_policy_pricing
+from anticharon.tracker import (
+    fetch_effective_pricing_history,
+    fetch_endpoint_policy_pricing,
+    fetch_openrouter_models,
+)
 
 
 class _FakeResponse:
@@ -92,3 +96,109 @@ def test_fetch_endpoint_policy_pricing_success_returns_real_data(monkeypatch):
         lambda *a, **kw: _FakeResponse(json_data={"data": real_data}),
     )
     assert fetch_endpoint_policy_pricing("openai/gpt-5.6-luna-20260709") == real_data
+
+
+# --- fetch_openrouter_models (bulk catalog): same failure normalization, returns {} ---
+
+
+def test_fetch_openrouter_models_timeout_returns_empty_dict(monkeypatch):
+    def fake_get(*a, **kw):
+        raise requests.exceptions.Timeout("timed out")
+
+    monkeypatch.setattr("anticharon.tracker.requests.get", fake_get)
+    assert fetch_openrouter_models() == {}
+
+
+def test_fetch_openrouter_models_connection_error_returns_empty_dict(monkeypatch):
+    def fake_get(*a, **kw):
+        raise requests.exceptions.ConnectionError("connection refused")
+
+    monkeypatch.setattr("anticharon.tracker.requests.get", fake_get)
+    assert fetch_openrouter_models() == {}
+
+
+def test_fetch_openrouter_models_http_error_returns_empty_dict(monkeypatch):
+    monkeypatch.setattr(
+        "anticharon.tracker.requests.get",
+        lambda *a, **kw: _FakeResponse(status_code=503),
+    )
+    assert fetch_openrouter_models() == {}
+
+
+def test_fetch_openrouter_models_malformed_json_returns_empty_dict(monkeypatch):
+    monkeypatch.setattr(
+        "anticharon.tracker.requests.get",
+        lambda *a, **kw: _FakeResponse(json_error=json.JSONDecodeError("bad json", "", 0)),
+    )
+    assert fetch_openrouter_models() == {}
+
+
+def test_fetch_openrouter_models_wrong_response_shape_returns_empty_dict(monkeypatch):
+    """A response body that's valid JSON but a bare list, not {"data": [...]}."""
+    monkeypatch.setattr(
+        "anticharon.tracker.requests.get",
+        lambda *a, **kw: _FakeResponse(json_data=["unexpected", "shape"]),
+    )
+    assert fetch_openrouter_models() == {}
+
+
+def test_fetch_openrouter_models_success_returns_real_data(monkeypatch):
+    real_data = [{"id": "openai/gpt-5.6-luna", "pricing": {"prompt": "0.0000002", "completion": "0.0000012"}}]
+    monkeypatch.setattr(
+        "anticharon.tracker.requests.get",
+        lambda *a, **kw: _FakeResponse(json_data={"data": real_data}),
+    )
+    assert fetch_openrouter_models() == {"openai/gpt-5.6-luna": real_data[0]}
+
+
+# --- fetch_effective_pricing_history (28-day backfill route): returns {} on failure ---
+
+
+def test_fetch_effective_pricing_history_timeout_returns_empty_dict(monkeypatch):
+    def fake_get(*a, **kw):
+        raise requests.exceptions.Timeout("timed out")
+
+    monkeypatch.setattr("anticharon.tracker.requests.get", fake_get)
+    assert fetch_effective_pricing_history("openai/gpt-5.6-luna-20260709") == {}
+
+
+def test_fetch_effective_pricing_history_connection_error_returns_empty_dict(monkeypatch):
+    def fake_get(*a, **kw):
+        raise requests.exceptions.ConnectionError("connection refused")
+
+    monkeypatch.setattr("anticharon.tracker.requests.get", fake_get)
+    assert fetch_effective_pricing_history("openai/gpt-5.6-luna-20260709") == {}
+
+
+def test_fetch_effective_pricing_history_http_error_returns_empty_dict(monkeypatch):
+    monkeypatch.setattr(
+        "anticharon.tracker.requests.get",
+        lambda *a, **kw: _FakeResponse(status_code=500),
+    )
+    assert fetch_effective_pricing_history("openai/gpt-5.6-luna-20260709") == {}
+
+
+def test_fetch_effective_pricing_history_malformed_json_returns_empty_dict(monkeypatch):
+    monkeypatch.setattr(
+        "anticharon.tracker.requests.get",
+        lambda *a, **kw: _FakeResponse(json_error=json.JSONDecodeError("bad json", "", 0)),
+    )
+    assert fetch_effective_pricing_history("openai/gpt-5.6-luna-20260709") == {}
+
+
+def test_fetch_effective_pricing_history_wrong_response_shape_returns_empty_dict(monkeypatch):
+    """A response body that's valid JSON but a bare list, not {"data": {...}}."""
+    monkeypatch.setattr(
+        "anticharon.tracker.requests.get",
+        lambda *a, **kw: _FakeResponse(json_data=["unexpected", "shape"]),
+    )
+    assert fetch_effective_pricing_history("openai/gpt-5.6-luna-20260709") == {}
+
+
+def test_fetch_effective_pricing_history_success_returns_real_data(monkeypatch):
+    real_data = {"inputChartData": [{"x": "2026-09-15 00:00:00", "y": {"ep1": 0.05}}]}
+    monkeypatch.setattr(
+        "anticharon.tracker.requests.get",
+        lambda *a, **kw: _FakeResponse(json_data={"data": real_data}),
+    )
+    assert fetch_effective_pricing_history("openai/gpt-5.6-luna-20260709") == real_data

@@ -7,7 +7,7 @@ import io
 import json
 from contextlib import redirect_stderr, redirect_stdout
 
-from anticharon.cli import cmd_help, cmd_model
+from anticharon.cli import cmd_help, cmd_model, cmd_run
 
 
 def _build_parsers():
@@ -159,3 +159,89 @@ def test_discover_zdr_caps_live_checks_and_surfaces_warning(monkeypatch, tmp_pat
     payload = json.loads(f.getvalue())
     assert "zdr_warning" in payload
     assert "2 of 5" in payload["zdr_warning"]
+
+
+# --- PE2-006: deterministic CLI JSON/human-output coverage for run/check --zdr ---
+# See docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-006.
+
+
+def _run_args(**overrides):
+    base = dict(
+        data_dir=None,
+        history_csv=False,
+        profile=False,
+        analytics=False,
+        dry_run=True,
+        config=None,
+        timeout=10.0,
+        hermes_config=None,
+        no_hermes=True,
+        hints=False,
+        zdr=False,
+        json=True,
+    )
+    base.update(overrides)
+    return argparse.Namespace(**base)
+
+
+def _mock_zdr_scenario(monkeypatch):
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {
+        "openai/gpt-5.6-sol": {
+            "id": "openai/gpt-5.6-sol",
+            "canonical_slug": "openai/gpt-5.6-sol-20260709",
+            "pricing": {"prompt": "0.000002", "completion": "0.00001"},
+        },
+    })
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **kw: [
+        {"provider_name": "OpenAI", "pricing": {"prompt": "0.000001", "completion": "0.000005"},
+         "provider_info": {"dataPolicy": {"retainsPrompts": True}}},
+    ])  # fully unroutable under ZDR -- real endpoint data, none compliant
+
+
+def test_cmd_run_json_output_preserves_three_price_distinction(monkeypatch, tmp_path):
+    """Deterministic (mocked) CLI --json shape assertion: effective and policy
+    prices must remain distinct fields in the actual printed JSON output."""
+    _mock_zdr_scenario(monkeypatch)
+    cfg_path = tmp_path / "shortlist.json"
+    cfg_path.write_text(json.dumps({
+        "shortlist": ["openai/gpt-5.6-sol"],
+        "weight_uncached_prompt": 0.232622,
+        "weight_cached_prompt": 0.764478,
+        "weight_completion": 0.0029,
+    }), encoding="utf-8")
+
+    args = _run_args(config=str(cfg_path), data_dir=str(tmp_path), zdr=True)
+    f = io.StringIO()
+    with redirect_stdout(f):
+        code = cmd_run(args)
+
+    assert code == 0
+    payload = json.loads(f.getvalue())
+    model = payload["prices_shortlist"][0]
+    assert "effective_price_1m" in model
+    assert model.get("policy_price_1m") is None  # fully unroutable -- no policy price
+    assert model["is_policy_routable"] is False
+
+    policy_warnings = [w for w in payload["priceWarnings"] if w["type"] == "POLICY_UNROUTABLE"]
+    assert len(policy_warnings) == 1
+
+
+def test_cmd_run_human_output_prints_policy_unroutable_line(monkeypatch, tmp_path, capsys):
+    """The POLICY_UNROUTABLE warning must actually render in human-readable
+    output, not just exist in the underlying TrackerResult object."""
+    _mock_zdr_scenario(monkeypatch)
+    cfg_path = tmp_path / "shortlist.json"
+    cfg_path.write_text(json.dumps({
+        "shortlist": ["openai/gpt-5.6-sol"],
+        "weight_uncached_prompt": 0.232622,
+        "weight_cached_prompt": 0.764478,
+        "weight_completion": 0.0029,
+    }), encoding="utf-8")
+
+    args = _run_args(config=str(cfg_path), data_dir=str(tmp_path), zdr=True, json=False)
+    code = cmd_run(args)
+    captured = capsys.readouterr()
+
+    assert code == 0
+    assert "POLICY" in captured.out
+    assert "no ZDR-compliant endpoint" in captured.out
