@@ -673,7 +673,7 @@ The candidate ADR and empirical artifacts provide supporting evidence.
 ### PE2-007 — CLI diagnostic verifies the retired two-component formula
 
 - Severity: P2
-- Status: `Open`
+- Status: `Ready for Retest`
 - Contract impact:
   - Canonical pricing formula
   - Diagnostic trustworthiness
@@ -700,8 +700,44 @@ The candidate ADR and empirical artifacts provide supporting evidence.
   - Diagnostic passes with the canonical implementation.
   - Diagnostic fails or reports failure if cache-read pricing is ignored.
   - Zero-cache reference case remains correct.
-- Resolution commit:
-  - Pending
+- Implementation evidence:
+  - `src/anticharon/tester.py`'s "Mathematical Formula Verification" step now
+    calls the actual production `calculate_effective_cost`
+    (`src/anticharon/pricing.py`) with two of the ADR's independently-derived
+    golden cases (also used verbatim, unrounded, in `tests/test_golden_pricing.py`)
+    as reference values: Golden Case #1 (cache-heavy, 85% cached, expected
+    `$0.5174/1M`) and Golden Case #4 (zero-cache, expected `$2.3077/1M`).
+    Neither number was re-derived here -- both are already independently
+    verified in the golden-case test suite; this diagnostic reuses them
+    rather than inventing new reference values.
+  - The MA_3d/MA_7d portion of the same diagnostic step (unrelated to this
+    finding's scope -- moving averages, not cached-token pricing) was left
+    untouched; only the pricing-formula block was replaced.
+  - New `tests/test_tester.py` (3 tests, deterministic -- OpenRouter
+    connectivity mocked, isolated `tmp_path` via `ANTICHARON_CONFIG`/
+    `ANTICHARON_DATA_DIR`):
+    - "Diagnostic passes with the canonical implementation" --
+      `test_run_self_test_math_engine_passes_with_canonical_implementation`.
+    - "Zero-cache reference case remains correct" --
+      `test_run_self_test_math_engine_zero_cache_reference_case_remains_correct`.
+    - "Diagnostic fails or reports failure if cache-read pricing is ignored"
+      -- `test_run_self_test_math_engine_fails_if_cache_read_pricing_ignored`:
+      monkeypatches `calculate_effective_cost` with a legacy-2-component-
+      equivalent implementation and confirms `run_self_test()` now genuinely
+      returns `False` with a descriptive error -- proving the fix is
+      load-bearing, since the original hardcoded check could never have
+      caught this by construction (it called no production code at all).
+- Remediation-agent verification:
+  - `uv run pytest`: 142 passed, 3 deselected.
+  - `uv run pytest -m live`: 3 passed, 142 deselected.
+  - Manual: `uv run anticharon test` run directly against the live API,
+    confirmed `[PASS] Mathematical Engine: Verified` with the new
+    production-formula-backed check.
+  - `git diff --check`: clean.
+  - `ruff`: zero new findings (verified line-by-line against the diff hunks
+    in `tester.py`; one genuinely unused `import pytest` in the new test
+    file was found and removed, not merely disclosed).
+- Resolution commit: `a3d5668`
 - Independent retest:
   - Pending
 
