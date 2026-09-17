@@ -744,7 +744,7 @@ The candidate ADR and empirical artifacts provide supporting evidence.
 ### PE2-008 — `cache_hit_rate_used` contains a token weight, not a cache-hit rate
 
 - Severity: P3
-- Status: `Open`
+- Status: `Ready for Retest`
 - Contract impact:
   - Output semantics
   - Calibration transparency
@@ -776,8 +776,47 @@ The candidate ADR and empirical artifacts provide supporting evidence.
   - Calibrated weights with nonzero completion share.
   - Zero cached weight.
   - Zero total prompt weight.
-- Resolution commit:
-  - Pending
+- Implementation evidence:
+  - New `src/anticharon/pricing.py::derive_cache_hit_rate(weight_uncached_prompt,
+    weight_cached_prompt)`: `weight_cached_prompt / (weight_uncached_prompt +
+    weight_cached_prompt)`. Algebraically this is
+    `(Cached/Total)/(Prompt/Total) = Cached/Prompt`, the correct cache-hit-rate
+    definition -- not a fresh assumption, a derivation from the existing
+    weight definitions (documented in the function's own docstring).
+  - Zero-prompt-weight behavior explicitly defined (the "define the zero-
+    prompt-weight behavior explicitly" required correction): both weights `0`
+    (a degenerate 100%-completion mix) returns `0.0`, never a
+    `ZeroDivisionError` and never a fabricated nonzero rate.
+  - `src/anticharon/tracker.py`: both `PricePoint(cache_hit_rate_used=...)`
+    call sites (the live-API path and the offline-cached-history fallback
+    path) now use the derived rate instead of `w_cached` directly.
+  - `src/anticharon/models.py`: `PricePoint.cache_hit_rate_used`'s inline
+    comment corrected to state what it actually is.
+  - **Strongest verification performed:** the default `weight_uncached_prompt`/
+    `weight_cached_prompt` in `config.py` were themselves derived FROM an
+    interim default cache-hit-rate of `0.766701` (`PLAN.md` "Core pricing
+    semantics"). Deriving the rate back from those same weights round-trips
+    to that exact original number (live-verified via `anticharon check
+    --json`: reports `0.766701`, previously `0.764478`) -- this isn't merely
+    internally consistent, it recovers the exact independently-known
+    original value, the strongest possible confirmation the fix is correct.
+  - Regression tests added: `tests/test_pricing.py` (4 unit tests, one per
+    required-tests bullet -- default weights round-trip, calibrated weights
+    with nonzero completion share, zero cached weight, zero total prompt
+    weight) and `tests/test_tracker.py` (1 end-to-end test confirming the
+    correct value flows through `run_tracker`'s `PricePoint`, not just the
+    pure function in isolation).
+- Remediation-agent verification:
+  - `uv run pytest`: 147 passed, 3 deselected.
+  - `uv run pytest -m live`: 3 passed, 147 deselected.
+  - Manual: live-verified via `anticharon check --dry-run --json` against
+    `openai/gpt-5.6-luna` with the default weights -- `cache_hit_rate_used`
+    now reports `0.766701` (previously `0.764478`).
+  - `git diff --check`: clean.
+  - `ruff`: zero new findings (verified line-by-line against the diff hunks
+    in all three touched files; `pricing.py`'s new function has zero
+    findings on its own).
+- Resolution commit: `b75dd1e`
 - Independent retest:
   - Pending
 
