@@ -65,6 +65,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Confirmed via search: no other unresolved placeholders or contradictory normative statements remain; all ten finding IDs (PE2-001 through PE2-010) remain present and stable in the ledger; no absolute host filesystem paths anywhere in the initiative's docs.
   - Status: `Ready for Retest`. Full evidence in `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-009`.
 
+### Changed
+- **PE2-010 — Lint/test tooling moved to a development dependency group; CI lint-gate policy documented (`pyproject.toml`, `uv.lock`, `AGENTS.md`, `docs/plans/pricing-engine-v2/EXECUTION_CONTRACT.md`):**
+  - `pytest`/`ruff` were declared as runtime `dependencies`, so an end user installing Anticharon (`pip install`/`uv tool install`) pulled in both dev-only tools. Moved to a PEP 735 `[dependency-groups]` `dev` group instead — `uv sync` in this repo still installs it by default (no local-development impact), but the built wheel's `Requires-Dist` no longer lists either. Verified directly by building the wheel (`uv build --wheel`) and inspecting its `METADATA`: `Requires-Dist` is now only `mcp>=1.3.0` and `requests>=2.31.0`.
+  - `ruff check src tests` currently reports 251 pre-existing findings unrelated to any single tracked initiative — this finding's own text says to "add a CI lint gate only when its scope is clean and explicitly documented." Since it isn't clean, no blanket `ruff` step was added to `.github/workflows/ci.yml` (still `uv run pytest` + `uv run anticharon test`, matching what `AGENTS.md`/`EXECUTION_CONTRACT.md` now explicitly document). The deferral itself — and the lint-scope rule for future initiative work ("changed files must be clean, pre-existing debt is out of scope") — is now written down in `AGENTS.md` (Rule 8) rather than left as unwritten practice.
+  - Also discovered, disclosed, and explicitly deferred (not fixed, out of this finding's affected-files scope): `EXECUTION_CONTRACT.md`'s Verification section describes an emergency-bypass `smoke` pytest subset that does not actually exist anywhere in the repository. Recorded as its own item in `EXECUTION_CONTRACT.md`'s Deferred section for a future round.
+  - Status: `Ready for Retest`. Full evidence in `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-010`.
+
 ## [0.5.2] - 2026-09-16
 
 ### Changed

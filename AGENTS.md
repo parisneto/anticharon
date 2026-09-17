@@ -68,6 +68,19 @@ To maintain a clean public repository while preserving exploratory thought, adhe
 - Tests that merely execute code, mirror the implementation, or mock away the behavior under test are invalid.
 - Agents MUST disclose any skipped, removed, weakened, or changed test expectation.
 - Keep the default suite fast (target <30s).
+- **Lint scope policy (PE2-010, 2026-09-17):** `ruff` and `pytest` are development-only
+  tools — declared in `pyproject.toml`'s `[dependency-groups]` `dev` group, never in the
+  runtime `dependencies` array, so end-user installs never pull them in.
+  An initiative's changed files MUST be free of lint findings introduced by that
+  initiative; pre-existing repository-wide findings outside the changed files are out
+  of scope and MUST NOT trigger an unrelated cleanup. CI runs the deterministic
+  `pytest` gate and the CLI diagnostic self-test but does not run a blanket
+  `ruff check` step, because the repository-wide scope is not currently clean
+  (251 pre-existing findings as of 2026-09-17, unrelated to any single initiative).
+  Add a CI lint gate only once that legacy backlog is explicitly cleaned up (its own
+  planned initiative) or the gate is scoped to changed files only — never add a gate
+  that fails on pre-existing debt. See
+  `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#pe2-010`.
 
 
 ### Rule 9: Strict English Language Policy

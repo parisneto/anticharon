@@ -11,6 +11,15 @@ requires-python = ">=3.10"
 dependencies = [
     "requests>=2.31.0",
     "mcp>=1.3.0",
+]
+
+[dependency-groups]
+# PE2-010: pytest/ruff are development-only tools -- moved out of the
+# runtime `dependencies` array (where they previously sat) so an end user
+# running `uv tool install`/`pip install` never pulls them in; `uv sync` in
+# this repo still installs this group by default, so local development is
+# unaffected. See docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-010.
+dev = [
     "ruff>=0.16.7",
     "pytest>=9.1.1",
 ]
