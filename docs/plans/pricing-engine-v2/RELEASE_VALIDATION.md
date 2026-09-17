@@ -823,7 +823,7 @@ The candidate ADR and empirical artifacts provide supporting evidence.
 ### PE2-009 — Planning and validation documents are not synchronized
 
 - Severity: P3
-- Status: `Open`
+- Status: `Ready for Retest`
 - Contract impact:
   - Spec-driven development
   - Execution Contract authority
@@ -858,8 +858,69 @@ The candidate ADR and empirical artifacts provide supporting evidence.
   - Search for unresolved placeholders and contradictory normative statements.
   - Confirm all finding IDs remain present and stable.
   - Confirm repository-relative paths only.
-- Resolution commit:
-  - Pending
+- Implementation evidence, one item per evidence bullet above:
+  - "Duplicate Acceptance Criteria heading/section" -- removed the accidental
+    empty duplicate `## 3. Acceptance Criteria` heading in
+    `EXECUTION_CONTRACT.md` (was two consecutive headings, the first blank).
+  - "Duplicate Verification material" / "Duplicate live-test bullet" -- both
+    were symptoms of the same root cause: two `### Verification` sections in
+    `EXECUTION_CONTRACT.md`, an older/shorter draft and a more complete final
+    version with overlapping bullets (including the cached-token-regression
+    and realistic-payload bullets that separately looked like a "duplicate
+    live-test bullet"). Removed the shorter/older draft, kept the complete
+    final version -- resolves both evidence items in one edit, not two.
+  - "'No remaining open decisions' conflicts with refresh cadence marked
+    OPEN" -- already resolved as a side effect of PE2-004's edit to the same
+    `PLAN.md` paragraph (this session, earlier in this same remediation
+    pass); re-verified here that no other genuine `OPEN` marker remains
+    anywhere in `PLAN.md`/`EXECUTION_CONTRACT.md`/the ADR (only the
+    explanatory convention note and historical "all OPEN items resolved"
+    claims remain, both accurate).
+  - "The plan contains conflicting backward-compatibility statements" --
+    `PLAN.md`'s "Resolved divergences" item 9 claimed `read_history()` was
+    "kept backward-compatible for existing local files," directly
+    contradicting the "Core pricing semantics" section above it (and commit
+    `648798e`, which explicitly dropped that shim). Corrected to match both
+    the rest of the document and the real `src/anticharon/storage.py`
+    (confirmed: no old-header fallback exists anywhere in the shipped code).
+    This also closed a genuine gap in `EXECUTION_CONTRACT.md`'s own Storage
+    acceptance criterion ("either backward-compatible or has an explicit,
+    *tested* migration/fallback path") -- the actual fallback behavior
+    (an old-format `history.csv` degrades gracefully to empty history, never
+    crashes) was real but had never been tested until now: new
+    `tests/test_storage.py::test_history_csv_old_pre_rename_format_degrades_gracefully`,
+    live-verified against the real old 14-column schema before writing the
+    test.
+  - "The single-observation case contains `<explicit Anticharon-defined
+    behavior>`" -- filled in with the verified actual implementation
+    behavior: dispersion = `0.0%` (`volatility_cv_pct`), since the
+    coefficient of variation of a single data point is mathematically zero.
+    New `tests/test_analytics.py::test_single_observation_zero_dispersion_golden_case`
+    matches this golden case's exact scenario (zero backfill, one
+    observation ever) precisely, distinct from the pre-existing
+    `test_single_observation_golden_case` (a two-data-point scenario that
+    doesn't assert dispersion).
+  - "Provider-granular persistence differs..." -- already fully reconciled
+    under PE2-004 (this session, earlier in this same pass); no further
+    action needed here.
+  - "The initially committed validation artifact omitted PE2-002 through
+    PE2-010..." -- already resolved by the user's own commit (`f76a012`,
+    predating this session's remediation work); this evidence item describes
+    historical fact about the ledger's prior state, not a current defect.
+- Remediation-agent verification:
+  - `uv run pytest`: 149 passed, 3 deselected.
+  - `uv run pytest -m live`: 3 passed, 149 deselected.
+  - Required verification performed directly: searched
+    `docs/plans/pricing-engine-v2/*.md` and `docs/specs/spec_v1_anticharon.md`
+    for absolute host filesystem paths -- none found (one incidental match
+    in `CHANGELOG.md` is prose describing the *rule against* such paths, not
+    a leaked path itself). Searched the ledger for `^### PE2-` headings --
+    all ten (PE2-001 through PE2-010) present exactly once each, none
+    renumbered or duplicated.
+  - `git diff --check`: clean.
+  - `ruff`: zero new findings (both touched test files pass cleanly; the two
+    `.md` files have no lint surface).
+- Resolution commit: `115f8c4`
 - Independent retest:
   - Pending
 
