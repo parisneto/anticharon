@@ -357,7 +357,7 @@ The candidate ADR and empirical artifacts provide supporting evidence.
 ### PE2-004 — Granular historical persistence does not match the plan
 
 - Severity: P2
-- Status: `Open`
+- Status: `Ready for Retest`
 - Contract impact:
   - Provider-specific pricing representation
   - Local storage/schema requirements
@@ -411,8 +411,65 @@ The candidate ADR and empirical artifacts provide supporting evidence.
   - Duplicate refresh/idempotency behavior.
   - Partial provider data.
   - No fabricated observations.
-- Resolution commit:
-  - Pending
+- Decision made (not silently chosen -- recorded per the task's reconciliation
+  requirement, flagged for user awareness as a scope/design decision):
+  - **Narrowed the architecture, did not implement full provider-granular
+    persistence.** `EXECUTION_CONTRACT.md`'s actual Storage acceptance
+    criteria ("the newly required pricing dimensions and the 28-day
+    historical observations needed by downstream calculations") never itself
+    required provider-level granularity in the persisted store -- that
+    specificity was `PLAN.md`'s own elaboration, never promoted into the
+    Contract's criteria. No downstream calculation in this codebase (history
+    derivation, analytics profiles, `NEWLY_TRACKED` threshold) consumes
+    per-provider history; all only need the single cheapest-per-day blended
+    price already provided. Per `EXECUTION_CONTRACT.md` §4's own Non-Goals
+    ("concrete over general... do not solve adjacent discoveries unless
+    required by the defined outcome"), implementing full provider-granular
+    persistence with zero current consumers would itself have been the kind
+    of premature generalization this initiative explicitly rules out.
+  - Documents reconciled: `PLAN.md`'s "Storage architecture" section now
+    carries an explicit "Scope correction" note describing what was
+    originally envisioned, what shipped instead, and why; `EXECUTION_CONTRACT.md`'s
+    Deferred section now has a real entry for provider-granular persistence
+    (previously only placeholder text); `docs/specs/spec_v1_anticharon.md`
+    §5.2's heading, which incorrectly said "per-model, per-provider daily
+    observations" (never matching the schema documented directly below it),
+    is corrected. `ADR_CANDIDATE_TOKENS_CACHED.md` was checked and does not
+    make any provider-granular-persistence claim -- no edit needed there.
+  - Also resolved as a side effect of editing the same `PLAN.md` paragraph:
+    the "Exact cadence **OPEN**" marker PE2-009 separately flags as
+    contradicting revision 3's "no remaining open decisions" claim -- the
+    actual shipped cadence (24-hour staleness, `DEFAULT_EFFECTIVE_PRICES_STALE_HOURS`
+    in `storage.py`) is now documented in place of the stale marker.
+    Cross-referenced in PE2-009's own entry below.
+- Implementation evidence:
+  - `src/anticharon/storage.py`/`tracker.py` are unchanged by this finding --
+    the "Final documented granular schema round-trip" regression test
+    requirement is satisfied by the existing, unmodified
+    `tests/test_storage.py::test_effective_prices_store_roundtrip`, which
+    already round-trips the actual (now formally documented) schema exactly.
+  - New regression test added to lock in the reduction rule as an approved
+    decision, not an oversight (the "Provider identity preservation or an
+    explicitly approved reduction rule" requirement):
+    `tests/test_effective_pricing_backfill.py::test_reduce_to_daily_observations_provider_identity_is_intentionally_discarded`
+    -- given three different providers priced on the same day, asserts the
+    stored observation is exactly `{date, effective_price_1m}` (no provider
+    key) and that the cheapest of the three wins.
+  - "Multiple providers on the same date," "duplicate refresh/idempotency
+    behavior," "partial provider data," and "no fabricated observations"
+    were already covered by pre-existing tests before this finding was
+    opened (`test_reduce_to_daily_observations_picks_cheapest_endpoint_per_day`,
+    `test_sync_effective_prices_for_model_preserves_prior_data_on_transient_failure`,
+    `test_reduce_to_daily_observations_skips_endpoint_missing_output_side`,
+    and the broader no-fabrication tests across `test_storage.py`) --
+    verified they exist and pass, no gap found requiring a new test.
+- Remediation-agent verification:
+  - `uv run pytest`: 119 passed, 3 deselected.
+  - `git diff --check`: clean.
+  - `ruff`: zero new findings (this finding's changes are pure Markdown docs
+    plus one new pure-Python test function using the same style as its
+    neighbors in an already-clean file).
+- Resolution commit: `a2c5c71`
 - Independent retest:
   - Pending
 
