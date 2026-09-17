@@ -55,7 +55,7 @@ On first sync for a model, fetch **both**:
 1. The public bulk `/models` catalog (or `/models/{slug}/endpoints`) — gives today's listed price, used for `advertised_prompt_1m`/`advertised_completion_1m`.
 2. The internal `effective-pricing` route — gives up to ~30 days of real daily observations, used to populate both the granular JSON store and to precalculate `history.csv`'s `d1..d7,d15,d30`/MA columns.
 
-**Gated cross-validation test:** the "listed" baseline reported by the internal effective-pricing route should match the public catalog's listed price for the same model on the same day. Assert this in a test (`@pytest.mark.live`, since it needs the real API) — if they diverge, that's an early-warning canary that one of the two endpoints changed shape or semantics.
+**Gated cross-validation test (corrected 2026-09-17, PE2-005):** this originally assumed the internal *effective-pricing* route (`/stats/effective-pricing`) itself reports a distinct "listed" baseline to compare against the public catalog. Live-verified 2026-09-17: it does not — its payload only ever contains cache-weighted `effectiveInputPrice`/`effectiveOutputPrice` per provider and aggregate `weightedInputPrice`/`weightedOutputPrice`; there is no raw listed-price field in it at all. The corrected canary instead compares the public catalog's advertised price against the raw per-endpoint listed prices from `/stats/endpoint` (the same route already used for policy/effective pricing elsewhere in this plan) — the bulk catalog's headline is definitionally one of those endpoints' own listed price, so at least one should match it exactly (live-verified: 2 of 7 endpoints matched for `openai/gpt-5.6-luna`). Asserted in `tests/test_effective_pricing_backfill.py::test_effective_pricing_cross_validation_canary` (`@pytest.mark.live`) — if none match, that's the early-warning canary that `/stats/endpoint`'s shape or semantics have drifted from the bulk catalog's.
 
 Graceful degradation: if the internal route fails or its shape has changed, fall back to the same no-fabrication rule as before (store only what the public snapshot gives you — today's single point — rather than fabricating history), exactly like every other network call in this codebase already does.
 
@@ -136,7 +136,7 @@ This plan now has **no remaining open decisions**. The next session should imple
 ## Verification
 
 1. `uv run pytest` (default gate) — deterministic, no network, fast.
-2. `uv run pytest -m live` — validates real API contracts, including the advertised-vs-effective-pricing cross-validation canary.
+2. `uv run pytest -m live` — validates real API contracts, including the advertised-vs-endpoint-listed-price cross-validation canary (corrected 2026-09-17, PE2-005 — see "28-Day Backfill" above).
 3. `uv run anticharon test` — diagnostic self-check still green.
 4. Manual: `uv run anticharon check --dry-run --json` shows advertised/effective (and policy, with `--zdr`) as three distinct numbers for a known cache-heavy model; reproduces the `openai/gpt-5.6-sol` ZDR finding under `--zdr`.
 5. Manual: run `anticharon run` twice in the same day against a test data dir; confirm `d1` does not change between the two runs (same-day-rerun fix).

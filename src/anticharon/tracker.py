@@ -85,6 +85,27 @@ def fetch_endpoint_policy_pricing(canonical_slug: str, timeout: float = 10.0) ->
         return []
 
 
+def extract_endpoint_listed_prices_1m(endpoints: List[Dict[str, Any]]) -> List[float]:
+    """Extract each endpoint's own raw listed prompt price ($/1M) from
+    `/stats/endpoint` data, skipping any endpoint with missing/malformed/
+    sentinel pricing (PE2-002/PE2-005).
+
+    Used by the PE2-005 live cross-validation canary: the bulk catalog's
+    `advertised_prompt_1m` is definitionally one of the real routable
+    endpoints' own listed price (OpenRouter's headline is never a fabricated
+    number), so at least one entry in this list should exactly match it. If
+    none do, that is a real early-warning signal that `/stats/endpoint`'s
+    pricing shape or semantics have drifted from the bulk catalog's.
+    """
+    prices: List[float] = []
+    for ep in endpoints:
+        pricing = ep.get("pricing") or {}
+        p_in = parse_required_price_1m(pricing, "prompt")
+        if p_in is not None and is_valid_listed_price(p_in):
+            prices.append(p_in)
+    return prices
+
+
 def fetch_effective_pricing_history(canonical_slug: str, timeout: float = 10.0) -> Dict[str, Any]:
     """28-day backfill source. `range=1m` is required for ~30 days of daily
     observations -- live-verified: the bare/default call (no `range`) only

@@ -32,6 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New regression test locks in the reduction rule as an approved decision, not an oversight: `tests/test_effective_pricing_backfill.py::test_reduce_to_daily_observations_provider_identity_is_intentionally_discarded`.
   - Status: `Ready for Retest`. Full evidence and rationale in `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-004`. **Flagged for user awareness:** this is a scope/design decision, not a mechanical bug fix — see this session's final report for the full trade-off if a future need for provider-level history emerges.
 
+### Fixed
+- **PE2-005 — Live backfill cross-validation canary now compares real, comparable listed prices (`src/anticharon/tracker.py`, `tests/test_effective_pricing_backfill.py`, `docs/plans/pricing-engine-v2/PLAN.md`):**
+  - The original canary design assumed the internal effective-pricing route (`/stats/effective-pricing`) itself exposes a "listed" baseline distinct from its cache-weighted effective prices, and asserted a loose `cheapest_effective_input <= advertised_prompt_price × 1.5` — which could pass even after a substantial semantic drift between the two routes, and never actually compared like-for-like listed values as the plan intended. Live-verified 2026-09-17: that route has no raw listed-price field at all.
+  - New `extract_endpoint_listed_prices_1m()` extracts each endpoint's own raw listed prompt price from `/stats/endpoint` (the route already used for policy/effective pricing elsewhere). The corrected canary asserts the bulk catalog's `advertised_prompt_1m` exactly matches at least one real endpoint's listed price (tight float-rounding tolerance, not a loose multiplier) — live-verified 2 of 7 endpoints matched for `openai/gpt-5.6-luna`.
+  - Status: `Ready for Retest`. Full evidence and rationale in `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-005`. Plan corrected: `docs/plans/pricing-engine-v2/PLAN.md`'s "28-Day Backfill" section.
+
 ## [0.5.2] - 2026-09-16
 
 ### Changed
