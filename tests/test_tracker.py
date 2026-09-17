@@ -555,3 +555,30 @@ def test_run_tracker_zdr_policy_unknown_model_can_still_be_recommended(monkeypat
     policy_unknown_warnings = [w for w in result.price_warnings if w.type == "POLICY_UNKNOWN"]
     assert len(policy_unknown_warnings) == 1
     assert policy_unknown_warnings[0].model == "provider/cheap-unknown"
+
+
+# --- PE2-008: cache_hit_rate_used must be the real cache-hit rate, not weight_cached_prompt ---
+# See docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-008.
+
+
+def test_run_tracker_cache_hit_rate_used_is_the_real_rate_not_the_raw_weight(monkeypatch, tmp_path, no_backfill):
+    """End-to-end: the default weight_uncached_prompt/weight_cached_prompt in
+    config.py were derived FROM an interim default cache-hit-rate of 0.766701
+    (PLAN.md "Core pricing semantics") -- PricePoint.cache_hit_rate_used must
+    round-trip back to that same number, not report weight_cached_prompt
+    (0.764478) directly, which is a materially different value."""
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {
+        "openai/gpt-5.6-luna": {
+            "id": "openai/gpt-5.6-luna",
+            "canonical_slug": "openai/gpt-5.6-luna-20260709",
+            "pricing": {"prompt": "0.0000002", "completion": "0.0000012"},
+        },
+    })
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **kw: [])
+
+    cfg_path = _write_shortlist(tmp_path, ["openai/gpt-5.6-luna"])
+    result = run_tracker(dry_run=True, config_path=cfg_path, history_path=tmp_path / "history.csv", no_hermes=True)
+
+    model_price = result.prices_shortlist[0]
+    assert model_price.price.cache_hit_rate_used == pytest.approx(0.766701, abs=1e-5)
+    assert model_price.price.cache_hit_rate_used != pytest.approx(0.764478, abs=1e-4)

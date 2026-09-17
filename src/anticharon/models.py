@@ -88,6 +88,10 @@ class PricePoint:
     effective_price_1m: float
     policy_price_1m: Optional[float] = None
     is_policy_routable: Optional[bool] = None
+    # PE2-008 (corrected 2026-09-17): the real prompt cache-hit rate (cached
+    # prompt tokens / total prompt tokens), display-only -- NOT weight_cached_prompt
+    # (cached tokens / ALL tokens, including completion), which is a different
+    # number. See anticharon.pricing.derive_cache_hit_rate for the derivation.
     cache_hit_rate_used: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:

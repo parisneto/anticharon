@@ -102,6 +102,34 @@ def blended_rate_1m(
     )
 
 
+def derive_cache_hit_rate(weight_uncached_prompt: float, weight_cached_prompt: float) -> float:
+    """The real prompt cache-hit rate (cached prompt tokens / total prompt
+    tokens) derived from the calibrated 3-way weights, for display purposes
+    only (PE2-008).
+
+    `weight_cached_prompt` and `weight_uncached_prompt` are each a share of
+    *all* tokens (`Total_Cached / Total_Tokens`, `Total_Uncached / Total_Tokens`
+    per ADR-2026-0002-TOKENS-CACHED §1 "Activity Log Calibration"), where
+    `Total_Tokens` includes completion tokens -- neither is itself the
+    cache-hit rate, which is specifically `Total_Cached / Total_Prompt`
+    (cached tokens as a share of *prompt* tokens only, excluding completion).
+    Algebraically: `weight_cached_prompt / (weight_uncached_prompt +
+    weight_cached_prompt) = (Cached/Total) / (Prompt/Total) = Cached/Prompt`,
+    which is exactly the cache-hit rate -- this is the correct derivation, not
+    a fresh assumption.
+
+    Zero-prompt-weight behavior (both weights are `0`, i.e. a 100%-completion
+    mix -- degenerate but not impossible if a user manually miscalibrates):
+    explicitly defined here as `0.0` ("no prompt tokens were ever cached,
+    because there were effectively no prompt tokens"), never a division by
+    zero and never a fabricated nonzero rate.
+    """
+    total_prompt_weight = weight_uncached_prompt + weight_cached_prompt
+    if total_prompt_weight <= 0:
+        return 0.0
+    return weight_cached_prompt / total_prompt_weight
+
+
 def resolve_cache_read_price_1m(prompt_price_1m: float, cache_read_price_1m: float | None) -> float:
     """OpenRouter omits `pricing.input_cache_read` for some endpoints. Per the
     original ADR's fallback rule, default it to 10% of the uncached prompt

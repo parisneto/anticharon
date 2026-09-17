@@ -28,6 +28,7 @@ from anticharon.models import (
 )
 from anticharon.pricing import (
     blended_rate_1m,
+    derive_cache_hit_rate,
     is_valid_listed_price,
     parse_required_price_1m,
     resolve_cache_read_price_1m,
@@ -337,6 +338,10 @@ def run_tracker(
     w_uncached = cfg.get("weight_uncached_prompt", 0.232622)
     w_cached = cfg.get("weight_cached_prompt", 0.764478)
     w_completion = cfg.get("weight_completion", 0.0029)
+    # PE2-008: cache_hit_rate_used (display-only) is the real prompt cache-hit
+    # rate, NOT weight_cached_prompt itself -- see derive_cache_hit_rate's
+    # docstring for the derivation.
+    cache_hit_rate = derive_cache_hit_rate(w_uncached, w_cached)
     threshold = cfg.get("spike_threshold_pct", 20.0)
     now = datetime.now(timezone.utc)
     now_iso = now.isoformat()
@@ -359,7 +364,7 @@ def run_tracker(
                         advertised_prompt_1m=rec.advertised_prompt_1m,
                         advertised_completion_1m=rec.advertised_completion_1m,
                         effective_price_1m=rec.effective_price_1m,
-                        cache_hit_rate_used=w_cached,
+                        cache_hit_rate_used=cache_hit_rate,
                     ),
                 ))
         prices_shortlist.sort(key=lambda x: x.price_1m)
@@ -526,7 +531,7 @@ def run_tracker(
                 effective_price_1m=effective_price_1m,
                 policy_price_1m=policy_price_1m,
                 is_policy_routable=is_policy_routable,
-                cache_hit_rate_used=w_cached,
+                cache_hit_rate_used=cache_hit_rate,
             ),
         ))
 

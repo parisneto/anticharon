@@ -52,6 +52,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Now calls the actual production `calculate_effective_cost` (`src/anticharon/pricing.py`) with two of the ADR's independently-derived golden cases as reference values: a cache-heavy case (85% cached — fails if cached-token pricing is ignored/omitted) and a zero-cache case (confirms the uncached path stayed correct).
   - New `tests/test_tester.py` proves the fix is load-bearing: injects a broken (legacy 2-component-equivalent) `calculate_effective_cost` and confirms `run_self_test()` now genuinely reports failure — something the original hardcoded check could never have caught, by construction.
   - Status: `Ready for Retest`. Full evidence in `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-007`.
+- **PE2-008 — `cache_hit_rate_used` now reports the real cache-hit rate, not a token weight (`src/anticharon/pricing.py`, `tracker.py`, `models.py`):**
+  - `PricePoint.cache_hit_rate_used` was assigned `weight_cached_prompt` directly — cached prompt tokens as a share of *all* tokens (including completion), not the cache-hit rate (cached prompt tokens as a share of *prompt* tokens only). For the default config, this reported `0.764478` instead of the correct `0.766701`.
+  - New `derive_cache_hit_rate(weight_uncached_prompt, weight_cached_prompt)` computes the real rate (`weight_cached_prompt / (weight_uncached_prompt + weight_cached_prompt)`); live-verified this round-trips exactly to the original interim default cache-hit-rate (`0.766701`) that `config.py`'s default weights were themselves derived from. Zero-prompt-weight (a degenerate 100%-completion mix) is explicitly defined as `0.0`, never a division error or a fabricated rate.
+  - Status: `Ready for Retest`. Full evidence in `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-008`.
 
 ## [0.5.2] - 2026-09-16
 
