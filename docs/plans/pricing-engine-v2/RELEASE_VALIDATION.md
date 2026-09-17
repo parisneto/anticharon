@@ -511,6 +511,8 @@ ADR 0002 remains normative until explicitly superseded or amended.
     Contract, Plan, specification, ADR material, backlog/approval record, and
     validation ledger before accepting the narrowed schema.
   - Result: `Open`.
+  - **Human Sign-Off - parisneto - (2026-09-17):** I explicitly approve the scope reduction. Deferring provider-granular persistence aligns with the K.I.S.S. mandate since no current feature consumes it. Parked in  'docs/plans/pricing-engine-v2/EXECUTION_CONTRACT.md' **Provider-Granular Persistence:** item. 
+
 
 ### PE2-005 — Live backfill canary does not perform the promised cross-validation
 
@@ -999,6 +1001,7 @@ ADR 0002 remains normative until explicitly superseded or amended.
       validated behavior preserves effective price and adds a policy price.
   - Result: `Open`.
 
+
 ### PE2-010 — Quality-tooling policy is unclear and not enforced
 
 - Severity: P3
@@ -1105,6 +1108,9 @@ ADR 0002 remains normative until explicitly superseded or amended.
     them as matching legacy style; that exception contradicts the mandatory
     changed-line policy and therefore cannot pass the agreed static gate.
   - Result: `Open`.
+- **Human Sign-Off - parisneto - (2026-09-17):** I authorize the Code Agent to run `ruff check --fix` to resolve ONLY the safe, non-behavioral formatting errors (UP006, UP045, I001, F401). 
+  However, I explicitly **FORBID** fixing behavioral rules (B023, BLE001, PLW1510, S110, S112) in this branch. Park those specific behavioral rules in `docs/BACKLOG.md` as a separate tech-debt initiative, as they require dedicated regression tests and violate the minimal-change scope of this pricing release.
+
 
 ## Acceptance-Criteria Traceability
 
