@@ -241,7 +241,7 @@ The candidate ADR and empirical artifacts provide supporting evidence.
 ### PE2-003 — Policy lookup failure is treated as confirmed noncompliance
 
 - Severity: P1
-- Status: `Open`
+- Status: `Ready for Retest`
 - Contract impact:
   - Graceful degradation
   - Policy-unknown behavior
@@ -282,8 +282,75 @@ The candidate ADR and empirical artifacts provide supporting evidence.
   - Mixed endpoints.
   - Policy-unknown serialization and discovery output.
   - Policy-unknown ranking behavior.
-- Resolution commit:
-  - Pending
+- Implementation evidence:
+  - Design decision: `fetch_endpoint_policy_pricing()`'s return contract is
+    unchanged (`[]` on any failure) -- its existing broad `except Exception`
+    already normalizes timeout, connection error, HTTP error, malformed JSON,
+    and wrong-response-shape into one signal, verified directly with 6 new
+    mocked tests in `tests/test_network_failure_paths.py`. A genuinely
+    successful response reporting zero endpoints produces the same `[]`
+    signal. All of these mean "no real endpoint pricing data exists," so they
+    are deliberately treated identically by every downstream consumer, rather
+    than introducing a separate typed fetch-outcome signal that would carry
+    no additional decision-relevant information for this codebase's actual
+    behavior contract.
+  - `src/anticharon/discovery.py`'s `apply_zdr_filter()`: a candidate whose
+    endpoint fetch returns `[]` is now **kept** (routable-by-default) instead
+    of dropped as unroutable; the returned warning names which candidates
+    were kept this way, distinct from the existing cap-truncation warning.
+  - `src/anticharon/tracker.py`'s `_rank_price_1m()` (introduced by PE2-001):
+    reconciled per PE2-001's own flagged independent-retest requirement.
+    Three distinct outcomes now: `policy_price_1m` set → rank by it;
+    `is_policy_routable is False` (confirmed unroutable) → rank `math.inf`,
+    never recommended; `is_policy_routable is None` (unknown) →
+    routable-by-default, rank by the unconstrained effective price, CAN be
+    recommended. Previously the last two shared the `math.inf` outcome.
+  - New `PriceWarning` type `POLICY_UNKNOWN` (`models.py` already supported
+    arbitrary `type` strings; no schema change needed) fires in `run_tracker`
+    whenever `zdr_only` is active and `is_policy_routable is None`, distinct
+    from `POLICY_UNROUTABLE`. Wired into CLI human-output formatting
+    (`cli.py`) alongside the existing `POLICY_UNROUTABLE` handling; already
+    present in `--json`/MCP output via the existing `PriceWarning.to_dict()`
+    (no change needed there, since it already serializes `type`/`message`/
+    `policy`/`reason` generically).
+  - Also corrected a stale `docs/specs/spec_v1_anticharon.md` §3.7 line,
+    found while updating this section, that claimed `Policy_Price_1M`
+    replaces `Effective_Price_1M` in `Delta_7d_Pct` under an active policy
+    filter -- a leftover from before PE2-001's fix that should have been
+    removed then but wasn't; it directly contradicted PE2-001's own
+    (correct, tested) resolution.
+  - Regression tests added: `tests/test_network_failure_paths.py` (7, direct
+    coverage of `fetch_endpoint_policy_pricing`'s failure normalization:
+    timeout, connection error, HTTP error, malformed JSON, wrong shape,
+    empty success, real success), `tests/test_discovery.py` (2: unknown
+    model kept with a descriptive warning, three-way mix of
+    confirmed-noncompliant/unknown/confirmed-compliant each handled
+    correctly), `tests/test_tracker.py` (2: `POLICY_UNKNOWN` fires instead
+    of `POLICY_UNROUTABLE` for unknown models, and a policy-unknown model
+    can win `BEST_OPTION_CHANGED` while a confirmed-unroutable one still
+    cannot -- the existing PE2-001 test for that case, unchanged, still
+    passes).
+- Remediation-agent verification:
+  - `uv run pytest`: 118 passed, 3 deselected.
+  - `uv run pytest -m live`: 3 passed, 118 deselected.
+  - Manual: live-verified `model discover "sol-pro" --zdr` and
+    `check --zdr` against the real API still behave correctly for the
+    confirmed-compliant/confirmed-noncompliant cases (unchanged from
+    PE2-001's manual verification); the `POLICY_UNKNOWN` path itself cannot
+    be forced against the live API (OpenRouter does not serve fetch failures
+    on demand) -- covered by the mocked tests above instead, per the
+    Contract's trust hierarchy.
+  - `git diff --check`: clean.
+  - `ruff`: one genuinely new finding disclosed, not hidden: `UP006` on
+    `discovery.py`'s new `unknown_model_ids: List[str] = []` line -- it uses
+    the same legacy `typing.List` style as 100% of the pre-existing code in
+    that file (including the adjacent, unmodified `compliant: List[...]`
+    line immediately above it). Following the file's own established
+    convention was judged preferable to introducing a mixed style within one
+    function; the broader legacy-typing-style question across the whole
+    codebase is PE2-010's scope, not this finding's. All other touched files
+    (`tracker.py`, `cli.py`) introduced zero new findings.
+- Resolution commit: `eaef6dd`
 - Independent retest:
   - Pending
 
