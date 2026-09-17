@@ -583,7 +583,7 @@ def main() -> None:
     run_parser.add_argument("--data-dir", type=str, default=None, help="Directory to store history.csv")
     run_parser.add_argument("--hermes-config", type=str, default=None, help="Path to custom Hermes config.yaml")
     run_parser.add_argument("--no-hermes", action="store_true", help="Disable Hermes auto-detection and run in standalone mode")
-    run_parser.add_argument("--zdr", action="store_true", help="Restrict effective price to Zero Data Retention-compliant endpoints")
+    run_parser.add_argument("--zdr", action="store_true", help="Add a policy-constrained price (policy_price_1m) from Zero Data Retention-compliant endpoints; never restricts or replaces effective_price_1m")
 
     # Command: check (alias for run --dry-run)
     check_parser = subparsers.add_parser("check", help="Check current prices without updating history.csv")
@@ -598,7 +598,7 @@ def main() -> None:
     check_parser.add_argument("--data-dir", type=str, default=None, help="Directory to store history.csv")
     check_parser.add_argument("--hermes-config", type=str, default=None, help="Path to custom Hermes config.yaml")
     check_parser.add_argument("--no-hermes", action="store_true", help="Disable Hermes auto-detection and run in standalone mode")
-    check_parser.add_argument("--zdr", action="store_true", help="Restrict effective price to Zero Data Retention-compliant endpoints")
+    check_parser.add_argument("--zdr", action="store_true", help="Add a policy-constrained price (policy_price_1m) from Zero Data Retention-compliant endpoints; never restricts or replaces effective_price_1m")
 
     # Command: history
     history_parser = subparsers.add_parser("history", help="Audit 30-day historical intelligence and export CSV")

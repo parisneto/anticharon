@@ -17,13 +17,13 @@
 
 In Greek mythology, **Charon** is the grim ferryman who demands an obol coin toll to carry souls across the rivers Styx and Acheron. In modern agentic AI systems, every prompt expansion, reasoning chain, and tool history represents an accumulating token toll.
 
-**Anticharon** is the counter-agent: the vigilant watcher that monitors OpenRouter model pricing, computes weighted prompt/completion blended costs, detects unexpected price spikes or promotional drops, and ensures your agents always cross the token river for the lowest possible toll.
+**Anticharon** is the counter-agent: the vigilant watcher that monitors OpenRouter model pricing, computes cache-aware, three-price (advertised / effective / policy) blended costs, detects unexpected price spikes or promotional drops, and ensures your agents always cross the token river for the lowest possible toll.
 
 ---
 
 ## ✨ Key Features
 
-- **Blended Weighted Pricing:** Calculates realistic cost per 1M tokens based on your agent's actual prompt vs completion ratio (calibrated default: **99.71% input / 0.29% output**).
+- **Cache-Aware Blended Pricing:** Calculates realistic cost per 1M tokens based on your agent's actual uncached-prompt / cached-prompt / completion token mix (calibrated default: **23.26% uncached / 76.45% cached / 0.29% output**), never a cache-blind prompt-vs-completion split.
 - **Backed by 114 Billion Tokens of Empirical Science:** Why do pricing calculators assume a 50/50 token mix? Autonomous agents (Hermes, Claude Code, Cursor, Codex) don't chat—they work. They consume massive contexts (system prompts, workspace trees, code snippets, git logs) and output concise tool calls and surgical diffs. We validated our default calibration against University of Washington's research paper [*"TraceLab: Characterizing Coding Agent Workloads for LLM Serving"*](https://syfi.cs.washington.edu/blog/2026-06-25-tracelab/) ([live demo](https://tracelab.cs.washington.edu/), [GitHub](https://github.com/uw-syfi/TraceLab)). Across **114.2 billion input tokens** and **391.8 million output tokens** (a **291.5 to 1 ratio**), the academic dataset recorded 99.66% input / 0.34% output—differing from Anticharon's operational baseline by **only 0.05% (-0.0005)**. We did the heavy lifting so you and your agents get real-world mathematical accuracy out of the box!
 - **Eliminates AI Cost Anxiety & Slop:** When you know true blended costs, price hikes don't terrify you, and promotional windows don't deceive you. Developers and agents can deploy frontier models responsibly within a sensible personal budget.
 - **TUI ASCII Price Spectrum Chart:** Instant visual ASCII bar chart in every run showing relative pricing distribution from `▲ Cheaper` to `▼ More Expensive`, badging `🏆 [BEST]` and `★ [DEFAULT]`.
@@ -31,7 +31,7 @@ In Greek mythology, **Charon** is the grim ferryman who demands an obol coin tol
 - **Model Shortlist Management (`anticharon model add / remove / list`):** Manage your configuration right from the terminal with live catalog slug validation and `--dry-run` safety.
 - **One-Command Calibration (`anticharon calibrate`):** Directly ingest CSV log exports from OpenRouter to automatically calculate and save your exact prompt/completion mix for better life quality. Remember: Y.M.M.V. (Your Mix May Vary).
 - **Moving Average & Volatility Detection:** Tracks 3-day and 7-day moving averages (`MA_3d`, `MA_7d`) to trigger instant `PRICE_SPIKE`, `PRICE_DROP`, and `BEST_OPTION_CHANGED` alerts. No Scientific Analysis here just simple moving averages and threshold based logic.
-- **Compact Historical Storage:** Keeps a clean, 1-line-per-model sliding CSV history (`history.csv`) with automatic cold-start padding.
+- **Compact Historical Storage with Real 28-Day Backfill:** Keeps a clean, 1-line-per-model sliding CSV history (`history.csv`), precalculated from a granular per-model daily store (`effective_prices.json`) that backfills real 28-day pricing history on first tracking a model — never fabricated flat padding.
 - **Resilient & Safe:** 10-second API timeouts with graceful fallback to local cache when offline or rate-limited.
 - **Built-in Self-Test (`anticharon test`):** Instant pre-flight checks validating runtime environment, dependencies, math calculations, and network access.
 - **Fast, Zero-Bloat Distribution:** Managed with `uv`, runnable as a standalone CLI or directly installed from Git.

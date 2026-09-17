@@ -7,10 +7,10 @@
 > Any material change to scope, architecture, acceptance criteria, non-goals, or
 > testing strategy MUST update this section in the same change.
 
-Written by:
-Reviewed by:
-Last synchronized:
-Plan/ADR revision:
+Written by: parisneto (human) + remediation coding agent
+Reviewed by: Codex (independent release validation, `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md`)
+Last synchronized: 2026-09-17
+Plan/ADR revision: `PLAN.md` revision 3; `docs/specs/adr/0002_internal_frontend_stats_api_for_historical_trajectories.md` amendment 2026-09-17
 
 ## 1. Anticharon Feature Chosen for This Plan
 
