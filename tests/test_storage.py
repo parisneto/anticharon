@@ -56,6 +56,29 @@ def test_history_csv_missing_file_returns_empty(tmp_path):
     assert read_history(tmp_path / "does_not_exist.csv") == {}
 
 
+def test_history_csv_old_pre_rename_format_degrades_gracefully(tmp_path):
+    """PE2-009: PLAN.md decided (2026-09-15, "Core pricing semantics"; confirmed
+    by commit 648798e) NOT to add a backward-compatibility shim for the
+    `current_price_1m` -> `effective_price_1m` rename -- a stale local
+    `history.csv` from before the rename should simply be deleted/regenerated.
+    EXECUTION_CONTRACT.md's Storage acceptance criteria requires this decision
+    be "either backward-compatible OR has an explicit, TESTED migration/
+    fallback path" -- this test is that missing test. The old 14-column
+    schema (`current_price_1m` header, no `advertised_*` columns) must
+    degrade gracefully to empty history, never crash and never misparse a
+    stale row's columns into the new schema's different column positions."""
+    old_format_csv = (
+        "model,last_updated,current_price_1m,ma_3d,ma_7d,d1,d2,d3,d4,d5,d6,d7,d15,d30\n"
+        "openai/gpt-5.6-luna,2026-08-24T20:00:00Z,0.10389,0.10389,0.10389,"
+        "0.10389,0.10389,0.10389,0.10389,0.10389,0.10389,0.10389,0.10389,0.10389\n"
+    )
+    old_csv_path = tmp_path / "history.csv"
+    old_csv_path.write_text(old_format_csv, encoding="utf-8")
+
+    history = read_history(old_csv_path)
+    assert history == {}  # graceful fallback, never a fabricated/misparsed partial read
+
+
 def test_effective_prices_store_roundtrip(tmp_path):
     path = tmp_path / "effective_prices.json"
     store = {

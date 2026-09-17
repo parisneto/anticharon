@@ -135,6 +135,32 @@ def test_single_observation_golden_case():
     assert an.history_vector["d30"] is None
 
 
+def test_single_observation_zero_dispersion_golden_case():
+    """PE2-009: fills in EXECUTION_CONTRACT.md's Sample Golden Case's
+    `<explicit Anticharon-defined behavior>` placeholder for dispersion. This
+    is the literal "single historical observation" scenario the Contract
+    describes -- a model tracked for exactly one day, zero backfill at all
+    (every history slot null, only today's current price exists) -- distinct
+    from `test_single_observation_golden_case` above, which uses two data
+    points (current + one real historical slot).
+
+    Expected per the Contract: mean = observed value, dispersion = 0.0%
+    (the coefficient of variation of a single data point is mathematically
+    zero -- there is no second point to vary against -- not undefined and
+    not a fabricated nonzero guess), profile = NEWLY_TRACKED."""
+    observed_value = 0.05
+    an = calculate_model_analytics(
+        "brand/new-model", observed_value, [None] * 9,
+        tracking_days_elapsed=1, min_tracking_days_for_profile=14,
+    )
+    assert an.profile == "NEWLY_TRACKED"
+    assert an.volatility_cv_pct == 0.0
+    assert an.price_min_30d == observed_value  # "mean = observed value"
+    assert an.price_max_30d == observed_value
+    assert an.history_vector["now"] == observed_value
+    assert all(an.history_vector[k] is None for k in an.history_vector if k != "now")
+
+
 def test_nullable_slots_do_not_crash_mature_classification():
     """A model tracked long enough (elapsed >= threshold) but with backfill
     gaps (e.g. d1 and d15 populated, nothing between) must still classify

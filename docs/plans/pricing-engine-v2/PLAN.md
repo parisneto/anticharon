@@ -129,7 +129,7 @@ Revision 3 assumed ZDR routability would come from the public `/models/{slug}/en
 6. **`docs/BACKLOG.md` reconciliation** — resolved: approved, collapse to one entry.
 7. **Granular JSON store filename/path** — resolved: `effective_prices.json`, same data directory as `history.csv`.
 8. **Analytics minimum-sample threshold** — resolved: 14 calendar days elapsed since first tracked (configurable, `min_tracking_days_for_profile`), not a slot-count.
-9. **`current_price_1m` rename** — resolved: rename outright to `effective_price_1m`, flagged as a breaking change in `CHANGELOG.md`, with `read_history()` kept backward-compatible for existing local files.
+9. **`current_price_1m` rename** — resolved: rename outright to `effective_price_1m`, flagged as a breaking change in `CHANGELOG.md`. **Correction (PE2-009, 2026-09-17):** this bullet previously said `read_history()` was "kept backward-compatible for existing local files," directly contradicting the "Core pricing semantics" section above and a later, more specific commit (`648798e`, "drop backward-compat shim for renamed field") — both of which correctly decided **no** backward-compatibility shim (pre-launch, single-digit testers, K.I.S.S.). The actual shipped `src/anticharon/storage.py` confirms this: `read_history()`/`CSV_HEADER` reference only the new header, with no old-header fallback anywhere. This bullet was simply stale and is now corrected to match both the rest of this document and the real implementation.
 
 This plan now has **no remaining open decisions**. The next session should implement per this document without needing further sign-off on scope — only genuine new discoveries during implementation should come back as questions.
 

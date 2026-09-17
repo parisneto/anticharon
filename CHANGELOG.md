@@ -57,6 +57,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New `derive_cache_hit_rate(weight_uncached_prompt, weight_cached_prompt)` computes the real rate (`weight_cached_prompt / (weight_uncached_prompt + weight_cached_prompt)`); live-verified this round-trips exactly to the original interim default cache-hit-rate (`0.766701`) that `config.py`'s default weights were themselves derived from. Zero-prompt-weight (a degenerate 100%-completion mix) is explicitly defined as `0.0`, never a division error or a fabricated rate.
   - Status: `Ready for Retest`. Full evidence in `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-008`.
 
+### Changed
+- **PE2-009 — Planning and validation documents synchronized (`docs/plans/pricing-engine-v2/EXECUTION_CONTRACT.md`, `PLAN.md`; `tests/test_analytics.py`, `test_storage.py`):**
+  - Removed an accidentally duplicated empty `## 3. Acceptance Criteria` heading and a duplicated, superseded `### Verification` section in `EXECUTION_CONTRACT.md`.
+  - Filled in the Sample Golden Case's `<explicit Anticharon-defined behavior>` placeholder for single-observation dispersion: `0.0%` (the coefficient of variation of a single data point is mathematically zero) — verified against the actual implementation and locked in by a new test, `tests/test_analytics.py::test_single_observation_zero_dispersion_golden_case`.
+  - `PLAN.md`'s "Resolved divergences" item 9 claimed `read_history()` was "kept backward-compatible for existing local files" — directly contradicting the "Core pricing semantics" section above it and a later commit that explicitly dropped that shim. Corrected to match both (no shim; a stale old-format `history.csv` degrades gracefully to empty history) and now backed by a real regression test, `tests/test_storage.py::test_history_csv_old_pre_rename_format_degrades_gracefully` — closing a genuine gap in `EXECUTION_CONTRACT.md`'s own Storage acceptance criterion ("either backward-compatible or has an explicit, *tested* migration/fallback path"), which this fallback path had never actually had a test for until now.
+  - Confirmed via search: no other unresolved placeholders or contradictory normative statements remain; all ten finding IDs (PE2-001 through PE2-010) remain present and stable in the ledger; no absolute host filesystem paths anywhere in the initiative's docs.
+  - Status: `Ready for Retest`. Full evidence in `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-009`.
+
 ## [0.5.2] - 2026-09-16
 
 ### Changed

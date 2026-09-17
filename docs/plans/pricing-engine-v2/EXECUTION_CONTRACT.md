@@ -98,9 +98,6 @@ response parsing or normal operation works.
 
 ## 3. Acceptance Criteria
 
-
-## 3. Acceptance Criteria
-
 The feature is complete when:
 
 ### Pricing model
@@ -121,7 +118,7 @@ The feature is complete when:
 
 ### Storage
 - Local persistence stores both the newly required pricing dimensions and the 28-day historical observations needed by downstream calculations.
-- Existing stored data is either backward-compatible or has an explicit, tested migration/fallback path.
+- Existing stored data is either backward-compatible or has an explicit, tested migration/fallback path. **Resolved 2026-09-17 (PE2-009):** no backward-compatibility shim was added for the `current_price_1m` → `effective_price_1m` rename (a deliberate K.I.S.S. decision, pre-launch/single-digit testers — see `PLAN.md`'s "Core pricing semantics"); the fallback path is that a stale old-format `history.csv` degrades gracefully to empty history (never crashes, never misparses old columns into the new schema's different positions) rather than being migrated. Now explicitly tested: `tests/test_storage.py::test_history_csv_old_pre_rename_format_degrades_gracefully`.
 
 ### Downstream behavior
 
@@ -152,23 +149,19 @@ The feature is complete when:
   silently filled solely to enable calculations or profile classification.
 
 Sample Golden cases:
-- Single historical observation
+- Single historical observation (i.e. a model tracked for exactly one day,
+  zero backfill available)
   Expected:
-  - mean = observed value
-  - dispersion = <explicit Anticharon-defined behavior>
+  - mean = observed value (the single observation, trivially — see
+    `price_min_30d`/`price_max_30d` in `tests/test_analytics.py::test_single_observation_zero_dispersion_golden_case`)
+  - dispersion = `0.0%` (`volatility_cv_pct`) — **resolved 2026-09-17 (PE2-009):**
+    the coefficient of variation of a single data point is mathematically
+    zero (there is no second point to vary against), not undefined and not
+    a fabricated nonzero guess. Live-verified against the actual
+    implementation (`calculate_model_analytics`) and locked in by the test
+    referenced above.
   - profile = 🌱 NEWLY_TRACKED
   - no synthetic historical observations
-
-
-### Verification
-- Mandatory pytest suite passes without network access.
-- Golden cases pass.
-- Mocked integration path passes.
-- Defined failure/fallback cases pass.
-- At least one test would fail if cached-token pricing were removed again.
-- At least one test would fail if a realistic external payload were parsed
-  incorrectly.
-- CI blocks completion/merge when mandatory gates fail.
 
 
 ### Verification
