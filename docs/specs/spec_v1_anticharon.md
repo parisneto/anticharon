@@ -88,6 +88,12 @@ GET /api/frontend/v1/stats/endpoint
 
 Graceful degradation: on failure (network error, malformed response, or a model with no endpoint data), Anticharon treats the model as policy-unknown (`is_policy_routable: null`) and falls back to the bulk catalog's own headline pricing for `effective_price_1m` — never a fabricated ZDR warning, never a crash.
 
+**Policy-unknown is routable-by-default, and distinct from confirmed noncompliance (PE2-003, corrected 2026-09-17):** `fetch_endpoint_policy_pricing()` returns `[]` uniformly for every failure mode (timeout, connection error, HTTP error, malformed JSON, wrong response shape) *and* for a genuinely successful response reporting zero endpoints — there is no real endpoint pricing to judge routability from in any of these cases, so they are deliberately normalized into one signal. Every consumer of that signal must treat it as **policy-unknown**, never as confirmed noncompliance:
+- `resolve_policy_pricing()` (`tracker.py`) leaves `is_policy_routable`/`policy_price_1m` at `None` whenever no endpoint actually yielded a usable price (gated on the resolved rates, not on whether the raw endpoint list happened to be non-empty) — this is what separates "checked, and none are ZDR-compliant" (confirmed, `is_policy_routable: false`) from "could not check at all" (unknown, `is_policy_routable: null`).
+- **Ranking** (shortlist sort order and `BEST_OPTION_CHANGED` eligibility, `--zdr`/`run`/`check`): a policy-unknown model ranks by its unconstrained `effective_price_1m` — the same as if no policy filter were active for that one model — and *can* be recommended as the best option. A confirmed-unroutable model (`is_policy_routable: false`) ranks last and is *never* recommended. These must never share an outcome; conflating them was flagged during independent review of the PE2-001 remediation and fixed here.
+- A new `PriceWarning` type, `POLICY_UNKNOWN`, surfaces this uncertainty explicitly whenever `zdr_only` is active and routability could not be determined for a model — distinct from `POLICY_UNROUTABLE` (§3.7), which is reserved for confirmed noncompliance only.
+- `apply_zdr_filter()` (`discovery.py`, used by `model discover --zdr`) applies the same rule: a candidate with no endpoint data at all is **kept** in the filtered results (routable-by-default), not dropped as if confirmed noncompliant; the returned warning names which candidates were kept this way.
+
 ### 3.3 Moving Averages (`MA_3d` and `MA_7d`)
 
 `MA_3d`/`MA_7d` are precalculated fresh each sync from the granular `effective_prices.json` store (§5.2), not accumulated by shifting a list — see §3.4. Both average only the **non-null** slots present in their window (`d1..d3` for `MA_3d`, `d1..d7` for `MA_7d`); a slot with no real observation contributes nothing and is never fabricated:
@@ -122,13 +128,14 @@ Anticharon evaluates percentage variation against the 7-day moving average:
 Delta_7d_Pct = ((Effective_Price_1M - MA_7d) / MA_7d) × 100
 ```
 
-(Under an active policy filter, `Policy_Price_1M` replaces `Effective_Price_1M` here — see §3.1.)
+**Correction (PE2-001, 2026-09-16):** `Delta_7d_Pct` always uses the unconstrained `Effective_Price_1M`, even under an active policy filter — an earlier draft of this line claimed `Policy_Price_1M` replaced it, which is exactly the collapse-under-`--zdr` defect PE2-001 fixed. `MA_7d`/`MA_3d` are always derived from unconstrained effective historical observations (`effective_prices.json` never stores policy-price history), so comparing them against anything other than the unconstrained current effective price would be an apples-to-oranges comparison — see §3.1.
 
 #### Warning Trigger Rules:
 1. **`PRICE_SPIKE`**: Triggered when `Delta_7d_Pct ≥ +spike_threshold_pct` (default: `+20.0%`). Indicates a price hike.
 2. **`PRICE_DROP`**: Triggered when `Delta_7d_Pct ≤ -spike_threshold_pct` (default: `-20.0%`). Indicates a discount or promotion.
-3. **`BEST_OPTION_CHANGED`**: Triggered when the lowest-cost model in the shortlist is different from the configured `current_default` model (the first entry in `shortlist.json`). Under an active policy filter (`--zdr`), "lowest-cost" ranks by `policy_price_1m`; a model with no policy-compliant endpoint (`policy_price_1m` is `None`) is never eligible to be ranked "cheapest" or recommended as the suggested option, even if its unconstrained `effective_price_1m` is the lowest in the shortlist (`docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-001`).
-4. **`POLICY_UNROUTABLE`**: Triggered (only when a policy filter is active, e.g. `--zdr`) when no endpoint passes the filter for a model. Carries `policy`, `excluded_providers`, and `reason` fields; never blocks the run, only warns.
+3. **`BEST_OPTION_CHANGED`**: Triggered when the lowest-cost model in the shortlist is different from the configured `current_default` model (the first entry in `shortlist.json`). Under an active policy filter (`--zdr`), "lowest-cost" ranks by `policy_price_1m` when a model is confirmed policy-routable, `Effective_Price_1M` when a model's policy status is unknown (routable-by-default, PE2-003), and never by a confirmed-unroutable model (`is_policy_routable` is `false`), regardless of how cheap its unconstrained `effective_price_1m` is (`docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-001`, `#PE2-003`).
+4. **`POLICY_UNROUTABLE`**: Triggered (only when a policy filter is active, e.g. `--zdr`) when real endpoint data was checked and none passed the filter for a model (confirmed noncompliance). Carries `policy`, `excluded_providers`, and `reason` fields; never blocks the run, only warns.
+5. **`POLICY_UNKNOWN`**: Triggered (only when a policy filter is active) when routability could not be determined at all — the internal endpoint route failed, returned no usable pricing, or reported zero endpoints (§3.2's graceful-degradation rule). Distinct from `POLICY_UNROUTABLE`: this model is still treated as routable-by-default for ranking purposes. Carries `policy` and `reason` fields; never blocks the run, only warns.
 
 ---
 
@@ -418,12 +425,12 @@ Anticharon natively exposes a standard Model Context Protocol (MCP) server over 
 ### 10.2 Exposed MCP Tools
 
 #### 1. `check_prices`
-- **Description:** Fetches current OpenRouter model pricing for the monitored shortlist, calculates the cache-aware advertised/effective/policy price triple (§3.1), computes 7-day moving averages, evaluates volatility alerts (PRICE_SPIKE, PRICE_DROP, BEST_OPTION_CHANGED, POLICY_UNROUTABLE), and attaches 30-day analytical intelligence profiles.
+- **Description:** Fetches current OpenRouter model pricing for the monitored shortlist, calculates the cache-aware advertised/effective/policy price triple (§3.1), computes 7-day moving averages, evaluates volatility alerts (PRICE_SPIKE, PRICE_DROP, BEST_OPTION_CHANGED, POLICY_UNROUTABLE, POLICY_UNKNOWN), and attaches 30-day analytical intelligence profiles.
 - **Parameters:**
   - `force_refresh` (boolean, optional, default: `false`): Force fresh HTTP fetch from OpenRouter API, ignoring local cache.
   - `dry_run` (boolean, optional, default: `true`): Calculate prices without updating `history.csv`/`effective_prices.json`.
   - `include_analytics` (boolean, optional, default: `true`): Attach 30-day statistical profiles, badges, and sibling alternatives.
-  - `zdr_only` (boolean, optional, default: `false`): Restrict `policy_price_1m` to Zero Data Retention-compliant endpoints (§3.2) and surface `POLICY_UNROUTABLE` warnings.
+  - `zdr_only` (boolean, optional, default: `false`): Restrict `policy_price_1m` to Zero Data Retention-compliant endpoints (§3.2) and surface `POLICY_UNROUTABLE`/`POLICY_UNKNOWN` warnings.
 - **Return Payload:** Self-describing JSON dictionary containing `timestamp`, `data_source` (`live_api` or `cached_history`), `api_offline_fallback` (boolean), `prices_shortlist` (each entry carrying `effective_price_1m`, `advertised_prompt_1m`/`advertised_completion_1m`, and `policy_price_1m`/`is_policy_routable` when a policy filter is active), `priceWarnings`, `hermes_integration`, and in-band `_hints`.
 
 #### 2. `get_model_history`

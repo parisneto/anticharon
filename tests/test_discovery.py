@@ -211,6 +211,53 @@ def test_apply_zdr_filter_no_warning_when_under_cap(monkeypatch):
     assert warning is None
 
 
+# --- PE2-003: policy lookup failure must be policy-unknown, not confirmed noncompliance ---
+# See docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-003.
+
+
+def test_apply_zdr_filter_keeps_model_with_no_endpoint_data_as_unknown(monkeypatch):
+    """A model whose endpoint fetch returns [] (timeout, HTTP error, malformed
+    response, or genuinely no endpoints -- all indistinguishable by design) must
+    be KEPT (routable-by-default), never dropped as if confirmed noncompliant."""
+    models = [_make_model("provider/unknown-model", 0.10, "provider/unknown-model")]
+    monkeypatch.setattr("anticharon.discovery.fetch_endpoint_policy_pricing", lambda *a, **kw: [])
+
+    compliant, warning = apply_zdr_filter(models, max_check_count=10)
+    assert len(compliant) == 1
+    assert compliant[0].id == "provider/unknown-model"
+    assert warning is not None
+    assert "unknown" in warning.lower()
+    assert "provider/unknown-model" in warning
+
+
+def test_apply_zdr_filter_distinguishes_unknown_from_confirmed_noncompliant(monkeypatch):
+    """Mixed candidates: one confirmed noncompliant (real endpoint data, none
+    ZDR-compliant), one policy-unknown (no endpoint data at all), one confirmed
+    compliant. Each must be handled according to its own distinct state."""
+    models = [
+        _make_model("provider/confirmed-noncompliant", 0.05, "provider/confirmed-noncompliant"),
+        _make_model("provider/unknown", 0.10, "provider/unknown"),
+        _make_model("provider/confirmed-compliant", 0.15, "provider/confirmed-compliant"),
+    ]
+
+    def fake_endpoints(canonical_slug, timeout=10.0):
+        if canonical_slug == "provider/confirmed-noncompliant":
+            return [{"provider_info": {"dataPolicy": {"retainsPrompts": True}}}]
+        if canonical_slug == "provider/unknown":
+            return []
+        if canonical_slug == "provider/confirmed-compliant":
+            return [{"provider_info": {"dataPolicy": {"retainsPrompts": False}}}]
+        raise AssertionError(f"unexpected canonical_slug: {canonical_slug}")
+
+    monkeypatch.setattr("anticharon.discovery.fetch_endpoint_policy_pricing", fake_endpoints)
+
+    compliant, warning = apply_zdr_filter(models, max_check_count=10)
+    ids = {m.id for m in compliant}
+    assert ids == {"provider/unknown", "provider/confirmed-compliant"}
+    assert "provider/confirmed-noncompliant" not in ids
+    assert "provider/unknown" in warning
+
+
 def test_filter_catalog_multi_criteria():
     dummy_catalog = [
         CatalogModel(

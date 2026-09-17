@@ -435,6 +435,20 @@ def run_tracker(
                 reason="No ZDR-compliant endpoint (dataPolicy.retainsPrompts=false) is currently routable.",
                 message=f"Model {model_id} has no ZDR-compliant endpoint; policy price unavailable."
             ))
+        elif zdr_only and is_policy_routable is None:
+            # PE2-003: policy-unknown (the internal per-endpoint route failed, returned
+            # no usable pricing, or genuinely reported zero endpoints) must be surfaced
+            # explicitly, not silently conflated with confirmed noncompliance -- and per
+            # PLAN.md's graceful-degradation rule, treated as routable-by-default for
+            # ranking (see _rank_price_1m below), not excluded.
+            warnings.append(PriceWarning(
+                type="POLICY_UNKNOWN",
+                model=model_id,
+                policy="zdr",
+                reason="ZDR compliance could not be determined (endpoint data unavailable); "
+                       "falling back to the unconstrained effective price for ranking.",
+                message=f"Model {model_id}'s ZDR compliance is unknown; treating as routable by default."
+            ))
 
         # PE2-001 fix: price_1m (ModelPrice's sort/chart/delta key) is ALWAYS the
         # unconstrained effective price -- never replaced by the policy price, even
@@ -507,17 +521,27 @@ def run_tracker(
         write_history(updated_records, hist_path)
         write_effective_prices(effective_store, effective_prices_path)
 
-    # PE2-001 fix: rank by the policy-constrained price when a policy filter is
-    # active, but a model with no policy-compliant endpoint (policy_price_1m is
-    # None -- whether explicitly unroutable or policy-unknown) must never be
-    # treated as "the cheapest option": it ranks last (math.inf) and is
-    # therefore never recommended via BEST_OPTION_CHANGED. This ranking is
-    # display/recommendation-only -- it does not change price_1m (always the
-    # unconstrained effective price, see above) or persisted history.
+    # PE2-001/PE2-003 fix: rank by the policy-constrained price when a policy
+    # filter is active. Three distinct cases per PLAN.md's graceful-degradation
+    # rule ("policy-unknown, routable-by-default") -- confirmed-unroutable and
+    # policy-unknown are NOT the same and must not share a ranking outcome:
+    #   - policy_price_1m is set (confirmed routable): rank by it.
+    #   - is_policy_routable is False (confirmed unroutable, real endpoint data
+    #     checked, none ZDR-compliant): rank math.inf -- never "cheapest",
+    #     never recommended via BEST_OPTION_CHANGED.
+    #   - is_policy_routable is None (unknown -- endpoint data unavailable, or
+    #     no PricePoint at all e.g. the offline-fallback path): routable-by-
+    #     default -- rank by the unconstrained effective price, same as if no
+    #     policy filter were active for this one model. The POLICY_UNKNOWN
+    #     warning above already surfaces this uncertainty explicitly.
+    # This ranking is display/recommendation-only -- it does not change
+    # price_1m (always the unconstrained effective price) or persisted history.
     def _rank_price_1m(model_price: ModelPrice) -> float:
-        if zdr_only:
-            if model_price.price and model_price.price.policy_price_1m is not None:
-                return model_price.price.policy_price_1m
+        if not zdr_only or not model_price.price:
+            return model_price.price_1m
+        if model_price.price.policy_price_1m is not None:
+            return model_price.price.policy_price_1m
+        if model_price.price.is_policy_routable is False:
             return math.inf
         return model_price.price_1m
 

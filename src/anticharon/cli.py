@@ -98,6 +98,8 @@ def format_human_output(result) -> None:
                 print(f"  💡 [TIP]   {w.message}")
             elif w.type == "POLICY_UNROUTABLE":
                 print(f"  🚫 [POLICY] {w.message}")
+            elif w.type == "POLICY_UNKNOWN":
+                print(f"  ❓ [POLICY] {w.message}")
     else:
         print("\n✅ All monitored models are within normal price fluctuation boundaries.")
     print("=" * 74 + "\n")
@@ -197,6 +199,8 @@ def format_analytics_human_output(result: TrackerResult) -> None:
                 print(f"  💡 [TIP]   {w.message}")
             elif w.type == "POLICY_UNROUTABLE":
                 print(f"  🚫 [POLICY] {w.message}")
+            elif w.type == "POLICY_UNKNOWN":
+                print(f"  ❓ [POLICY] {w.message}")
 
     print("=" * 104 + "\n")
 

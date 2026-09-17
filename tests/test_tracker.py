@@ -470,3 +470,88 @@ def test_run_tracker_endpoint_with_empty_pricing_does_not_win_cheapest(monkeypat
     # With the broken endpoint excluded, effective_price_1m must fall back to
     # the bulk catalog's own (real, non-zero) headline pricing, never $0.0.
     assert model_price.price.effective_price_1m > 0
+
+
+# --- PE2-003: policy-unknown must be distinct from confirmed-unroutable ---
+# See docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-003. Also reconciles
+# PE2-001's independent-retest flag: policy-unknown and confirmed-unroutable must
+# NOT share the same (math.inf) ranking outcome.
+
+
+def test_run_tracker_zdr_policy_unknown_emits_policy_unknown_not_unroutable_warning(
+    monkeypatch, tmp_path, no_backfill
+):
+    """When the endpoint route returns no usable data at all, run_tracker must
+    surface POLICY_UNKNOWN, never POLICY_UNROUTABLE (that warning is reserved
+    for confirmed noncompliance, where real endpoint data was checked)."""
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {
+        "openai/gpt-5.6-sol": {
+            "id": "openai/gpt-5.6-sol",
+            "canonical_slug": "openai/gpt-5.6-sol-20260709",
+            "pricing": {"prompt": "0.000002", "completion": "0.00001"},
+        },
+    })
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **kw: [])
+
+    cfg_path = _write_shortlist(tmp_path, ["openai/gpt-5.6-sol"])
+    result = run_tracker(
+        dry_run=True, config_path=cfg_path, history_path=tmp_path / "history.csv", no_hermes=True, zdr_only=True
+    )
+
+    warning_types = [w.type for w in result.price_warnings]
+    assert "POLICY_UNKNOWN" in warning_types
+    assert "POLICY_UNROUTABLE" not in warning_types
+
+    model_price = result.prices_shortlist[0]
+    assert model_price.price.is_policy_routable is None
+    assert model_price.price.policy_price_1m is None
+
+
+def test_run_tracker_zdr_policy_unknown_model_can_still_be_recommended(monkeypatch, tmp_path, no_backfill):
+    """Reconciles PE2-001's independent-retest flag directly: a policy-unknown
+    model (routable-by-default) must rank by its unconstrained effective price
+    and CAN win BEST_OPTION_CHANGED -- unlike a confirmed-unroutable model,
+    which must never win it (see test_run_tracker_zdr_never_recommends_
+    unroutable_model_as_best_option above, still passing)."""
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {
+        "provider/expensive-default": {
+            "id": "provider/expensive-default", "canonical_slug": "provider/expensive-default",
+            "pricing": {"prompt": "0.000002", "completion": "0.00001"},
+        },
+        "provider/cheap-unknown": {
+            "id": "provider/cheap-unknown", "canonical_slug": "provider/cheap-unknown",
+            "pricing": {"prompt": "0.0000001", "completion": "0.0000005"},
+        },
+    })
+
+    def fake_endpoints(canonical_slug, timeout=10.0):
+        if canonical_slug == "provider/expensive-default":
+            return [{
+                "provider_name": "Azure",
+                "pricing": {"prompt": "0.000005", "completion": "0.00003"},
+                "provider_info": {"dataPolicy": {"retainsPrompts": False}},
+            }]
+        return []  # provider/cheap-unknown: no endpoint data at all -- policy-unknown
+
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", fake_endpoints)
+
+    cfg_path = _write_shortlist(tmp_path, ["provider/expensive-default", "provider/cheap-unknown"])
+    result = run_tracker(
+        dry_run=True, config_path=cfg_path, history_path=tmp_path / "history.csv", no_hermes=True, zdr_only=True
+    )
+
+    by_model = {p.model: p for p in result.prices_shortlist}
+    assert by_model["provider/cheap-unknown"].price.is_policy_routable is None
+
+    # The unknown model ranks first (by its unconstrained effective price, the
+    # routable-by-default fallback) and IS eligible to be recommended.
+    model_ids_in_order = [p.model for p in result.prices_shortlist]
+    assert model_ids_in_order[0] == "provider/cheap-unknown"
+
+    best_option_warnings = [w for w in result.price_warnings if w.type == "BEST_OPTION_CHANGED"]
+    assert len(best_option_warnings) == 1
+    assert best_option_warnings[0].suggested_cheapest == "provider/cheap-unknown"
+
+    policy_unknown_warnings = [w for w in result.price_warnings if w.type == "POLICY_UNKNOWN"]
+    assert len(policy_unknown_warnings) == 1
+    assert policy_unknown_warnings[0].model == "provider/cheap-unknown"

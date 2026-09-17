@@ -235,26 +235,49 @@ def apply_zdr_filter(
     cheapest `max_check_count` are live-checked -- never silently truncated without
     saying so: the second element of the returned tuple is a warning string describing
     exactly how many of how many were checked, or `None` when no cap was needed.
+
+    PE2-003: `fetch_endpoint_policy_pricing` returns `[]` both when the fetch itself
+    failed (timeout/HTTP/malformed response) and when it genuinely succeeded but
+    found no endpoint data -- there is no real endpoint pricing to judge routability
+    from either way. Per PLAN.md's graceful-degradation rule ("policy-unknown,
+    routable-by-default"), a model in that state is KEPT (never fabricated as
+    "not compliant" from missing data), distinctly from a model with real endpoint
+    data where none are ZDR-compliant (confirmed noncompliant, excluded).
     """
     if len(models) > max_check_count:
         candidates = models[:max_check_count]
-        warning = (
+        cap_warning = (
             f"Only checking ZDR for {max_check_count} of {len(models)} matching models; "
             f"narrow your filters or raise max_zdr_check_count to check more."
         )
     else:
         candidates = models
-        warning = None
+        cap_warning = None
 
     compliant: List[CatalogModel] = []
+    unknown_model_ids: List[str] = []
     for m in candidates:
         endpoints = fetch_endpoint_policy_pricing(m.canonical_slug, timeout=timeout)
+        if not endpoints:
+            # Policy-unknown (no endpoint data at all) -- routable-by-default,
+            # never fabricated noncompliance from missing data.
+            compliant.append(m)
+            unknown_model_ids.append(m.id)
+            continue
         is_zdr_compliant = any(
             ((ep.get("provider_info") or {}).get("dataPolicy") or {}).get("retainsPrompts") is False
             for ep in endpoints
         )
         if is_zdr_compliant:
             compliant.append(m)
+
+    warning_parts = [cap_warning] if cap_warning else []
+    if unknown_model_ids:
+        warning_parts.append(
+            f"ZDR compliance unknown (endpoint data unavailable) for: {', '.join(unknown_model_ids)} "
+            f"-- kept per the routable-by-default fallback, not confirmed compliant."
+        )
+    warning = " ".join(warning_parts) if warning_parts else None
 
     return compliant, warning
 
