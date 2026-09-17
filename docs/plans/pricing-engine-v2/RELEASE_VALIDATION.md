@@ -927,7 +927,7 @@ The candidate ADR and empirical artifacts provide supporting evidence.
 ### PE2-010 — Quality-tooling policy is unclear and not enforced
 
 - Severity: P3
-- Status: `Open`
+- Status: `Ready for Retest`
 - Contract impact:
   - CI quality gates
   - Dependency hygiene
@@ -957,8 +957,65 @@ The candidate ADR and empirical artifacts provide supporting evidence.
   - Dependency installation for end users excludes development-only tools where
     intended.
   - CI configuration matches documented gates.
+- Implementation evidence:
+  - Root cause: `pytest`/`ruff` sat in `[project]`'s runtime `dependencies`
+    array, so any install path other than `uv sync` in this repo (e.g.
+    `pip install anticharon`, `uv tool install anticharon`) pulled in both
+    dev-only tools. Separately, no document stated whether CI's
+    pytest-only gate (no lint step) was an intentional policy or a gap.
+  - Correction: moved `ruff>=0.16.7`/`pytest>=9.1.1` into a new PEP 735
+    `[dependency-groups]` `dev = [...]` section in `pyproject.toml` (uv
+    installs dependency groups by default on `uv sync`, so local/CI
+    behavior is unaffected). Verified `uv sync` still resolves cleanly,
+    and `uv run pytest`/`uv run ruff --version`/`uv run anticharon test`
+    are all unchanged. Then built the actual wheel (`uv build --wheel -o
+    <tmp>/pe2010_build`) and inspected its `METADATA` file's
+    `Requires-Dist:` lines directly (via a small zipfile-reading script,
+    not just "sync succeeded"): only `mcp>=1.3.0` and `requests>=2.31.0`
+    remain — `pytest`/`ruff` are genuinely excluded from the shipped
+    package's declared runtime dependency footprint.
+  - Lint-scope decision: `ruff check src tests` currently reports 251
+    pre-existing findings (rose from the 245 cited above as this
+    initiative's own new test/doc files were added; every genuinely new
+    finding introduced by this initiative's changed lines was individually
+    diff-verified per finding — PE2-002 through PE2-009 — and disclosed in
+    each finding's own commit message/ledger entry as "matches the file's
+    pre-existing convention," with one real bug found and fixed, an unused
+    `import pytest` in `tests/test_network_failure_paths.py`). Since the
+    finding's own text says to "add a CI lint gate only when its scope is
+    clean and explicitly documented," and the repository-wide scope is not
+    clean, **no blanket `ruff check` step was added to
+    `.github/workflows/ci.yml`** — it remains `uv run pytest` +
+    `uv run anticharon test`, unchanged. This decision, and the
+    changed-files-only lint-scope rule for future work, is now written
+    down explicitly in `AGENTS.md` Rule 8 (previously unwritten practice),
+    so `.github/workflows/ci.yml`'s actual configuration now matches a
+    documented policy rather than an implicit one.
+  - Two items discovered while verifying this finding's own "CI
+    configuration matches documented gates" requirement, disclosed but
+    deliberately NOT fixed here (outside this finding's affected-files
+    list; fixing either would be an unrelated change): (1)
+    `EXECUTION_CONTRACT.md`'s "Verification" section describes an
+    emergency-bypass `smoke` pytest subset that does not exist anywhere in
+    this repository (`grep -rn "smoke"` across `pyproject.toml`, `tests/`,
+    `.github/workflows/`, `AGENTS.md` returns nothing); (2) the 251-finding
+    repository-wide Ruff backlog itself. Both recorded as new candidates in
+    `EXECUTION_CONTRACT.md`'s Deferred section for a future planning round.
+  - No automated regression test was added for this finding: it is a
+    packaging/process correction, not a behavioral defect with a code path
+    to assert against in `pytest`. The "dependency installation for end
+    users excludes development-only tools" verification bullet was
+    satisfied by the real `uv build` + wheel-metadata inspection described
+    above, which is direct evidence rather than a weaker proxy for it.
+  - Files changed: `pyproject.toml`, `uv.lock`, `AGENTS.md`,
+    `docs/plans/pricing-engine-v2/EXECUTION_CONTRACT.md`,
+    `CHANGELOG.md`. `.github/workflows/ci.yml` deliberately left
+    unchanged (see above).
+  - Full suite re-run after this change: `uv run pytest` → 149 passed, 3
+    deselected. `uv run anticharon test` → all diagnostics PASS.
+    `git diff --check` → clean.
 - Resolution commit:
-  - Pending
+  - `01a055d174957e6908433246a58b2f64d3ecd806`
 - Independent retest:
   - Pending
 
