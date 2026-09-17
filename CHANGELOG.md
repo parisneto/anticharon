@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New `PriceWarning` type `POLICY_UNKNOWN` surfaces this uncertainty explicitly wherever `POLICY_UNROUTABLE` already appears (CLI human output, `--json`, `check_prices` MCP output) — distinct from `POLICY_UNROUTABLE`, which is now reserved for confirmed noncompliance only.
   - Status: `Ready for Retest`. Full evidence, root cause, and regression tests in `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-003`. Spec updated: `docs/specs/spec_v1_anticharon.md` §3.2 and §3.7 (also corrects a stale §3.7 line left over from PE2-001's own fix, which had claimed the policy price replaces the effective price in `Delta_7d_Pct` — it never should have, per PE2-001's own resolution).
 
+### Changed
+- **PE2-004 — `effective_prices.json`'s planning docs formally narrowed to match the shipped schema (`docs/plans/pricing-engine-v2/PLAN.md`, `EXECUTION_CONTRACT.md`, `docs/specs/spec_v1_anticharon.md`):**
+  - `PLAN.md`'s "Storage architecture" section originally described a per-model, *per-provider* daily time series (date, provider, effective price, listed price, cache-hit rate, token share). That was never implemented — the shipped store collapses every day to one cheapest-price observation per model, with no provider identity persisted. Rather than leaving the mismatch unresolved or silently rewriting history to pretend it was always the plan, this is now recorded explicitly as a deliberate scope decision: `EXECUTION_CONTRACT.md`'s actual Storage acceptance criteria never required provider-level persisted granularity, and no downstream calculation in this codebase currently needs it — building it speculatively would violate the Contract's own "concrete over general" Non-Goal.
+  - `docs/specs/spec_v1_anticharon.md` §5.2's heading itself incorrectly said "per-model, per-provider daily observations" (the schema documented directly below it never matched that claim) — corrected.
+  - Provider-granular historical persistence is now tracked as an explicit deferred backlog candidate in `EXECUTION_CONTRACT.md`, to be scoped against a real downstream consumer if one is ever proposed.
+  - New regression test locks in the reduction rule as an approved decision, not an oversight: `tests/test_effective_pricing_backfill.py::test_reduce_to_daily_observations_provider_identity_is_intentionally_discarded`.
+  - Status: `Ready for Retest`. Full evidence and rationale in `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-004`. **Flagged for user awareness:** this is a scope/design decision, not a mechanical bug fix — see this session's final report for the full trade-off if a future need for provider-level history emerges.
+
 ## [0.5.2] - 2026-09-16
 
 ### Changed

@@ -49,6 +49,33 @@ def test_reduce_to_daily_observations_empty_input_is_empty():
     assert _reduce_to_daily_observations({"inputChartData": [], "outputChartData": []}, w_completion=0.0029) == []
 
 
+def test_reduce_to_daily_observations_provider_identity_is_intentionally_discarded():
+    """PE2-004: this is an approved reduction rule, not an oversight -- see the
+    "Scope correction" note in docs/plans/pricing-engine-v2/PLAN.md's Storage
+    architecture section. Given multiple providers/endpoints on the same day,
+    the stored observation must be exactly {date, effective_price_1m} -- no
+    provider identifier, listed price, cache-hit rate, or token share key.
+    This test exists to make a future accidental re-introduction of
+    provider-level fields (or accidental loss of the cheapest-of-day
+    reduction) fail loudly, since it locks in the exact current shape."""
+    history_data = {
+        "inputChartData": [
+            {"x": "2026-09-15 00:00:00", "y": {"openai-ep": 0.10, "azure-ep": 0.05, "bedrock-ep": 0.20}},
+        ],
+        "outputChartData": [
+            {"x": "2026-09-15 00:00:00", "y": {"openai-ep": 1.0, "azure-ep": 2.0, "bedrock-ep": 3.0}},
+        ],
+    }
+    observations = _reduce_to_daily_observations(history_data, w_completion=0.0029)
+
+    assert len(observations) == 1
+    assert set(observations[0].keys()) == {"date", "effective_price_1m"}
+    # The cheapest endpoint (azure-ep) must win -- provider identity is used
+    # only transiently during this reduction, never persisted.
+    azure_rate = 0.05 * (1 - 0.0029) + 2.0 * 0.0029
+    assert observations[0]["effective_price_1m"] == pytest.approx(azure_rate)
+
+
 def test_sync_effective_prices_for_model_graceful_degradation_on_empty_fetch(monkeypatch):
     """A `~`-prefixed router alias (e.g. `~deepseek/deepseek-pro-latest`) returns
     an empty-but-200-OK payload (live-verified: no fixed permaslug identity to

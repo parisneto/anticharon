@@ -190,7 +190,9 @@ model,last_updated,effective_price_1m,advertised_prompt_1m,advertised_completion
 | `d15` | float or empty | Price recorded 15 days ago. Nullable. |
 | `d30` | float or empty | Price recorded 30 days ago. Nullable. |
 
-### 5.2 `effective_prices.json` — granular per-model, per-provider daily observations
+### 5.2 `effective_prices.json` — granular per-model daily observations
+
+**Correction (PE2-004, 2026-09-17):** this section's own heading previously read "per-model, per-provider daily observations," but the schema it describes below has never stored provider identity — it is one collapsed cheapest-price-per-day observation per model. The heading was simply wrong; see `docs/plans/pricing-engine-v2/PLAN.md`'s "Scope correction" note (under "Storage architecture") for the full reconciliation: `EXECUTION_CONTRACT.md`'s actual acceptance criteria never required provider-level persisted granularity, no downstream consumer in this codebase needs it, and building it speculatively would violate the Contract's own "concrete over general" Non-Goal. Provider-granular historical persistence is recorded as a deferred backlog candidate in `EXECUTION_CONTRACT.md`, to be scoped against a real future consumer if one is ever proposed.
 
 Same data directory as `history.csv`, same path-resolution hierarchy (§6.1). This file is the **source of truth** for history; `history.csv`'s `d1..d30`/MA columns are derived from it (§3.4), not the other way around. Its refresh cadence is independent of `history.csv`'s per-run cadence — a model is only re-fetched when its entry is stale (default: older than 24 hours), not on every `anticharon run`.
 

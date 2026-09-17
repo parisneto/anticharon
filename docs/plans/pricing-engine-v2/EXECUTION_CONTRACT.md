@@ -219,6 +219,7 @@ Scope is bounded by the acceptance criteria. Anything not required to meet them 
 Items discovered during implementation belong here unless explicitly approved and promoted into the current scope.
 
 Current candidates:
+- **Provider-granular historical persistence (PE2-004, deferred 2026-09-17):** `PLAN.md`'s original "Storage architecture" section described a per-model, *per-provider* daily time series (`date`, `provider`, effective price, listed price, cache-hit rate, token share). The shipped implementation stores one collapsed cheapest-price-per-day observation per model instead — see `PLAN.md`'s "Scope correction" note under that section for the full reconciliation and rationale (no current downstream consumer needs provider-level history; building it speculatively would violate this section's own "concrete over general" rule above). Revisit only if a real feature proposal (e.g. a "cheapest provider over time" view, or historical cache-hit-rate trending) needs it — scope it as its own initiative against that concrete need, not sight-unseen.
 - ( peding start )
 - ...
 - previous items ( not yet in backlog, pending confirmation, research or prioritization) :
