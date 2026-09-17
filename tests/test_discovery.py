@@ -54,6 +54,63 @@ def test_fetch_catalog_skips_sentinel_priced_model(monkeypatch):
     assert all(m.blended_price_1m >= 0 for m in catalog)
 
 
+# --- PE2-002: missing/partial bulk-catalog pricing must never become a fabricated $0 ---
+# See docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-002.
+
+
+def test_fetch_catalog_skips_model_missing_completion_field(monkeypatch):
+    fake_data = [
+        {
+            "id": "broken/partial-pricing",
+            "name": "Partial Pricing Model",
+            "pricing": {"prompt": "0.000002"},  # completion entirely absent
+        },
+        {
+            "id": "openai/gpt-5.6-luna",
+            "name": "OpenAI: GPT-5.6 Luna",
+            "pricing": {"prompt": "0.0000002", "completion": "0.0000012"},
+        },
+    ]
+    monkeypatch.setattr("anticharon.discovery.requests.get", lambda url, timeout=10.0: _FakeResponse(fake_data))
+
+    catalog = fetch_catalog()
+    ids = [m.id for m in catalog]
+    assert "broken/partial-pricing" not in ids
+    assert "openai/gpt-5.6-luna" in ids
+
+
+def test_fetch_catalog_skips_model_with_empty_pricing_dict(monkeypatch):
+    """Exact evidence scenario from PE2-002 in the full-catalog browse path:
+    a model with `pricing={}` must never surface as a $0.0 "cheapest" model."""
+    fake_data = [
+        {"id": "broken/empty-pricing", "name": "Empty Pricing", "pricing": {}},
+        {
+            "id": "openai/gpt-5.6-luna",
+            "name": "OpenAI: GPT-5.6 Luna",
+            "pricing": {"prompt": "0.0000002", "completion": "0.0000012"},
+        },
+    ]
+    monkeypatch.setattr("anticharon.discovery.requests.get", lambda url, timeout=10.0: _FakeResponse(fake_data))
+
+    catalog = fetch_catalog()
+    ids = [m.id for m in catalog]
+    assert "broken/empty-pricing" not in ids
+    assert catalog[0].blended_price_1m > 0  # the missing-pricing model never sorts first at $0
+
+
+def test_fetch_catalog_keeps_legitimate_free_model(monkeypatch):
+    """A real free model (explicit "0" for both fields) must remain in the catalog."""
+    fake_data = [
+        {"id": "some/free-model:free", "name": "Free Model", "pricing": {"prompt": "0", "completion": "0"}},
+    ]
+    monkeypatch.setattr("anticharon.discovery.requests.get", lambda url, timeout=10.0: _FakeResponse(fake_data))
+
+    catalog = fetch_catalog()
+    assert len(catalog) == 1
+    assert catalog[0].blended_price_1m == 0.0
+    assert catalog[0].is_promo is True
+
+
 def test_fetch_catalog_uses_cache_aware_3way_blend(monkeypatch):
     """blended_price_1m must use the model's own pricing.input_cache_read (confirmed
     present per-model in the bulk catalog) with the 3-way weights, not the removed

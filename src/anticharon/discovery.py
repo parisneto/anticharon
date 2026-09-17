@@ -10,6 +10,7 @@ import requests
 from anticharon.pricing import (
     blended_rate_1m,
     is_valid_listed_price,
+    parse_required_price_1m,
     resolve_cache_read_price_1m,
 )
 from anticharon.tracker import OPENROUTER_MODELS_URL, fetch_endpoint_policy_pricing
@@ -85,13 +86,16 @@ def fetch_catalog(
         arch = item.get("architecture") or {}
         output_modalities = arch.get("output_modalities") or ["text"]
 
-        # Pricing per 1M tokens
+        # Pricing per 1M tokens. PE2-002: prompt/completion are required fields --
+        # a missing/blank/malformed value must skip the model entirely, never
+        # fabricate a $0 price (live-verified 2026-09-17: every real catalog
+        # entry, including :free models, always includes both keys explicitly;
+        # see parse_required_price_1m).
         pricing = item.get("pricing") or {}
-        try:
-            p_in = float(pricing.get("prompt", 0)) * 1_000_000
-            p_out = float(pricing.get("completion", 0)) * 1_000_000
-        except (ValueError, TypeError):
-            p_in, p_out = 0.0, 0.0
+        p_in = parse_required_price_1m(pricing, "prompt")
+        p_out = parse_required_price_1m(pricing, "completion")
+        if p_in is None or p_out is None:
+            continue
 
         if not (is_valid_listed_price(p_in) and is_valid_listed_price(p_out)):
             # Sentinel/non-priced model (e.g. a meta-router like openrouter/auto-beta) --

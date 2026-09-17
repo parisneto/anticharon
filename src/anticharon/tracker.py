@@ -29,6 +29,7 @@ from anticharon.models import (
 from anticharon.pricing import (
     blended_rate_1m,
     is_valid_listed_price,
+    parse_required_price_1m,
     resolve_cache_read_price_1m,
 )
 from anticharon.storage import (
@@ -106,12 +107,14 @@ def fetch_effective_pricing_history(canonical_slug: str, timeout: float = 10.0) 
 def _endpoint_blended_rate_1m(
     endpoint: Dict[str, Any], w_uncached: float, w_cached: float, w_completion: float
 ) -> Optional[float]:
-    """Cache-aware blended $/1M for one endpoint, or None if its pricing is missing/invalid."""
+    """Cache-aware blended $/1M for one endpoint, or None if its pricing is
+    missing/invalid. PE2-002: `prompt`/`completion` are required fields --
+    a missing/blank/malformed value returns None (endpoint unusable), never
+    a fabricated $0 (see `parse_required_price_1m`)."""
     pricing = endpoint.get("pricing") or {}
-    try:
-        p_in = float(pricing.get("prompt", 0)) * 1_000_000
-        p_out = float(pricing.get("completion", 0)) * 1_000_000
-    except (ValueError, TypeError):
+    p_in = parse_required_price_1m(pricing, "prompt")
+    p_out = parse_required_price_1m(pricing, "completion")
+    if p_in is None or p_out is None:
         return None
     if not (is_valid_listed_price(p_in) and is_valid_listed_price(p_out)):
         return None
@@ -159,7 +162,13 @@ def resolve_policy_pricing(
         "is_policy_routable": None,
         "excluded_providers": [],
     }
-    if zdr_only and endpoints:
+    # PE2-002/PE2-003: gate on `rates` (at least one endpoint actually produced a
+    # usable price), not the raw `endpoints` list -- a non-empty `endpoints` list
+    # where every entry has missing/malformed pricing (PE2-002) must resolve to
+    # policy-unknown here too, not "confirmed unroutable." Using `endpoints`
+    # previously conflated "we have no valid pricing data to judge routability
+    # from" with "we checked, and no endpoint is ZDR-compliant."
+    if zdr_only and rates:
         result["is_policy_routable"] = len(zdr_rates) > 0
         result["policy_price_1m"] = min(zdr_rates) if zdr_rates else None
         result["excluded_providers"] = excluded_providers
@@ -376,12 +385,16 @@ def run_tracker(
         if not api_data:
             continue
 
+        # PE2-002: prompt/completion are required bulk-catalog fields -- a
+        # missing/blank/malformed value must skip the model entirely, never
+        # fabricate a $0 advertised price (live-verified 2026-09-17: every
+        # real catalog entry, including :free models, always includes both
+        # keys explicitly; see parse_required_price_1m).
         pricing = api_data.get("pricing", {})
-        try:
-            advertised_prompt_1m = float(pricing.get("prompt", 0)) * 1_000_000
-            advertised_completion_1m = float(pricing.get("completion", 0)) * 1_000_000
-        except (ValueError, TypeError):
-            advertised_prompt_1m, advertised_completion_1m = 0.0, 0.0
+        advertised_prompt_1m = parse_required_price_1m(pricing, "prompt")
+        advertised_completion_1m = parse_required_price_1m(pricing, "completion")
+        if advertised_prompt_1m is None or advertised_completion_1m is None:
+            continue
 
         if not (is_valid_listed_price(advertised_prompt_1m) and is_valid_listed_price(advertised_completion_1m)):
             # Sentinel/non-priced model (e.g. a meta-router like openrouter/auto-beta) --

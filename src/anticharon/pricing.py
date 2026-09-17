@@ -9,6 +9,34 @@ regression measurable (see `tests/test_golden_pricing.py`), not as a live path.
 """
 
 
+def parse_required_price_1m(pricing: dict, field: str) -> float | None:
+    """Parse a *required* raw per-token price field (`"prompt"`/`"completion"`)
+    from an OpenRouter `pricing` dict into $/1M, or `None` if the field is
+    missing/blank/malformed (PE2-001-adjacent defect PE2-002 -- do not confuse
+    "absent" with "genuine numeric zero").
+
+    Live-verified 2026-09-17: every real bulk-catalog model and every real
+    per-endpoint entry always includes both `prompt` and `completion` as
+    present string keys, including real free (`:free`) models, which list
+    them explicitly as `"0"`, never by omission. So a *missing* key, `None`
+    value, blank string, or non-numeric value is never a legitimate free
+    price -- it is missing/partial pricing data, and must not silently
+    become `0.0` (a fabricated free endpoint). Only a present, parseable
+    numeric value -- including a real `0` -- is a valid price.
+    """
+    if field not in pricing:
+        return None
+    raw = pricing.get(field)
+    if raw is None:
+        return None
+    if isinstance(raw, str) and raw.strip() == "":
+        return None
+    try:
+        return float(raw) * 1_000_000
+    except (ValueError, TypeError):
+        return None
+
+
 def is_valid_listed_price(price_1m: float) -> bool:
     """False only for a negative sentinel price, true otherwise.
 

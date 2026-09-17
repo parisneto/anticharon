@@ -417,3 +417,56 @@ def test_run_tracker_zdr_delta_compares_effective_not_policy_price(monkeypatch, 
     wrong_delta_if_using_policy = ((policy - known_ma_price) / known_ma_price) * 100
     assert model_price.change_vs_7d_pct == pytest.approx(expected_delta, abs=1e-4)
     assert model_price.change_vs_7d_pct != pytest.approx(wrong_delta_if_using_policy, abs=1e-4)
+
+
+# --- PE2-002: missing/partial bulk-catalog pricing must never become a fabricated $0 ---
+# See docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-002.
+
+
+def test_run_tracker_skips_model_with_missing_bulk_catalog_completion_field(monkeypatch, tmp_path, no_backfill):
+    """A shortlisted model whose bulk-catalog entry is missing `pricing.completion`
+    entirely must be excluded from the run, never priced at a fabricated $0 output."""
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {
+        "openai/gpt-5.6-luna": {
+            "id": "openai/gpt-5.6-luna",
+            "canonical_slug": "openai/gpt-5.6-luna-20260709",
+            "pricing": {"prompt": "0.0000002"},  # completion field entirely absent
+        },
+        "openai/gpt-5.6-sol": {
+            "id": "openai/gpt-5.6-sol",
+            "canonical_slug": "openai/gpt-5.6-sol-20260709",
+            "pricing": {"prompt": "0.000002", "completion": "0.00001"},
+        },
+    })
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **kw: [])
+
+    cfg_path = _write_shortlist(tmp_path, ["openai/gpt-5.6-luna", "openai/gpt-5.6-sol"])
+    result = run_tracker(dry_run=True, config_path=cfg_path, history_path=tmp_path / "history.csv", no_hermes=True)
+
+    model_ids = [p.model for p in result.prices_shortlist]
+    assert "openai/gpt-5.6-luna" not in model_ids
+    assert "openai/gpt-5.6-sol" in model_ids
+
+
+def test_run_tracker_endpoint_with_empty_pricing_does_not_win_cheapest(monkeypatch, tmp_path, no_backfill):
+    """PE2-002 exact evidence scenario reproduced end-to-end through run_tracker:
+    a per-endpoint entry with pricing={} must never resolve to the cheapest
+    ($0.0) effective price and win BEST_OPTION_CHANGED over a real, priced model."""
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {
+        "openai/gpt-5.6-sol": {
+            "id": "openai/gpt-5.6-sol",
+            "canonical_slug": "openai/gpt-5.6-sol-20260709",
+            "pricing": {"prompt": "0.000002", "completion": "0.00001"},
+        },
+    })
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **kw: [
+        {"provider_name": "broken", "pricing": {}, "provider_info": {"dataPolicy": {"retainsPrompts": False}}},
+    ])
+
+    cfg_path = _write_shortlist(tmp_path, ["openai/gpt-5.6-sol"])
+    result = run_tracker(dry_run=True, config_path=cfg_path, history_path=tmp_path / "history.csv", no_hermes=True)
+
+    model_price = result.prices_shortlist[0]
+    # With the broken endpoint excluded, effective_price_1m must fall back to
+    # the bulk catalog's own (real, non-zero) headline pricing, never $0.0.
+    assert model_price.price.effective_price_1m > 0

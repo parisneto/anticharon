@@ -98,3 +98,94 @@ def test_resolve_policy_pricing_skips_sentinel_priced_endpoint():
     assert result["effective_price_1m"] == pytest.approx(
         result["policy_price_1m"]
     )  # only the valid endpoint contributes
+
+
+# --- PE2-002: missing/partial required pricing must never become a fabricated $0 ---
+# See docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-002.
+
+
+def test_resolve_policy_pricing_endpoint_with_empty_pricing_dict_is_skipped():
+    """Exact evidence scenario from PE2-002: an endpoint with `pricing={}` must
+    never resolve to effective_price_1m=0.0/policy_price_1m=0.0/is_policy_routable=true."""
+    endpoints = [
+        {
+            "provider_name": "broken-provider",
+            "pricing": {},
+            "provider_info": {"dataPolicy": {"retainsPrompts": False}},
+        },
+    ]
+    result = resolve_policy_pricing(endpoints, W_UNCACHED, W_CACHED, W_COMPLETION, zdr_only=True)
+    assert result["effective_price_1m"] is None
+    assert result["policy_price_1m"] is None
+    assert result["is_policy_routable"] is None  # no usable endpoints at all -- unknown, not routable
+
+
+def test_resolve_policy_pricing_endpoint_missing_completion_field_is_skipped():
+    endpoints = [
+        {
+            "provider_name": "partial-provider",
+            "pricing": {"prompt": "0.000002"},  # completion entirely absent
+            "provider_info": {"dataPolicy": {"retainsPrompts": False}},
+        },
+    ]
+    result = resolve_policy_pricing(endpoints, W_UNCACHED, W_CACHED, W_COMPLETION, zdr_only=True)
+    assert result["effective_price_1m"] is None
+
+
+def test_resolve_policy_pricing_endpoint_blank_prompt_is_skipped():
+    endpoints = [
+        {
+            "provider_name": "blank-provider",
+            "pricing": {"prompt": "", "completion": "0.00001"},
+            "provider_info": {"dataPolicy": {"retainsPrompts": False}},
+        },
+    ]
+    result = resolve_policy_pricing(endpoints, W_UNCACHED, W_CACHED, W_COMPLETION, zdr_only=True)
+    assert result["effective_price_1m"] is None
+
+
+def test_resolve_policy_pricing_mixed_valid_and_malformed_endpoints_uses_only_valid():
+    """A mix of one endpoint with missing pricing and one real endpoint --
+    the malformed one must be silently excluded, not treated as a free $0 winner."""
+    endpoints = [
+        {
+            "provider_name": "broken-provider",
+            "pricing": {},  # would incorrectly win as "cheapest" if defaulted to $0
+            "provider_info": {"dataPolicy": {"retainsPrompts": False}},
+        },
+        {
+            "provider_name": "OpenAI",
+            "pricing": {"prompt": "0.000002", "completion": "0.00001"},
+            "provider_info": {"dataPolicy": {"retainsPrompts": False}},
+        },
+    ]
+    result = resolve_policy_pricing(endpoints, W_UNCACHED, W_CACHED, W_COMPLETION, zdr_only=True)
+    assert result["effective_price_1m"] is not None
+    assert result["effective_price_1m"] > 0  # never the fabricated $0 from the broken endpoint
+    assert "broken-provider" not in result["excluded_providers"]  # never counted as a real candidate at all
+
+
+def test_resolve_policy_pricing_all_endpoints_malformed_returns_none():
+    endpoints = [
+        {"provider_name": "a", "pricing": {}, "provider_info": {"dataPolicy": {"retainsPrompts": False}}},
+        {"provider_name": "b", "pricing": {"prompt": "garbage", "completion": "0.00001"},
+         "provider_info": {"dataPolicy": {"retainsPrompts": False}}},
+    ]
+    result = resolve_policy_pricing(endpoints, W_UNCACHED, W_CACHED, W_COMPLETION, zdr_only=True)
+    assert result["effective_price_1m"] is None
+    assert result["policy_price_1m"] is None
+    assert result["is_policy_routable"] is None
+
+
+def test_resolve_policy_pricing_legitimate_zero_endpoint_is_used():
+    """A genuinely free endpoint (explicit "0", not missing) must still be usable."""
+    endpoints = [
+        {
+            "provider_name": "free-provider",
+            "pricing": {"prompt": "0", "completion": "0"},
+            "provider_info": {"dataPolicy": {"retainsPrompts": False}},
+        },
+    ]
+    result = resolve_policy_pricing(endpoints, W_UNCACHED, W_CACHED, W_COMPLETION, zdr_only=True)
+    assert result["effective_price_1m"] == 0.0
+    assert result["is_policy_routable"] is True
