@@ -6,15 +6,16 @@
 - Feature branch: `pricing-engine-v2`
 - Base branch: `main`
 - Originally assessed commit: `90aaa06f5b1866b98d0a4463794ed00933a62f0a`
-- Current remediation HEAD: `c112b2c8ae95cbd3e979d2bc3b68d9e1683e4d03`
+- Current remediation HEAD: `5c98eae427577e04d3b23892c683c5f2fe953d54`
 - Originally assessed version: `v0.5.2`
 - Initial validation date: `2026-09-16`
 - Reviewer: Codex
-- Overall status: `BLOCKED`
+- Overall status: `BLOCKED` (independent retest completed; PE2-004, PE2-009,
+  and PE2-010 reopened)
 
-The current remediation HEAD has not yet received independent validation. Test
-results reported by the remediation agent are recorded as implementation
-evidence, not final release evidence.
+The current remediation HEAD received independent validation on 2026-09-17.
+Remediation-agent results remain implementation evidence only; the independent
+results recorded under each finding and in the Retest Log control this decision.
 
 ## Scope and Sources
 
@@ -24,6 +25,7 @@ state against:
 - `docs/plans/pricing-engine-v2/EXECUTION_CONTRACT.md`
 - `docs/plans/pricing-engine-v2/PLAN.md`
 - `docs/plans/pricing-engine-v2/ADR_CANDIDATE_TOKENS_CACHED.md`
+- `docs/specs/adr/0002_internal_frontend_stats_api_for_historical_trajectories.md`
 - `docs/specs/spec_v1_anticharon.md`
 - `AGENTS.md`
 - `CHANGELOG.md`
@@ -32,7 +34,8 @@ state against:
 - `pyproject.toml`
 
 The Execution Contract is authoritative. `PLAN.md` provides the detailed design.
-The candidate ADR and empirical artifacts provide supporting evidence.
+The candidate ADR and empirical artifacts provide supporting evidence. Accepted
+ADR 0002 remains normative until explicitly superseded or amended.
 
 ## Repository State
 
@@ -46,12 +49,14 @@ The candidate ADR and empirical artifacts provide supporting evidence.
 
 ### Current remediation state
 
-- Remediation HEAD: `c112b2c8ae95cbd3e979d2bc3b68d9e1683e4d03`
+- Remediation HEAD: `5c98eae427577e04d3b23892c683c5f2fe953d54`
 - PE2-001 implementation commit: `70fe99bf540ef8f233bc6db373797b299eb93547`
 - PE2-001 ledger commit: `c112b2c8ae95cbd3e979d2bc3b68d9e1683e4d03`
-- Reported divergence after remediation: 12 commits ahead and 0 behind `main`
-- Reported worktree state: clean
-- Independent confirmation: pending
+- Independent divergence at retest: 31 commits ahead and 0 behind `main`
+- Independent feature-worktree state before retest: clean
+- Independent confirmation: completed 2026-09-17 in a detached disposable
+  checkout pinned to the exact remediation commit, with an isolated `.venv`,
+  uv cache, and runtime-data directory. User runtime data was not inspected.
 
 ## Initial Verification Results
 
@@ -70,7 +75,7 @@ The candidate ADR and empirical artifacts provide supporting evidence.
 ### PE2-001 — Effective and policy prices collapse under ZDR
 
 - Severity: P1
-- Status: `Ready for Retest`
+- Status: `Resolved`
 - Contract impact:
   - Three-price distinction
   - Policy-constrained recommendations
@@ -131,12 +136,22 @@ The candidate ADR and empirical artifacts provide supporting evidence.
     policy-unknown prices as an infinite ranking value conflicts with the plan’s
     “policy-unknown, routable-by-default” degradation rule.
 - Independent retest:
-  - Pending
+  - Tested commit: `5c98eae427577e04d3b23892c683c5f2fe953d54`.
+  - Targeted regressions: 3 passed in 0.09s. The tests independently preserve
+    effective/policy serialization, exclude confirmed-unroutable models from
+    policy ranking/recommendation, and compare effective current price with
+    effective history.
+  - Live manual comparison for `openai/gpt-5.6-sol`: normal and `--zdr` both
+    reported `effective_price_1m=0.32357`; `--zdr` separately reported
+    `policy_price_1m=1.423707` and `is_policy_routable=true`.
+  - Original defect was not reproducible. Regression assertions would fail if
+    the effective/policy collapse or unroutable recommendation path returned.
+  - Result: `Resolved`.
 
 ### PE2-002 — Missing or partial pricing becomes a valid zero-cost endpoint
 
 - Severity: P1
-- Status: `Ready for Retest`
+- Status: `Resolved`
 - Contract impact:
   - Missing/partial pricing fallback
   - Provider-level price correctness
@@ -236,12 +251,19 @@ The candidate ADR and empirical artifacts provide supporting evidence.
     are all on lines this change did not modify).
 - Resolution commit: `8cccc19`
 - Independent retest:
-  - Pending
+  - Tested commit: `5c98eae427577e04d3b23892c683c5f2fe953d54`.
+  - Expanded targeted set: 33 passed in 0.15s across required-field parsing,
+    policy resolution, discovery, and tracker integration.
+  - The exact `pricing={}` defect now yields no usable endpoint and falls back
+    to real catalog pricing; explicit numeric zero remains valid.
+  - Tests assert externally visible values and selection behavior, and fail if
+    missing fields are again defaulted to zero.
+  - Result: `Resolved`.
 
 ### PE2-003 — Policy lookup failure is treated as confirmed noncompliance
 
 - Severity: P1
-- Status: `Ready for Retest`
+- Status: `Resolved`
 - Contract impact:
   - Graceful degradation
   - Policy-unknown behavior
@@ -352,12 +374,18 @@ The candidate ADR and empirical artifacts provide supporting evidence.
     (`tracker.py`, `cli.py`) introduced zero new findings.
 - Resolution commit: `eaef6dd`
 - Independent retest:
-  - Pending
+  - Tested commit: `5c98eae427577e04d3b23892c683c5f2fe953d54`.
+  - Expanded targeted set: 11 passed in 0.06s, covering timeout, connection,
+    HTTP, malformed JSON, wrong shape, empty success, real success, discovery,
+    warning type, and ranking.
+  - Policy-unknown remains routable-by-default and distinct from confirmed
+    noncompliance in tracker and discovery output.
+  - Result: `Resolved`.
 
 ### PE2-004 — Granular historical persistence does not match the plan
 
 - Severity: P2
-- Status: `Ready for Retest`
+- Status: `Open`
 - Contract impact:
   - Provider-specific pricing representation
   - Local storage/schema requirements
@@ -471,12 +499,23 @@ The candidate ADR and empirical artifacts provide supporting evidence.
     neighbors in an already-clean file).
 - Resolution commit: `a2c5c71`
 - Independent retest:
-  - Pending
+  - Tested commit: `5c98eae427577e04d3b23892c683c5f2fe953d54`.
+  - Storage/reduction regressions: 9 passed, 17 deselected in 0.06s. Two live
+    persisted runs on the same day left `d1`, `d2`, `d15`, and `d30` unchanged.
+  - Reopened because the deferral is not synchronized as required. Accepted
+    `docs/specs/adr/0002_internal_frontend_stats_api_for_historical_trajectories.md`
+    still mandates `fullhistory.csv`, provider identity, token-flow records,
+    and different synchronization triggers. `docs/BACKLOG.md` does not record
+    the deferred provider-granular persistence work or its approval.
+  - This violates the finding's own requirement to reconcile the Execution
+    Contract, Plan, specification, ADR material, backlog/approval record, and
+    validation ledger before accepting the narrowed schema.
+  - Result: `Open`.
 
 ### PE2-005 — Live backfill canary does not perform the promised cross-validation
 
 - Severity: P2
-- Status: `Ready for Retest`
+- Status: `Resolved`
 - Contract impact:
   - Live API contract validation
   - Public-versus-internal price consistency
@@ -560,12 +599,16 @@ The candidate ADR and empirical artifacts provide supporting evidence.
     judgment call as PE2-003's disclosed finding on `discovery.py`).
 - Resolution commit: `4006f2e`
 - Independent retest:
-  - Pending
+  - Tested commit: `5c98eae427577e04d3b23892c683c5f2fe953d54`.
+  - Deterministic extraction regressions: 3 passed, 9 deselected in 0.07s.
+  - Authorized live suite passed all 3 live tests in 11.10s, including the
+    corrected listed-price canary and 28-day-range contract test.
+  - Result: `Resolved`.
 
 ### PE2-006 — Mandatory failure-path and realistic-payload coverage is incomplete
 
 - Severity: P2
-- Status: `Ready for Retest`
+- Status: `Resolved`
 - Contract impact:
   - Mature test-suite requirements
   - Deterministic failure handling
@@ -668,12 +711,19 @@ The candidate ADR and empirical artifacts provide supporting evidence.
     immediately above it in the same file.
 - Resolution commit: `a55b133`
 - Independent retest:
-  - Pending
+  - Tested commit: `5c98eae427577e04d3b23892c683c5f2fe953d54`.
+  - Focused failure-path/fixture/CLI/MCP set: 24 passed, 1 deselected in 0.66s.
+  - Full offline gate: 149 passed, 3 live tests deselected in 0.63s with uv
+    offline mode enabled. Full authorized live gate: 3 passed, 149 deselected
+    in 11.10s.
+  - Realistic effective-pricing fixture parsing and deterministic MCP/CLI
+    three-price assertions passed.
+  - Result: `Resolved`.
 
 ### PE2-007 — CLI diagnostic verifies the retired two-component formula
 
 - Severity: P2
-- Status: `Ready for Retest`
+- Status: `Resolved`
 - Contract impact:
   - Canonical pricing formula
   - Diagnostic trustworthiness
@@ -739,12 +789,18 @@ The candidate ADR and empirical artifacts provide supporting evidence.
     file was found and removed, not merely disclosed).
 - Resolution commit: `a3d5668`
 - Independent retest:
-  - Pending
+  - Tested commit: `5c98eae427577e04d3b23892c683c5f2fe953d54`.
+  - Targeted diagnostic regressions: 3 passed in 0.52s. The mutation-style test
+    replaces the production function with a cache-blind implementation and
+    confirms the diagnostic fails, proving the assertion is load-bearing.
+  - Isolated `anticharon test --no-hermes` passed all checks, including the
+    mathematical engine and live OpenRouter connectivity (445 models).
+  - Result: `Resolved`.
 
 ### PE2-008 — `cache_hit_rate_used` contains a token weight, not a cache-hit rate
 
 - Severity: P3
-- Status: `Ready for Retest`
+- Status: `Resolved`
 - Contract impact:
   - Output semantics
   - Calibration transparency
@@ -818,12 +874,16 @@ The candidate ADR and empirical artifacts provide supporting evidence.
     findings on its own).
 - Resolution commit: `b75dd1e`
 - Independent retest:
-  - Pending
+  - Tested commit: `5c98eae427577e04d3b23892c683c5f2fe953d54`.
+  - Targeted rate/unit/integration set: 4 passed, 14 deselected in 0.05s.
+  - Live manual output reported `cache_hit_rate_used=0.766701`, not the raw
+    cached-token weight.
+  - Result: `Resolved`.
 
 ### PE2-009 — Planning and validation documents are not synchronized
 
 - Severity: P3
-- Status: `Ready for Retest`
+- Status: `Open`
 - Contract impact:
   - Spec-driven development
   - Execution Contract authority
@@ -922,12 +982,27 @@ The candidate ADR and empirical artifacts provide supporting evidence.
     `.md` files have no lint surface).
 - Resolution commit: `115f8c4`
 - Independent retest:
-  - Pending
+  - Tested commit: `5c98eae427577e04d3b23892c683c5f2fe953d54`.
+  - Targeted behavioral regressions: 2 passed in 0.01s. All ten stable finding
+    IDs remain present exactly once and no host path leak was found.
+  - Reopened because material synchronization failures remain:
+    - accepted ADR 0002 conflicts with the shipped history store and triggers;
+    - `README.md` still describes the retired prompt/completion blend and
+      automatic cold-start padding, omitting the three-price/cache-aware model;
+    - specification §3.1 says every model with absent `policy_price_1m` is
+      excluded, conflicting with §3.2's policy-unknown routable-by-default rule;
+    - specification analytics formulas still divide by a fixed 10 rather than
+      the valid observations actually used by implementation;
+    - the Execution Contract retains `( peding start )` and placeholder bullets;
+    - the ledger header/traceability table remained stale before this retest;
+    - CLI `--zdr` help says it restricts the effective price even though the
+      validated behavior preserves effective price and adds a policy price.
+  - Result: `Open`.
 
 ### PE2-010 — Quality-tooling policy is unclear and not enforced
 
 - Severity: P3
-- Status: `Ready for Retest`
+- Status: `Open`
 - Contract impact:
   - CI quality gates
   - Dependency hygiene
@@ -1017,7 +1092,19 @@ The candidate ADR and empirical artifacts provide supporting evidence.
 - Resolution commit:
   - `01a055d174957e6908433246a58b2f64d3ecd806`
 - Independent retest:
-  - Pending
+  - Tested commit: `5c98eae427577e04d3b23892c683c5f2fe953d54`.
+  - Packaging verification passed: an offline wheel build succeeded and its
+    metadata contains only `mcp>=1.3.0` and `requests>=2.31.0`; pytest and Ruff
+    are absent from runtime requirements.
+  - Repository-wide Ruff result: 251 findings. More importantly, changed-line
+    analysis from the originally assessed `v0.5.2` commit found 6 findings on
+    remediation-added lines: 1 in `discovery.py`, 4 in `tracker.py`, and 1 in
+    `tests/test_cli.py`. This directly fails the newly documented rule that an
+    initiative's changed lines must be free of newly introduced findings.
+  - The remediation evidence had disclosed some of these findings but accepted
+    them as matching legacy style; that exception contradicts the mandatory
+    changed-line policy and therefore cannot pass the agreed static gate.
+  - Result: `Open`.
 
 ## Acceptance-Criteria Traceability
 
@@ -1026,44 +1113,45 @@ The candidate ADR and empirical artifacts provide supporting evidence.
 | Three-component cached-token formula | `src/anticharon/pricing.py` | Golden cases | Pass |
 | Cache-heavy regression detection | Pricing and log parsing | Golden and real-log tests | Pass |
 | Zero-cache behavior | Pricing logic | Golden case | Pass |
-| Provider-aware effective pricing | Tracker endpoint resolution | Unit and fixture tests | Partial |
-| Effective/policy distinction | PE2-001 remediation | Awaiting independent retest | Blocked |
-| Policy-unroutable recommendations | PE2-001 remediation | Awaiting independent retest | Blocked |
-| Policy-unknown graceful degradation | Tracker/discovery | Missing/inconsistent | Blocked |
-| Missing/partial pricing fallback | Endpoint/catalog parser | Missing | Blocked |
-| Provider-granular persistence | Not implemented as planned | None | Blocked |
-| 28-day backfill | Tracker/storage | Partial synthetic and live coverage | Partial |
+| Provider-aware effective pricing | Tracker endpoint resolution | Unit, fixture, manual live | Pass |
+| Effective/policy distinction | PE2-001 remediation | Independently retested | Pass |
+| Policy-unroutable recommendations | PE2-001 remediation | Independently retested | Pass |
+| Policy-unknown graceful degradation | Tracker/discovery | 11 targeted tests | Pass |
+| Missing/partial pricing fallback | Endpoint/catalog parser | 33 targeted tests | Pass |
+| Provider-granular persistence | Narrowed implementation | Deferral not synchronized with accepted ADR/backlog | Blocked |
+| 28-day backfill | Tracker/storage | Deterministic fixture and live coverage | Pass |
 | Same-day rerun idempotency | Derived dated observations | Unit/integration tests | Pass |
-| Public/internal listed-price canary | Live test | Does not test promised equality | Blocked |
-| Realistic effective-pricing fixture | Not present | None | Blocked |
-| Timeout/HTTP/malformed failure paths | Partial implementation | Incomplete | Blocked |
-| CLI diagnostic canonical formula | Uses legacy two-component check | Inadequate | Blocked |
-| Correct cache-hit-rate output | Incorrect value assigned | Missing | Blocked |
-| Deterministic offline pytest gate | Pytest configuration and CI | Passed initially | Pass |
-| Explicit live-test isolation | `@pytest.mark.live` | Passed initially | Pass |
-| CI merge gate | GitHub Actions | Pytest and diagnostic configured | Partial |
-| Contract/plan/spec synchronization | Documentation | Contradictions remain | Blocked |
+| Public/internal listed-price canary | Live test | Passed independently | Pass |
+| Realistic effective-pricing fixture | Sanitized fixture | Parsed independently | Pass |
+| Timeout/HTTP/malformed failure paths | Tracker fetch functions | 19 deterministic tests | Pass |
+| CLI diagnostic canonical formula | Production three-component function | Mutation-style regression and diagnostic | Pass |
+| Correct cache-hit-rate output | Derived prompt-only rate | Unit/integration/manual | Pass |
+| Deterministic offline pytest gate | Pytest configuration and CI | 149 passed, 3 deselected | Pass |
+| Explicit live-test isolation | `@pytest.mark.live` | 3 passed, 149 deselected | Pass |
+| CI merge gate | GitHub Actions | Local equivalents pass; changed-line Ruff policy fails | Blocked |
+| Contract/plan/spec synchronization | Documentation | Accepted ADR/README/spec/help/placeholders disagree | Blocked |
 | Version/changelog/tag consistency | Release files | Pending remediation/release | Blocked |
 
 ## Required Release Gates
 
-- [ ] PE2-001 independently retested and resolved.
-- [ ] All P1 findings resolved.
-- [ ] All release-required P2 findings resolved.
+- [x] PE2-001 independently retested and resolved.
+- [x] All P1 findings resolved.
+- [ ] All release-required P2 findings resolved (PE2-004 open).
 - [ ] Any deferred finding explicitly approved and synchronized across the
       Execution Contract, Plan, specification, backlog, and validation ledger.
-- [ ] Regression tests added for every behavioral defect.
-- [ ] Realistic effective-pricing fixture added and parsed offline.
-- [ ] Deterministic `uv run pytest` passes without network access.
-- [ ] `uv run pytest -m live` passes separately.
-- [ ] `uv run anticharon test` validates the canonical three-component formula.
-- [ ] Manual normal-versus-ZDR output preserves advertised, effective, policy,
+- [x] Regression tests added for every resolved behavioral defect.
+- [x] Realistic effective-pricing fixture added and parsed offline.
+- [x] Deterministic `uv run pytest` passes without network access.
+- [x] `uv run pytest -m live` passes separately.
+- [x] `uv run anticharon test --no-hermes` validates the canonical
+      three-component formula without inspecting user runtime data.
+- [x] Manual normal-versus-ZDR output preserves advertised, effective, policy,
       and routability semantics.
-- [ ] Policy-unroutable models are never recommended under the policy.
-- [ ] Policy-unknown behavior matches the documented fallback rule.
-- [ ] Same-day rerun remains idempotent.
+- [x] Policy-unroutable models are never recommended under the policy.
+- [x] Policy-unknown behavior matches the documented fallback rule.
+- [x] Same-day rerun remains idempotent.
 - [ ] Agreed Ruff/static-analysis scope passes.
-- [ ] `git diff --check` passes.
+- [x] `git diff --check` passes on the tested remediation commit.
 - [ ] CI passes on the integrated release commit.
 - [ ] Feature branch is reconciled with the release branch.
 - [ ] Version is selected according to SemVer and repository governance.
@@ -1090,30 +1178,49 @@ The candidate ADR and empirical artifacts provide supporting evidence.
 - Independent result: pending
 - Release decision: `BLOCKED`
 
-### Independent retest 1 — Pending
+### Independent retest 1 — Completed, release blocked
 
-- Date:
-- Tested commit:
-- Disposable-checkout environment:
-- Findings tested:
-- Findings resolved:
-- Findings reopened:
-- Offline gate:
-- Live gate:
-- Diagnostic gate:
-- Manual verification:
-- Lint/static analysis:
-- CI result:
-- Release decision:
+- Date: `2026-09-17`
+- Tested commit: `5c98eae427577e04d3b23892c683c5f2fe953d54`
+- Disposable-checkout environment: detached local clone; Darwin 25.6.0 arm64;
+  CPython 3.12.14; pytest 9.1.1; isolated `.venv`, uv cache, and runtime-data
+  directory; user runtime data excluded.
+- Findings tested: PE2-001 through PE2-010.
+- Findings resolved: PE2-001, PE2-002, PE2-003, PE2-005, PE2-006, PE2-007,
+  PE2-008.
+- Findings reopened: PE2-004, PE2-009, PE2-010.
+- Offline gate: PASS — 149 passed, 3 deselected in 0.63s (`UV_OFFLINE=1`).
+- Live gate: PASS — 3 passed, 149 deselected in 11.10s. An initial sandboxed
+  attempt failed only because DNS was unavailable; the authorized network run
+  passed and is the recorded gate result.
+- Diagnostic gate: PASS — isolated `anticharon test --no-hermes`; all core
+  checks passed, OpenRouter reachable with 445 models.
+- Manual verification: PASS — `openai/gpt-5.6-sol` preserved
+  `effective_price_1m=0.32357` across normal and ZDR runs; ZDR separately
+  reported `policy_price_1m=1.423707`; same-day persisted rerun left historical
+  slots unchanged.
+- Lint/static analysis: FAIL — 251 repository-wide Ruff findings; 6 findings
+  occur on remediation-added lines since the assessed `v0.5.2` commit.
+- Packaging: PASS — offline wheel build; runtime metadata excludes pytest/Ruff.
+- `git diff --check`: PASS on the tested commit.
+- CI-equivalent result: deterministic pytest and diagnostic pass; agreed
+  changed-line static gate fails. No integrated release-branch commit exists.
+- Changed/weakened expectations: provider-granular persistence was narrowed to
+  cheapest-per-day storage; endpoint-fetch failure and successful empty endpoint
+  response intentionally share policy-unknown behavior; the old zero-dependency
+  runner was removed per the plan. No other weakened assertion was observed.
+- Release decision: `BLOCKED`.
 
 ## Final Sign-Off
 
-- Final validated feature commit:
+- Final validated feature commit: none; behavioral gates passed on
+  `5c98eae427577e04d3b23892c683c5f2fe953d54`, but release gates failed.
 - Integrated release-branch commit:
 - Released version:
 - Release commit:
 - Release tag:
-- Remote branch/tag verification:
+- Remote branch/tag verification: not attempted; validation failed and merge/tag
+  push authority was not granted.
 - Decision: `BLOCKED`
-- Reviewer:
-- Date:
+- Reviewer: Codex (independent retest)
+- Date: `2026-09-17`
