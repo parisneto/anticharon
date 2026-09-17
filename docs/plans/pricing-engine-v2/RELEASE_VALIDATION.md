@@ -565,7 +565,7 @@ The candidate ADR and empirical artifacts provide supporting evidence.
 ### PE2-006 — Mandatory failure-path and realistic-payload coverage is incomplete
 
 - Severity: P2
-- Status: `Open`
+- Status: `Ready for Retest`
 - Contract impact:
   - Mature test-suite requirements
   - Deterministic failure handling
@@ -605,8 +605,68 @@ The candidate ADR and empirical artifacts provide supporting evidence.
   - Each listed missing path.
   - End-to-end mocked retrieval → parse → normalize → store → output.
   - CLI JSON and MCP return-shape assertions.
-- Resolution commit:
-  - Pending
+- Cross-check against evidence, before adding new tests: several evidence
+  items were already resolved as side effects of PE2-001/002/003/005 (this
+  session's earlier work in the same pass) -- verified each still passes
+  rather than assumed:
+  - "missing/partial endpoint prices" -- PE2-002 (`tests/test_policy_pricing.py`,
+    `tests/test_pricing.py`).
+  - "policy lookup failure during discovery" / "policy-unknown output" --
+    PE2-003 (`tests/test_discovery.py`, `tests/test_tracker.py`).
+  - "policy-unroutable recommendations" -- PE2-001/PE2-003
+    (`tests/test_tracker.py`).
+  - "request timeout"/"connection failure"/"malformed JSON"/"incorrect
+    response shape" for the endpoint-stats route specifically -- PE2-003
+    (`tests/test_network_failure_paths.py`, at the time scoped to
+    `fetch_endpoint_policy_pricing` only).
+  - "end-to-end mocked retrieval → parse → normalize → store → output" --
+    already covered by `tests/test_tracker.py::test_run_tracker_same_day_rerun_does_not_shift_d1`
+    (PE2-001; uses `dry_run=False` and reads `history.csv` back from disk).
+- Implementation evidence (remaining gaps closed by this finding):
+  - `tests/test_network_failure_paths.py` extended: `fetch_openrouter_models()`
+    (bulk catalog) and `fetch_effective_pricing_history()` (28-day backfill
+    route) previously had NO direct failure-mode tests at all (only
+    `fetch_endpoint_policy_pricing` did, from PE2-003) -- 12 new tests added,
+    covering timeout/connection-error/HTTP-error/malformed-JSON/wrong-shape/
+    success for both functions.
+  - New sanitized fixture `tests/fixtures/openrouter_effective_pricing_gpt-5.6-luna_trimmed.json`
+    (real, live-captured 2026-09-17, trimmed to 5 days) satisfies "Add a
+    sanitized realistic effective-pricing fixture" and "realistic captured
+    effective-pricing parsing" -- new test
+    `test_reduce_to_daily_observations_parses_realistic_captured_fixture`
+    parses it through the actual production reduction function.
+  - `tests/test_mcp.py` was 100% `@pytest.mark.live` -- confirmed the exact
+    evidence claim ("does not deterministically assert the complete
+    three-price payload"). Two new deterministic (mocked, no network) tests
+    added: `test_check_prices_zdr_preserves_three_price_distinction_deterministic`
+    and `test_check_prices_zdr_unroutable_never_recommended_deterministic`,
+    exercising `check_prices(zdr_only=True)` through the actual
+    `server.call_tool` MCP boundary (not `run_tracker` directly), using
+    isolated `tmp_path` + `ANTICHARON_CONFIG`/`ANTICHARON_DATA_DIR` env vars
+    per this session's "do not depend on runtime `data/`" constraint.
+  - `tests/test_cli.py` extended with two deterministic tests exercising
+    `cmd_run` directly (not just `cmd_model`'s `discover` action, already
+    covered): one asserts the printed `--json` payload's shape (effective/
+    policy/routable fields), one asserts `POLICY_UNROUTABLE` actually
+    renders in the human-readable output text (`capsys`), not just that the
+    warning object exists on the `TrackerResult`.
+  - `docs/plans/pricing-engine-v2/PLAN.md`'s Testing section updated to list
+    the new fixture and test files.
+- Remediation-agent verification:
+  - `uv run pytest`: 139 passed, 3 deselected (was 122 before this finding;
+    +17 new tests: 12 network-failure-path + 1 realistic-fixture + 2 MCP +
+    2 CLI).
+  - `uv run pytest -m live`: 3 passed, 139 deselected.
+  - `uv run anticharon test`: PASS.
+  - `git diff --check`: clean.
+  - `ruff`: one genuine issue found and fixed (not merely disclosed): an
+    actually-unused `import pytest` in the new `test_network_failure_paths.py`
+    (F401, a real oversight, removed). Two additional findings disclosed as
+    style-convention matches, not fixed: `C408` on `test_cli.py`'s new
+    `_run_args()` helper's `dict(...)` call, which copies the exact same
+    pattern as the pre-existing, unmodified `_discover_args()` helper
+    immediately above it in the same file.
+- Resolution commit: `a55b133`
 - Independent retest:
   - Pending
 
