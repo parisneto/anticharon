@@ -476,7 +476,7 @@ The candidate ADR and empirical artifacts provide supporting evidence.
 ### PE2-005 — Live backfill canary does not perform the promised cross-validation
 
 - Severity: P2
-- Status: `Open`
+- Status: `Ready for Retest`
 - Contract impact:
   - Live API contract validation
   - Public-versus-internal price consistency
@@ -506,8 +506,59 @@ The candidate ADR and empirical artifacts provide supporting evidence.
   - Live same-model/same-day baseline comparison.
   - Missing listed baseline.
   - Changed payload shape.
-- Resolution commit:
-  - Pending
+- Investigation finding, reconciled under this ID: live-verified 2026-09-17
+  that the internal effective-pricing route (`/stats/effective-pricing`) has
+  no raw listed-price field at all in its current shape -- only cache-
+  weighted `effectiveInputPrice`/`effectiveOutputPrice` per provider and
+  aggregate `weightedInputPrice`/`weightedOutputPrice`. `PLAN.md`'s original
+  design for this canary assumed a field that does not exist, so "extract
+  comparable listed-price values from both sources" could not be satisfied
+  as originally specified against that pairing of routes.
+- Implementation evidence:
+  - Corrected design: compare the bulk catalog's `advertised_prompt_1m`
+    against the raw per-endpoint listed prices from `/stats/endpoint`
+    instead (the route `fetch_endpoint_policy_pricing` already uses
+    elsewhere in this codebase for policy/effective pricing) -- the bulk
+    catalog's headline is definitionally one of those endpoints' own listed
+    price, so at least one should match it exactly. Live-verified: 2 of 7
+    endpoints matched exactly for `openai/gpt-5.6-luna`.
+  - New `src/anticharon/tracker.py::extract_endpoint_listed_prices_1m()`:
+    pure extraction function, reuses `parse_required_price_1m`/
+    `is_valid_listed_price` (PE2-002) so malformed/sentinel endpoint pricing
+    is already excluded consistently with the rest of the codebase.
+  - Tolerance defined and documented (the "define and document a tolerance"
+    requirement): a tight float-rounding allowance (`abs(diff) < 1e-6`), not
+    a loose multiplier -- the previous `<= 1.5x` check could pass even after
+    a real semantic drift between the routes, which is exactly the failure
+    mode this canary exists to catch.
+  - `tests/test_effective_pricing_backfill.py::test_effective_pricing_cross_validation_canary`
+    (`@pytest.mark.live`) rewritten to the corrected design; live-run and
+    confirmed passing against the real API.
+  - `docs/plans/pricing-engine-v2/PLAN.md`'s "28-Day Backfill" section
+    ("Gated cross-validation test") and "Verification" section corrected to
+    describe the actual comparison being made.
+  - Regression tests added, deterministic (no network):
+    `test_extract_endpoint_listed_prices_1m_basic` (the "deterministic
+    fixture test for internal listed-price extraction" requirement --
+    "internal" here now correctly means `/stats/endpoint`, the route that
+    actually has listed prices, not `/stats/effective-pricing`),
+    `test_extract_endpoint_listed_prices_1m_missing_listed_baseline_returns_empty`
+    (the "missing listed baseline" requirement), and
+    `test_extract_endpoint_listed_prices_1m_skips_sentinel_prices` (the
+    "changed payload shape" requirement, applied to a real shape variant
+    already seen live -- a meta-router's `"-1"` sentinel pricing).
+- Remediation-agent verification:
+  - `uv run pytest`: 122 passed, 3 deselected.
+  - `uv run pytest -m live`: 3 passed, 122 deselected -- including the
+    rewritten canary itself, confirmed passing against the real API today.
+  - `uv run anticharon test`: PASS.
+  - `git diff --check`: clean.
+  - `ruff`: two new findings disclosed, not hidden: `UP006` on the new
+    `extract_endpoint_listed_prices_1m()` function's signature and its
+    `prices: List[float] = []` body line -- both match this file's 100%
+    pre-existing legacy `typing.List`/`typing.Dict` style throughout (same
+    judgment call as PE2-003's disclosed finding on `discovery.py`).
+- Resolution commit: `4006f2e`
 - Independent retest:
   - Pending
 
