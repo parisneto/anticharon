@@ -9,7 +9,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 try:
     from mcp.server.mcpserver import MCPServer
@@ -47,7 +47,7 @@ def check_prices(
     dry_run: bool = True,
     include_analytics: bool = True,
     zdr_only: bool = False
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Execute price monitoring check and return structured intelligence."""
     res = run_tracker(
         dry_run=dry_run,
@@ -69,9 +69,9 @@ def check_prices(
     )
 )
 def get_model_history(
-    model_id: Optional[str] = None,
+    model_id: str | None = None,
     format: str = "json"
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Return historical intelligence in JSON format or raw CSV table."""
     hist_path = get_history_path()
 
@@ -112,12 +112,12 @@ def get_model_history(
     )
 )
 def discover_models(
-    query: Optional[str] = None,
+    query: str | None = None,
     promo_only: bool = False,
     modality: str = "text",
-    max_price: Optional[float] = None,
+    max_price: float | None = None,
     limit: int = 15
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Query live catalog and return matching models with blended pricing."""
     cfg = load_config()
     w_uncached = cfg.get("weight_uncached_prompt", 0.232622)
@@ -165,9 +165,9 @@ def discover_models(
     )
 )
 def import_hermes_models(
-    hermes_config_path: Optional[str] = None,
+    hermes_config_path: str | None = None,
     dry_run: bool = True
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Import Hermes active models into Anticharon shortlist.json."""
     hermes_info = get_hermes_models(custom_path=hermes_config_path, prompt_if_missing=False)
     if not hermes_info:

@@ -7,11 +7,21 @@ from pathlib import Path
 
 from anticharon import __version__
 from anticharon.chart import render_ascii_price_bar
-from anticharon.config import update_config_weights, get_config_path, get_history_path, load_config
-from anticharon.discovery import apply_zdr_filter, fetch_catalog, filter_catalog, format_discovery_output
+from anticharon.config import (
+    get_config_path,
+    get_history_path,
+    load_config,
+    update_config_weights,
+)
+from anticharon.discovery import (
+    apply_zdr_filter,
+    fetch_catalog,
+    filter_catalog,
+    format_discovery_output,
+)
 from anticharon.hermes import get_hermes_models, sync_hermes_to_config
 from anticharon.log_parser import parse_activity_log
-from anticharon.manager import add_model, remove_model, list_models
+from anticharon.manager import add_model, list_models, remove_model
 from anticharon.models import TrackerResult
 from anticharon.tester import run_self_test
 from anticharon.tracker import run_tracker

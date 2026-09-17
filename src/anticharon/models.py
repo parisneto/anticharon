@@ -1,7 +1,7 @@
 """Data models and type definitions for Anticharon."""
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
+from typing import Any
 
 
 @dataclass
@@ -16,7 +16,7 @@ class PriceRecord:
     effective_price_1m: float
     ma_3d: float
     ma_7d: float
-    prices: List[Optional[float]]  # 9-element array: [d1, d2, d3, d4, d5, d6, d7, d15, d30]
+    prices: list[float | None]  # 9-element array: [d1, d2, d3, d4, d5, d6, d7, d15, d30]
     advertised_prompt_1m: float = 0.0
     advertised_completion_1m: float = 0.0
 
@@ -29,7 +29,7 @@ class SiblingAlternative:
     relation: str
     price_diff_pct: float
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "model": self.model,
             "price_1m": round(self.price_1m, 5),
@@ -50,11 +50,11 @@ class ModelAnalytics:
     change_vs_30d_pct: float
     trajectory_sparkline: str
     recommendation: str
-    secondary_badge: Optional[str] = None
-    sibling_alternatives: List[SiblingAlternative] = field(default_factory=list)
-    history_vector: Dict[str, Optional[float]] = field(default_factory=dict)
+    secondary_badge: str | None = None
+    sibling_alternatives: list[SiblingAlternative] = field(default_factory=list)
+    history_vector: dict[str, float | None] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "profile": self.profile,
             "badge": self.badge,
@@ -86,16 +86,16 @@ class PricePoint:
     advertised_prompt_1m: float
     advertised_completion_1m: float
     effective_price_1m: float
-    policy_price_1m: Optional[float] = None
-    is_policy_routable: Optional[bool] = None
+    policy_price_1m: float | None = None
+    is_policy_routable: bool | None = None
     # PE2-008 (corrected 2026-09-17): the real prompt cache-hit rate (cached
     # prompt tokens / total prompt tokens), display-only -- NOT weight_cached_prompt
     # (cached tokens / ALL tokens, including completion), which is a different
     # number. See anticharon.pricing.derive_cache_hit_rate for the derivation.
     cache_hit_rate_used: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
-        data: Dict[str, Any] = {
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
             "advertised_prompt_1m": round(self.advertised_prompt_1m, 6),
             "advertised_completion_1m": round(self.advertised_completion_1m, 6),
             "effective_price_1m": round(self.effective_price_1m, 6),
@@ -125,13 +125,13 @@ class ModelPrice:
     price_1m: float
     ma_7d: float
     change_vs_7d_pct: float
-    ma_3d: Optional[float] = None
-    prompt_price_raw: Optional[float] = None
-    completion_price_raw: Optional[float] = None
-    analytics: Optional[ModelAnalytics] = None
-    price: Optional[PricePoint] = None
+    ma_3d: float | None = None
+    prompt_price_raw: float | None = None
+    completion_price_raw: float | None = None
+    analytics: ModelAnalytics | None = None
+    price: PricePoint | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         # PE2-001 defense-in-depth: always serialize the true unconstrained
         # effective price under the "effective_price_1m" key from `self.price`
         # (the ground truth for the three-price distinction) when available,
@@ -139,7 +139,7 @@ class ModelPrice:
         # cannot silently re-collapse effective/policy even if a future caller
         # mis-set price_1m the way tracker.py previously did.
         effective_price = self.price.effective_price_1m if self.price else self.price_1m
-        data: Dict[str, Any] = {
+        data: dict[str, Any] = {
             "model": self.model,
             "effective_price_1m": round(effective_price, 5),
             "ma_7d": round(self.ma_7d, 5),
@@ -159,15 +159,15 @@ class PriceWarning:
     """Warning structure for volatility, cheapest-model, or policy-routability alerts."""
     type: str  # 'PRICE_SPIKE', 'PRICE_DROP', 'BEST_OPTION_CHANGED', 'POLICY_UNROUTABLE'
     message: str
-    model: Optional[str] = None
-    current_default: Optional[str] = None
-    suggested_cheapest: Optional[str] = None
-    policy: Optional[str] = None
-    excluded_providers: Optional[List[str]] = None
-    reason: Optional[str] = None
+    model: str | None = None
+    current_default: str | None = None
+    suggested_cheapest: str | None = None
+    policy: str | None = None
+    excluded_providers: list[str] | None = None
+    reason: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
-        data: Dict[str, Any] = {
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
             "type": self.type,
             "message": self.message
         }
@@ -190,12 +190,12 @@ class PriceWarning:
 class HermesIntegrationStatus:
     """Status of Hermes agent configuration detection and synchronization."""
     detected: bool
-    source: Optional[str] = None
+    source: str | None = None
     method: str = "standalone"  # 'cli', 'file_grep', or 'standalone'
     models_count: int = 0
-    warning: Optional[str] = None
+    warning: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "detected": self.detected,
             "source": self.source,
@@ -210,18 +210,18 @@ class TrackerResult:
     """Full execution output from the price tracker."""
     status: str
     timestamp: str
-    prices_shortlist: List[ModelPrice] = field(default_factory=list)
-    price_warnings: List[PriceWarning] = field(default_factory=list)
+    prices_shortlist: list[ModelPrice] = field(default_factory=list)
+    price_warnings: list[PriceWarning] = field(default_factory=list)
     fallback: bool = False
-    error: Optional[str] = None
-    storage_path: Optional[str] = None
-    config_path: Optional[str] = None
-    hermes_integration: Optional[HermesIntegrationStatus] = None
+    error: str | None = None
+    storage_path: str | None = None
+    config_path: str | None = None
+    hermes_integration: HermesIntegrationStatus | None = None
     analytics_mode: bool = False
     hints_enabled: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
-        data: Dict[str, Any] = {
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
             "status": self.status,
             "timestamp": self.timestamp,
             "data_source": "cached_history" if self.fallback else "live_api",
@@ -269,7 +269,7 @@ class PromptMixResult:
     weight_cached_prompt: float = 0.0
     cache_hit_rate: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "records_count": self.records_count,
             "total_prompt_tokens": self.total_prompt_tokens,

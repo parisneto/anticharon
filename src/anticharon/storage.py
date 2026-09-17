@@ -7,7 +7,7 @@ docs/plans/pricing-engine-v2/PLAN.md's "Storage architecture" section).
 import json
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from anticharon.models import PriceRecord
 
@@ -22,7 +22,7 @@ HISTORY_SLOT_DAYS_AGO = [1, 2, 3, 4, 5, 6, 7, 15, 30]
 DEFAULT_EFFECTIVE_PRICES_STALE_HOURS = 24.0
 
 
-def _parse_nullable_float(raw: str) -> Optional[float]:
+def _parse_nullable_float(raw: str) -> float | None:
     """Empty string = no real observation yet, never a fabricated 0.0/duplicate."""
     raw = raw.strip()
     if raw == "":
@@ -30,9 +30,9 @@ def _parse_nullable_float(raw: str) -> Optional[float]:
     return float(raw)
 
 
-def read_history(history_path: Path) -> Dict[str, PriceRecord]:
+def read_history(history_path: Path) -> dict[str, PriceRecord]:
     """Read historical price records from CSV file."""
-    history: Dict[str, PriceRecord] = {}
+    history: dict[str, PriceRecord] = {}
     if not history_path.exists():
         return history
 
@@ -76,7 +76,7 @@ def _format_cell(value: Any) -> str:
     return str(value)
 
 
-def write_history(records: List[List[Any]], history_path: Path) -> None:
+def write_history(records: list[list[Any]], history_path: Path) -> None:
     """Persist updated price records to CSV file. A `None` cell writes as empty
     (no observation yet) rather than a fabricated value."""
     history_path.parent.mkdir(parents=True, exist_ok=True)
@@ -97,7 +97,7 @@ def get_effective_prices_path(data_dir: Path) -> Path:
     return data_dir / "effective_prices.json"
 
 
-def read_effective_prices(path: Path) -> Dict[str, Any]:
+def read_effective_prices(path: Path) -> dict[str, Any]:
     """Read the granular store. Missing/corrupt file -> empty store (no crash),
     same graceful-degradation contract as every other local read in this codebase."""
     if not path.exists():
@@ -109,17 +109,17 @@ def read_effective_prices(path: Path) -> Dict[str, Any]:
         return {}
 
 
-def write_effective_prices(store: Dict[str, Any], path: Path) -> None:
+def write_effective_prices(store: dict[str, Any], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(store, f, indent=2)
 
 
 def is_model_backfill_stale(
-    store: Dict[str, Any],
+    store: dict[str, Any],
     model_id: str,
     max_age_hours: float = DEFAULT_EFFECTIVE_PRICES_STALE_HOURS,
-    now: Optional[datetime] = None,
+    now: datetime | None = None,
 ) -> bool:
     """A model with no entry yet, or one whose `last_synced` is missing/older than
     `max_age_hours`, is due for a fresh backfill fetch. Independent of history.csv's
@@ -139,9 +139,9 @@ def is_model_backfill_stale(
 
 
 def derive_history_window(
-    observations: List[Dict[str, Any]],
-    today: Optional[date] = None,
-) -> Dict[str, Any]:
+    observations: list[dict[str, Any]],
+    today: date | None = None,
+) -> dict[str, Any]:
     """Precalculate history.csv's d1..d7/d15/d30 + ma_3d/ma_7d from the granular
     per-day observations, instead of shifting a list once per run (see PLAN.md's
     "Same-day-rerun bug fix" -- this redesign makes that whole class of bug moot:
@@ -155,7 +155,7 @@ def derive_history_window(
     """
     today = today or datetime.now(timezone.utc).date()
 
-    by_day: Dict[date, float] = {}
+    by_day: dict[date, float] = {}
     for obs in observations:
         try:
             obs_date = date.fromisoformat(obs["date"])
@@ -165,7 +165,7 @@ def derive_history_window(
         if obs_date not in by_day or price < by_day[obs_date]:
             by_day[obs_date] = price
 
-    slots: Dict[str, Optional[float]] = {}
+    slots: dict[str, float | None] = {}
     for days_ago in HISTORY_SLOT_DAYS_AGO:
         target_date = today.fromordinal(today.toordinal() - days_ago)
         slots[f"d{days_ago}"] = by_day.get(target_date)

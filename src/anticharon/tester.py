@@ -3,25 +3,23 @@
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+
 import requests
 
-from anticharon.config import load_config, get_data_dir, get_config_path
+from anticharon.config import get_config_path, get_data_dir, load_config
 from anticharon.hermes import get_hermes_models
-from anticharon.models import ModelPrice
 from anticharon.pricing import calculate_effective_cost, price_per_1m
 from anticharon.tracker import OPENROUTER_MODELS_URL
 
 
 def run_self_test(
-    hermes_config_path: Optional[str | Path] = None,
+    hermes_config_path: str | Path | None = None,
     no_hermes: bool = False,
     json_mode: bool = False
 ) -> bool:
     """Run comprehensive self-checks on runtime, config, formulas, permissions, network, and Hermes."""
     import json
     import platform
-    import os
     all_passed = True
     diag: dict = {}
 
@@ -196,8 +194,9 @@ def run_self_test(
 
     # 7. MCP Server Readiness Check
     try:
-        from anticharon.mcp import server
         import asyncio
+
+        from anticharon.mcp import server
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:

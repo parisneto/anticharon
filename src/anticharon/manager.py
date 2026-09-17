@@ -1,11 +1,10 @@
 """Model shortlist management: add, remove, and list shortlisted models."""
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from anticharon.config import load_config, get_config_path, update_config_shortlist
+from anticharon.config import get_config_path, load_config, update_config_shortlist
 from anticharon.tracker import fetch_openrouter_models
 
 
@@ -14,13 +13,13 @@ class ManagementResult:
     """Result of model addition, removal, or listing."""
     status: str
     action: str
-    model: Optional[str] = None
+    model: str | None = None
     dry_run: bool = False
     message: str = ""
-    shortlist: List[str] = None
-    config_path: Optional[str] = None
+    shortlist: list[str] = None
+    config_path: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "status": self.status,
             "action": self.action,
@@ -35,7 +34,7 @@ class ManagementResult:
 def add_model(
     model_id: str,
     dry_run: bool = False,
-    config_path: Optional[Path] = None,
+    config_path: Path | None = None,
     validate_catalog: bool = True
 ) -> ManagementResult:
     """Add a model to shortlist.json after optional catalog validation."""
@@ -96,7 +95,7 @@ def add_model(
 def remove_model(
     model_id: str,
     dry_run: bool = False,
-    config_path: Optional[Path] = None
+    config_path: Path | None = None
 ) -> ManagementResult:
     """Remove a model from shortlist.json."""
     cfg_file = config_path or get_config_path()
@@ -141,7 +140,7 @@ def remove_model(
         )
 
 
-def list_models(config_path: Optional[Path] = None) -> ManagementResult:
+def list_models(config_path: Path | None = None) -> ManagementResult:
     """List all currently shortlisted models."""
     cfg_file = config_path or get_config_path()
     cfg = load_config(cfg_file)

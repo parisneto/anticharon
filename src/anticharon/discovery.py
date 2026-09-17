@@ -3,7 +3,7 @@
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import requests
 
@@ -26,13 +26,13 @@ class CatalogModel:
     completion_price_1m: float
     blended_price_1m: float
     is_promo: bool
-    output_modalities: List[str] = field(default_factory=list)
+    output_modalities: list[str] = field(default_factory=list)
     description: str = ""
     # Not surfaced in to_dict() -- internal use only, e.g. by apply_zdr_filter()'s
     # live per-endpoint lookup, which needs the real permaslug, not the display id.
     canonical_slug: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "name": self.name,
@@ -51,7 +51,7 @@ def fetch_catalog(
     weight_uncached_prompt: float = 0.232622,
     weight_cached_prompt: float = 0.764478,
     weight_completion: float = 0.0029,
-) -> List[CatalogModel]:
+) -> list[CatalogModel]:
     """Fetch and parse all models from OpenRouter API.
 
     `blended_price_1m` is the cache-aware 3-component blend (ADR-2026-0002-TOKENS-CACHED),
@@ -72,7 +72,7 @@ def fetch_catalog(
     except Exception:
         return []
 
-    catalog: List[CatalogModel] = []
+    catalog: list[CatalogModel] = []
     for item in data:
         model_id = item.get("id", "")
         if not model_id:
@@ -136,15 +136,15 @@ def fetch_catalog(
 
 
 def filter_catalog(
-    models: List[CatalogModel],
-    query: Optional[str] = None,
+    models: list[CatalogModel],
+    query: str | None = None,
     promo_only: bool = False,
-    modality: Optional[str] = "text",
-    max_price: Optional[float] = None,
-    max_input_price: Optional[float] = None,
-    max_output_price: Optional[float] = None,
-    filter_expressions: Optional[List[str]] = None
-) -> List[CatalogModel]:
+    modality: str | None = "text",
+    max_price: float | None = None,
+    max_input_price: float | None = None,
+    max_output_price: float | None = None,
+    filter_expressions: list[str] | None = None
+) -> list[CatalogModel]:
     """Filter catalog models using multi-criteria keywords, modality, and price inequalities."""
     results = models
 
@@ -220,10 +220,10 @@ def filter_catalog(
 
 
 def apply_zdr_filter(
-    models: List[CatalogModel],
+    models: list[CatalogModel],
     timeout: float = 10.0,
     max_check_count: int = 10,
-) -> Tuple[List[CatalogModel], Optional[str]]:
+) -> tuple[list[CatalogModel], str | None]:
     """Live-check ZDR routability, but only against an already-narrowed candidate list.
 
     Must run *after* `filter_catalog()`, not before -- a live per-endpoint check is one
@@ -254,8 +254,8 @@ def apply_zdr_filter(
         candidates = models
         cap_warning = None
 
-    compliant: List[CatalogModel] = []
-    unknown_model_ids: List[str] = []
+    compliant: list[CatalogModel] = []
+    unknown_model_ids: list[str] = []
     for m in candidates:
         endpoints = fetch_endpoint_policy_pricing(m.canonical_slug, timeout=timeout)
         if not endpoints:
@@ -283,9 +283,9 @@ def apply_zdr_filter(
 
 
 def format_discovery_output(
-    models: List[CatalogModel],
+    models: list[CatalogModel],
     json_mode: bool = False,
-    zdr_warning: Optional[str] = None,
+    zdr_warning: str | None = None,
 ) -> None:
     """Format and print discovered catalog models."""
     if json_mode:

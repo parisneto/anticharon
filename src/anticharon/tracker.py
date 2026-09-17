@@ -12,7 +12,7 @@ import math
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import requests
 
@@ -51,7 +51,7 @@ OPENROUTER_ENDPOINT_STATS_URL = "https://openrouter.ai/api/frontend/v1/stats/end
 OPENROUTER_EFFECTIVE_PRICING_URL = "https://openrouter.ai/api/frontend/v1/stats/effective-pricing"
 
 
-def fetch_openrouter_models(timeout: float = 10.0) -> Dict[str, Any]:
+def fetch_openrouter_models(timeout: float = 10.0) -> dict[str, Any]:
     """Fetch all active model records from OpenRouter public bulk catalog (advertised price/metadata)."""
     try:
         resp = requests.get(OPENROUTER_MODELS_URL, timeout=timeout)
@@ -63,7 +63,7 @@ def fetch_openrouter_models(timeout: float = 10.0) -> Dict[str, Any]:
         return {}
 
 
-def fetch_endpoint_policy_pricing(canonical_slug: str, timeout: float = 10.0) -> List[Dict[str, Any]]:
+def fetch_endpoint_policy_pricing(canonical_slug: str, timeout: float = 10.0) -> list[dict[str, Any]]:
     """Per-endpoint effective/policy pricing + the real, unauthenticated ZDR signal
     (`provider_info.dataPolicy.retainsPrompts`) -- supersedes the public
     `/models/{slug}/endpoints` call for this project (live-verified: that call's
@@ -86,7 +86,7 @@ def fetch_endpoint_policy_pricing(canonical_slug: str, timeout: float = 10.0) ->
         return []
 
 
-def extract_endpoint_listed_prices_1m(endpoints: List[Dict[str, Any]]) -> List[float]:
+def extract_endpoint_listed_prices_1m(endpoints: list[dict[str, Any]]) -> list[float]:
     """Extract each endpoint's own raw listed prompt price ($/1M) from
     `/stats/endpoint` data, skipping any endpoint with missing/malformed/
     sentinel pricing (PE2-002/PE2-005).
@@ -98,7 +98,7 @@ def extract_endpoint_listed_prices_1m(endpoints: List[Dict[str, Any]]) -> List[f
     none do, that is a real early-warning signal that `/stats/endpoint`'s
     pricing shape or semantics have drifted from the bulk catalog's.
     """
-    prices: List[float] = []
+    prices: list[float] = []
     for ep in endpoints:
         pricing = ep.get("pricing") or {}
         p_in = parse_required_price_1m(pricing, "prompt")
@@ -107,7 +107,7 @@ def extract_endpoint_listed_prices_1m(endpoints: List[Dict[str, Any]]) -> List[f
     return prices
 
 
-def fetch_effective_pricing_history(canonical_slug: str, timeout: float = 10.0) -> Dict[str, Any]:
+def fetch_effective_pricing_history(canonical_slug: str, timeout: float = 10.0) -> dict[str, Any]:
     """28-day backfill source. `range=1m` is required for ~30 days of daily
     observations -- live-verified: the bare/default call (no `range`) only
     returns the last 8 days. Graceful degradation: {} on failure, or when the
@@ -127,8 +127,8 @@ def fetch_effective_pricing_history(canonical_slug: str, timeout: float = 10.0) 
 
 
 def _endpoint_blended_rate_1m(
-    endpoint: Dict[str, Any], w_uncached: float, w_cached: float, w_completion: float
-) -> Optional[float]:
+    endpoint: dict[str, Any], w_uncached: float, w_cached: float, w_completion: float
+) -> float | None:
     """Cache-aware blended $/1M for one endpoint, or None if its pricing is
     missing/invalid. PE2-002: `prompt`/`completion` are required fields --
     a missing/blank/malformed value returns None (endpoint unusable), never
@@ -152,19 +152,19 @@ def _endpoint_blended_rate_1m(
 
 
 def resolve_policy_pricing(
-    endpoints: List[Dict[str, Any]],
+    endpoints: list[dict[str, Any]],
     w_uncached: float,
     w_cached: float,
     w_completion: float,
     zdr_only: bool,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """effective_price_1m = cheapest endpoint's blended rate (always, when endpoint
     data is available). policy_price_1m/is_policy_routable/excluded_providers are
     only populated when `zdr_only` is active -- an inactive policy filter means
     there's no policy price at all (see PLAN.md "Core pricing semantics")."""
-    rates: List[float] = []
-    zdr_rates: List[float] = []
-    excluded_providers: List[str] = []
+    rates: list[float] = []
+    zdr_rates: list[float] = []
+    excluded_providers: list[str] = []
 
     for ep in endpoints:
         rate = _endpoint_blended_rate_1m(ep, w_uncached, w_cached, w_completion)
@@ -178,7 +178,7 @@ def resolve_policy_pricing(
             else:
                 excluded_providers.append(ep.get("provider_name") or ep.get("provider_slug") or "unknown")
 
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "effective_price_1m": min(rates) if rates else None,
         "policy_price_1m": None,
         "is_policy_routable": None,
@@ -197,7 +197,7 @@ def resolve_policy_pricing(
     return result
 
 
-def _reduce_to_daily_observations(history_data: Dict[str, Any], w_completion: float) -> List[Dict[str, Any]]:
+def _reduce_to_daily_observations(history_data: dict[str, Any], w_completion: float) -> list[dict[str, Any]]:
     """Collapse the effective-pricing route's per-endpoint daily input/output series
     into one blended $/1M observation per calendar day (the cheapest endpoint that
     day). OpenRouter's per-endpoint series is already cache-weighted by that
@@ -205,11 +205,11 @@ def _reduce_to_daily_observations(history_data: Dict[str, Any], w_completion: fl
     to apply, via the locally calibrated `weight_completion` split."""
     input_series = history_data.get("inputChartData") or []
     output_series = history_data.get("outputChartData") or []
-    output_by_date: Dict[str, Dict[str, float]] = {
+    output_by_date: dict[str, dict[str, float]] = {
         entry.get("x", "").split(" ")[0]: (entry.get("y") or {}) for entry in output_series
     }
 
-    observations: List[Dict[str, Any]] = []
+    observations: list[dict[str, Any]] = []
     for entry in input_series:
         date_str = entry.get("x", "").split(" ")[0]
         if not date_str:
@@ -236,10 +236,10 @@ def _reduce_to_daily_observations(history_data: Dict[str, Any], w_completion: fl
 def sync_effective_prices_for_model(
     model_id: str,
     canonical_slug: str,
-    store: Dict[str, Any],
+    store: dict[str, Any],
     w_completion: float,
     timeout: float,
-    now: Optional[datetime] = None,
+    now: datetime | None = None,
 ) -> None:
     """Backfill/refresh one model's granular observations in `store`, in place,
     respecting the store's own staleness policy (independent of history.csv's
@@ -263,7 +263,7 @@ def sync_effective_prices_for_model(
     store[model_id] = entry
 
 
-def tracking_days_elapsed(store: Dict[str, Any], model_id: str, today: date) -> Optional[int]:
+def tracking_days_elapsed(store: dict[str, Any], model_id: str, today: date) -> int | None:
     """Elapsed calendar days since a model was first tracked, per the granular
     store's `first_seen` -- drives analytics.py's NEWLY_TRACKED threshold.
     `None` (unknown) when the model has no store entry yet."""
@@ -279,10 +279,10 @@ def tracking_days_elapsed(store: Dict[str, Any], model_id: str, today: date) -> 
 
 def run_tracker(
     dry_run: bool = False,
-    config_path: Optional[Path] = None,
-    history_path: Optional[Path] = None,
+    config_path: Path | None = None,
+    history_path: Path | None = None,
     timeout: float = 10.0,
-    hermes_config_path: Optional[str | Path] = None,
+    hermes_config_path: str | Path | None = None,
     no_hermes: bool = False,
     enable_analytics: bool = False,
     hints_enabled: bool = False,
@@ -297,7 +297,7 @@ def run_tracker(
     effective_store = read_effective_prices(effective_prices_path)
 
     # Hermes auto-detection & synchronization
-    hermes_status: Optional[HermesIntegrationStatus] = None
+    hermes_status: HermesIntegrationStatus | None = None
     if not no_hermes:
         hermes_info = get_hermes_models(custom_path=hermes_config_path)
         if hermes_info:

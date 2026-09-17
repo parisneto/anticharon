@@ -3,9 +3,9 @@
 import json
 import os
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
 
-DEFAULT_SHORTLIST: List[str] = [
+DEFAULT_SHORTLIST: list[str] = [
     "openai/gpt-5.6-luna",
     "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4-flash-0423",
@@ -25,7 +25,7 @@ DEFAULT_CACHE_HIT_RATE = 0.766701
 # TraceLab-cited 2-way split (weight_prompt=0.9971/weight_completion=0.0029), decomposed
 # into the cache-aware 3-way default: weight_cached = 0.9971 * DEFAULT_CACHE_HIT_RATE,
 # weight_uncached = 0.9971 * (1 - DEFAULT_CACHE_HIT_RATE), weight_completion unchanged.
-DEFAULT_CONFIG: Dict[str, Any] = {
+DEFAULT_CONFIG: dict[str, Any] = {
     "shortlist": DEFAULT_SHORTLIST,
     "weight_uncached_prompt": 0.232622,
     "weight_cached_prompt": 0.764478,
@@ -116,7 +116,7 @@ def get_history_path(custom_data_dir: Path | str | None = None) -> Path:
     return get_data_dir(custom_data_dir) / "history.csv"
 
 
-def load_config(config_path: Path | None = None) -> Dict[str, Any]:
+def load_config(config_path: Path | None = None) -> dict[str, Any]:
     """Load configuration from JSON file or return default fallback."""
     path = config_path or get_config_path()
     if path.exists():
@@ -152,7 +152,7 @@ def update_config_weights(
 
 
 def update_config_shortlist(
-    shortlist: List[str],
+    shortlist: list[str],
     config_path: Path | None = None
 ) -> Path:
     """Update model shortlist in the configuration file."""

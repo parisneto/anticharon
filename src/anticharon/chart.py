@@ -1,14 +1,14 @@
 """ASCII / TUI visualization engine for Anticharon price spectrum."""
 
-from typing import List, Optional
+
 from anticharon.models import ModelPrice
 
 
 def render_ascii_price_bar(
-    prices: List[ModelPrice],
-    default_model: Optional[str] = None,
+    prices: list[ModelPrice],
+    default_model: str | None = None,
     max_bar_width: int = 32
-) -> List[str]:
+) -> list[str]:
     """Render a proportional ASCII bar chart illustrating relative model price distribution.
     
     Args:
@@ -22,7 +22,7 @@ def render_ascii_price_bar(
     if not prices:
         return []
 
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append("📊 RELATIVE PRICE SPECTRUM ($/1M Tokens):")
     lines.append("  ▲ Cheaper")
 

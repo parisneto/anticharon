@@ -2,12 +2,11 @@
 
 import math
 import re
-from typing import Any, Dict, List, Optional, Tuple
 
 from anticharon.models import ModelAnalytics, SiblingAlternative
 
 
-def parse_model_family(model_id: str) -> Tuple[str, str, float, str]:
+def parse_model_family(model_id: str) -> tuple[str, str, float, str]:
     """Parse model identifier into (provider, prefix, version_num, suffix).
     
     Example:
@@ -36,14 +35,14 @@ def parse_model_family(model_id: str) -> Tuple[str, str, float, str]:
 def find_sibling_alternatives(
     model_id: str,
     current_price: float,
-    candidate_prices: Dict[str, float]
-) -> List[SiblingAlternative]:
+    candidate_prices: dict[str, float]
+) -> list[SiblingAlternative]:
     """Identify newer/superior version siblings in the same model family that are equal or cheaper."""
     provider, prefix, ver, suffix = parse_model_family(model_id)
     if ver <= 0.0:
         return []
 
-    alternatives: List[SiblingAlternative] = []
+    alternatives: list[SiblingAlternative] = []
     for other_id, other_price in candidate_prices.items():
         if other_id == model_id:
             continue
@@ -67,11 +66,11 @@ def find_sibling_alternatives(
 def calculate_model_analytics(
     model_id: str,
     current_price: float,
-    history_prices: List[Optional[float]],
-    candidate_prices: Optional[Dict[str, float]] = None,
-    current_default: Optional[str] = None,
+    history_prices: list[float | None],
+    candidate_prices: dict[str, float] | None = None,
+    current_default: str | None = None,
     min_tracking_days_for_profile: int = 14,
-    tracking_days_elapsed: Optional[int] = None,
+    tracking_days_elapsed: int | None = None,
 ) -> ModelAnalytics:
     """Calculate statistical variance, historical delta, and assign pricing profile.
 
@@ -84,7 +83,7 @@ def calculate_model_analytics(
     `d15` populated but nothing between). `tracking_days_elapsed=None` (unknown)
     is treated the same as "not enough elapsed time" -- the safe default.
     """
-    padded_hist: List[Optional[float]] = list(history_prices)[:9]
+    padded_hist: list[float | None] = list(history_prices)[:9]
     padded_hist.extend([None] * (9 - len(padded_hist)))
 
     real_hist = [p for p in padded_hist if p is not None]
@@ -94,7 +93,7 @@ def calculate_model_analytics(
     std_price = math.sqrt(var_price)
     cv_pct = (std_price / mean_price * 100) if mean_price > 0 else 0.0
 
-    def _ref(value: Optional[float]) -> float:
+    def _ref(value: float | None) -> float:
         """Defensive reference point for classification heuristics only. Never
         exposed as a stored/fabricated observation -- `history_vector` below
         keeps the real `None`."""
