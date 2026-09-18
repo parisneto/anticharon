@@ -6,38 +6,31 @@
 - Feature branch: `pricing-engine-v2`
 - Base branch: `main`
 - Originally assessed commit: `90aaa06f5b1866b98d0a4463794ed00933a62f0a`
-- Current remediation HEAD: `1eee45d0ae09fd715a319f444feb0c7033dbe33b`
-  (remediation pass 3 handoff commit independently tested in round 4)
+- Current remediation HEAD: `89dcb75` (remediation pass 4; final commit SHA
+  confirmed via `git rev-parse HEAD` at the time this file was last edited)
 - Originally assessed version: `v0.5.2`
 - Initial validation date: `2026-09-16`
 - Reviewer: Codex
-- Overall status: `BLOCKED` (independent retest round 4 resolved PE2-004,
-  PE2-009, and PE2-010, but reopened release-required P2 finding PE2-006 after
-  reproducing an unhandled nested-response-shape crash in the historical
-  backfill path; no merge, version bump, tag, or push is permitted)
+- Overall status: `BLOCKED` (remediation pass 4 addresses independent retest
+  round 4's sole reopening reason, PE2-006's unhandled nested-response-shape
+  crash; PE2-006 is `Ready for Retest`, not `Resolved`, pending independent
+  confirmation — no merge, version bump, tag, or push is permitted)
 
-The remediation HEAD from the first independent retest
-(`5c98eae427577e04d3b23892c683c5f2fe953d54`) received independent validation
-on 2026-09-17 and was reopened for PE2-004, PE2-009, and PE2-010. A second
-remediation pass at `8f65f49ae889cfbf991d2859944e7ea1d6c3f8fb` (this same
-date) addressed those reopening reasons; independent retest round 2 found
-five residual gaps (source-documentation drift, `--zdr` spec wording, README
-calibration wording, CHANGELOG status duplication, a duplicate deferral
-entry, and integration-range whitespace) and reopened all three findings
-again. A third remediation pass (2026-09-18, this pass) addresses each of
-those five gaps — see each finding's own "Remediation pass 3" entry and the
+Round-by-round summary: independent retest 1 (`5c98eae4`, 2026-09-17)
+reopened PE2-004/009/010; remediation pass 2 (`8f65f49e`) addressed those.
+Independent retest round 2 (`f37f98cf`) found five residual documentation/
+whitespace gaps and reopened PE2-004/009/010 again; remediation pass 3
+(`18ba8e2`/`1eee45d`) addressed each. Independent retest round 4
+(`1eee45d`, 2026-09-18) resolved PE2-004/009/010 but reproduced two
+unhandled `AttributeError` crashes from a wrong-typed nested `data` payload
+on the endpoint-stats and effective-pricing routes, reopening the
+release-required P2 finding PE2-006. Remediation pass 4 (2026-09-18, this
+pass, commit `89dcb75`) adds `isinstance()` guards to all three
+`tracker.py` fetch functions and regression tests reproducing both exact
+crashes end-to-end — see PE2-006's own "Remediation pass 4" entry and the
 Retest Log. Remediation-agent results remain implementation evidence only;
 the independent results recorded under each finding and in the Retest Log
 control this decision.
-
-Independent retest round 2 tested the requested handoff commit
-`f37f98cf7e7d03e2169edb93abe916411791e20d` in a detached disposable clone.
-Behavioral, live, diagnostic, packaging, and same-day-idempotency checks passed,
-but source/documentation synchronization, integration-diff whitespace, and the
-agreed changed-line lint scope still failed. The detailed evidence is appended
-under PE2-004, PE2-009, PE2-010, and the Retest Log; remediation pass 3's own
-evidence for each corrected gap is appended alongside it, pending independent
-retest round 3.
 
 ## Scope and Sources
 
@@ -721,7 +714,7 @@ ADR 0002 remains normative until explicitly superseded or amended.
 ### PE2-006 — Mandatory failure-path and realistic-payload coverage is incomplete
 
 - Severity: P2
-- Status: `Open`
+- Status: `Ready for Retest`
 - Contract impact:
   - Mature test-suite requirements
   - Deterministic failure handling
@@ -858,6 +851,65 @@ ADR 0002 remains normative until explicitly superseded or amended.
     and prove the full `run_tracker`/backfill sync path degrades without an
     exception.
   - Result: `Open` (release-required P2 blocker).
+
+- **Remediation pass 4 (2026-09-18), addressing the round-4 reopening reason above:**
+  - Reproduced both reported crashes directly against the current commit
+    before fixing, confirming the exact `AttributeError` types/messages the
+    independent retest cited, plus a third analogous gap in
+    `fetch_openrouter_models()` not explicitly named in the report (a list of
+    non-dict elements, e.g. bare integers, raises `TypeError` from
+    `"id" in m`) -- fixed for consistency across all three fetch functions,
+    per this finding's own "all three fetch functions" scope.
+  - `src/anticharon/tracker.py`: added `isinstance()` guards on the nested
+    `data` value in all three fetch functions --
+    `fetch_openrouter_models()` (expects `list`), `fetch_endpoint_policy_pricing()`
+    (expects `list`), `fetch_effective_pricing_history()` (expects `dict`).
+    A type mismatch now degrades to the function's documented empty value
+    ([] or {}) instead of passing the wrong-typed value through to a
+    downstream consumer. `fetch_openrouter_models()` and
+    `fetch_endpoint_policy_pricing()` additionally filter non-dict elements
+    out of an otherwise correctly-typed list (the exact
+    `{"data": ["strings"]}` drift shape from the report), since a
+    same-container-wrong-element-type payload would otherwise still crash
+    one level down in `resolve_policy_pricing()`/the bulk-catalog dict
+    comprehension.
+  - New regression tests, one per wrong-nested-type shape, added to
+    `tests/test_network_failure_paths.py` mirroring the file's existing
+    wrong-response-shape test style (7 new: 2 for
+    `fetch_effective_pricing_history`, 2 for
+    `fetch_endpoint_policy_pricing`, 2 for `fetch_openrouter_models`, plus
+    the exact `["strings"]` case named in the report). Each new test was
+    verified to fail with the pre-fix code (temporary `git stash` of
+    `tracker.py` only, confirmed the exact reported `AttributeError`s,
+    re-applied via `git stash apply` + drop) before being kept, proving they
+    are load-bearing rather than vacuously passing.
+  - New end-to-end test
+    `tests/test_tracker.py::test_run_tracker_survives_nested_schema_drift_on_both_stats_routes`
+    reproduces both reported crashes simultaneously through a mocked
+    `requests.get` (not mocked fetch functions), deliberately omitting the
+    `no_backfill` fixture so `sync_effective_prices_for_model()`'s real
+    `fetch_effective_pricing_history()` call is exercised -- proving the fix
+    holds through the full `run_tracker` path, not just at the
+    fetch-function unit boundary. Asserts `run_tracker` completes without
+    raising, both drifted routes' downstream state falls back to the
+    bulk-catalog-derived effective price (never a crash, never a fabricated
+    zero), and `policy_price_1m`/`is_policy_routable` correctly report
+    policy-unknown (`None`) rather than a stale/fabricated value.
+  - `docs/standards/lint_baseline_pe2010.txt`: relocated `tracker.py`'s three
+    pre-existing, human-approved `BLE001` entries (lines 61/85/125 → 66/95/141)
+    -- the new isinstance guard lines shifted each same, unmodified
+    `except Exception`/`except Exception as e:` clause down in the file.
+    Verified line-by-line that no except block's own code changed, only its
+    position; no behavioral rule was touched or newly deferred.
+  - Remediation-agent verification: `uv run pytest` 156 passed, 3 deselected
+    (was 149; +7 new tests); `uv run ruff check --select
+    UP006,UP045,I001,F401,C408 src tests` all clean;
+    `uv run python scripts/lint_gate.py main` PASSED;
+    `uv run python scripts/lint_gate.py 1eee45d0ae09fd715a319f444feb0c7033dbe33b`
+    PASSED; isolated `anticharon test --no-hermes` all PASS (446 models
+    reachable); `git diff --check` clean.
+  - Resolution commit: `89dcb75`.
+  - Status: `Ready for Retest`.
 
 ### PE2-007 — CLI diagnostic verifies the retired two-component formula
 
@@ -1517,7 +1569,7 @@ ADR 0002 remains normative until explicitly superseded or amended.
 | Same-day rerun idempotency | Derived dated observations | Unit/integration tests | Pass |
 | Public/internal listed-price canary | Live test | Passed independently | Pass |
 | Realistic effective-pricing fixture | Sanitized fixture | Parsed independently | Pass |
-| Timeout/HTTP/malformed failure paths | Tracker fetch functions | Existing 19 tests pass, but wrong nested `data` types crash downstream consumers | Fail (PE2-006 open) |
+| Timeout/HTTP/malformed failure paths | Tracker fetch functions | Existing tests plus 7 new wrong-nested-type tests + 1 end-to-end `run_tracker` test (remediation pass 4) | Pending independent retest (PE2-006 `Ready for Retest`) |
 | CLI diagnostic canonical formula | Production three-component function | Mutation-style regression and diagnostic | Pass |
 | Correct cache-hit-rate output | Derived prompt-only rate | Unit/integration/manual | Pass |
 | Deterministic offline pytest gate | Pytest configuration and CI | 149 passed, 3 deselected | Pass |
@@ -1530,7 +1582,8 @@ ADR 0002 remains normative until explicitly superseded or amended.
 
 - [x] PE2-001 independently retested and resolved.
 - [x] All P1 findings resolved.
-- [ ] All release-required P2 findings resolved (PE2-006 reopened).
+- [ ] All release-required P2 findings resolved (PE2-006 `Ready for Retest`,
+      pending independent confirmation).
 - [x] Any deferred finding explicitly approved and synchronized across the
       Execution Contract, Plan, specification, backlog, validation ledger,
       and source documentation.
@@ -1766,10 +1819,37 @@ ADR 0002 remains normative until explicitly superseded or amended.
   tag creation, and tag push despite branch-push authorization.
 - Release decision: `BLOCKED`.
 
+### Remediation pass 4 — PE2-006
+
+- Date: `2026-09-18`
+- Implementation commit: `89dcb75` (isinstance guards on all three fetch
+  functions, 7 new wrong-nested-type unit tests, 1 new end-to-end
+  `run_tracker` test, tracker.py's BLE001 baseline line-number relocation)
+- Finding: PE2-006
+- Remediation status: `Ready for Retest`
+- Remediation-agent offline result: 156 passed, 3 deselected (was 149; +7 new
+  tests)
+- Remediation-agent diagnostic result: PASS (isolated data dir; 446 models
+  reachable)
+- Remediation-agent `git diff --check`: clean
+- Remediation-agent Ruff result: `--select UP006,UP045,I001,F401,C408 src
+  tests` all clean; full repository-wide result unchanged at 49 findings
+- Remediation-agent `scripts/lint_gate.py main` result: PASSED
+- Remediation-agent `scripts/lint_gate.py 1eee45d0ae09fd715a319f444feb0c7033dbe33b`
+  result: PASSED
+- Pre-fix reproduction: both reported `AttributeError`s reproduced verbatim
+  against the pre-fix code before writing the fix; each new regression test
+  independently confirmed to fail against the pre-fix code (temporary
+  `git stash` of `tracker.py` only, restored via `git stash apply` + drop)
+  before being kept
+- Independent result: pending
+- Release decision: `BLOCKED` (pending independent retest of this pass)
+
 ## Final Sign-Off
 
 - Final validated feature commit: none; most gates passed on
-  `1eee45d0ae09fd715a319f444feb0c7033dbe33b`, but PE2-006 failed.
+  `1eee45d0ae09fd715a319f444feb0c7033dbe33b`, but PE2-006 failed and was
+  addressed by remediation pass 4 (`89dcb75`), pending independent retest.
 - Integrated release-branch commit:
 - Released version:
 - Release commit:
