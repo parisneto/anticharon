@@ -37,9 +37,17 @@ def parse_activity_log(csv_path: Path | str) -> PromptMixResult:
         reader = csv.DictReader(f)
         for row in reader:
             records_count += 1
-            total_prompt += _parse_token_count(row.get("tokens_prompt", "0"))
+            row_prompt = _parse_token_count(row.get("tokens_prompt", "0"))
+            row_cached = _parse_token_count(row.get("tokens_cached", "0"))
+            # tokens_cached is logically a subset of tokens_prompt -- a row
+            # reporting more cached tokens than prompt tokens is corrupt data,
+            # never a valid state. Clamp per row rather than let it silently
+            # drive total_uncached negative across the whole log (never
+            # fabricate a nonsensical negative weight from bad input).
+            row_cached = min(row_cached, row_prompt)
+            total_prompt += row_prompt
             total_completion += _parse_token_count(row.get("tokens_completion", "0"))
-            total_cached += _parse_token_count(row.get("tokens_cached", "0"))
+            total_cached += row_cached
 
     total_uncached = total_prompt - total_cached
     total_tokens = total_prompt + total_completion

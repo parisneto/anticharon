@@ -48,6 +48,26 @@ def test_parse_activity_log_cache_split_exact_math():
     assert result.weight_completion == pytest.approx(180 / 3980, abs=1e-6)
 
 
+def test_parse_activity_log_row_with_cached_exceeding_prompt_is_clamped():
+    """tokens_cached is logically a subset of tokens_prompt -- a row reporting
+    more cached tokens than prompt tokens is corrupt data (e.g. a garbled
+    export), never a valid state. Found while surveying the codebase for risk
+    similar to PE2-006's schema-drift crash: this doesn't crash, but silently
+    drives total_uncached_tokens negative across the whole log, which would
+    then be saved to config as a nonsensical negative weight and poison
+    downstream pricing math. The corrupt row's cached count must be clamped
+    to that row's own prompt count instead."""
+    result = parse_activity_log(FIXTURES_DIR / "activity_log_cached_exceeds_prompt.csv")
+
+    assert result.records_count == 2
+    assert result.total_prompt_tokens == 1500  # 1000 + 500
+    # Row 2's cached (900) is clamped to its own prompt count (500), not 900.
+    assert result.total_cached_tokens == 1300  # 800 + 500 (clamped)
+    assert result.total_uncached_tokens == 200  # 1500 - 1300, never negative
+    assert result.total_uncached_tokens >= 0
+    assert result.weight_uncached_prompt >= 0.0
+
+
 def test_parse_activity_log_no_cache_column_defaults_to_zero():
     """Older exports without a tokens_cached column must still parse — 100%
     uncached, matching pre-ADR behavior exactly."""
