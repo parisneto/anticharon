@@ -384,7 +384,7 @@ anticharon model discover --filter "openai" --filter "price < 10"
 anticharon model discover --zdr  # live-checks only the (already-filtered) cheapest max_zdr_check_count candidates
 anticharon model discover "gemini" --zdr  # narrow filters first to check more of your actual matches
 
-# 15. Policy (ZDR) Pricing: restrict effective/policy price to ZDR-compliant endpoints
+# 15. Policy (ZDR) Pricing: calculate a separate ZDR-constrained `policy_price_1m` without replacing `effective_price_1m`
 anticharon check --zdr --json
 anticharon run --zdr
 
