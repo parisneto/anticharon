@@ -6,8 +6,8 @@
 - Feature branch: `pricing-engine-v2`
 - Base branch: `main`
 - Originally assessed commit: `90aaa06f5b1866b98d0a4463794ed00933a62f0a`
-- Current remediation HEAD: `89dcb75` (remediation pass 4; final commit SHA
-  confirmed via `git rev-parse HEAD` at the time this file was last edited)
+- Current remediation HEAD: `2894628e9bd41359170f200c57bd9affefa2ef2a`
+  (remediation pass 4, including this ledger update)
 - Originally assessed version: `v0.5.2`
 - Initial validation date: `2026-09-16`
 - Reviewer: Codex
