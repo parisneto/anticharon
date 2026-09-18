@@ -6,13 +6,12 @@
 - Feature branch: `pricing-engine-v2`
 - Base branch: `main`
 - Originally assessed commit: `90aaa06f5b1866b98d0a4463794ed00933a62f0a`
-- Current remediation HEAD: `8f65f49ae889cfbf991d2859944e7ea1d6c3f8fb`
+- Current remediation HEAD: `f37f98cf7e7d03e2169edb93abe916411791e20d`
 - Originally assessed version: `v0.5.2`
 - Initial validation date: `2026-09-16`
 - Reviewer: Codex
-- Overall status: `BLOCKED` (remediation pass 2 complete for PE2-004,
-  PE2-009, and PE2-010; moved to `Ready for Retest`; independent
-  confirmation pending)
+- Overall status: `BLOCKED` (independent retest round 2 reopened PE2-004,
+  PE2-009, and PE2-010; no merge, version bump, tag, or push is permitted)
 
 The remediation HEAD from the first independent retest
 (`5c98eae427577e04d3b23892c683c5f2fe953d54`) received independent validation
@@ -22,6 +21,13 @@ date) addresses the reopening reasons; see each finding's own "Remediation
 pass 2" entry and the Retest Log. Remediation-agent results remain
 implementation evidence only; the independent results recorded under each
 finding and in the Retest Log control this decision.
+
+Independent retest round 2 tested the requested handoff commit
+`f37f98cf7e7d03e2169edb93abe916411791e20d` in a detached disposable clone.
+Behavioral, live, diagnostic, packaging, and same-day-idempotency checks passed,
+but source/documentation synchronization, integration-diff whitespace, and the
+agreed changed-line lint scope still fail. The detailed evidence is appended
+under PE2-004, PE2-009, PE2-010, and the Retest Log.
 
 ## Scope and Sources
 
@@ -63,6 +69,10 @@ ADR 0002 remains normative until explicitly superseded or amended.
 - Independent confirmation: completed 2026-09-17 in a detached disposable
   checkout pinned to the exact remediation commit, with an isolated `.venv`,
   uv cache, and runtime-data directory. User runtime data was not inspected.
+- Independent retest round 2 handoff: `f37f98cf7e7d03e2169edb93abe916411791e20d`.
+- Divergence at round 2: 36 commits ahead and 0 behind `main`.
+- Feature worktree before round 2: clean; local branch 3 commits ahead of
+  `origin/pricing-engine-v2`.
 
 ## Initial Verification Results
 
@@ -391,7 +401,7 @@ ADR 0002 remains normative until explicitly superseded or amended.
 ### PE2-004 — Granular historical persistence does not match the plan
 
 - Severity: P2
-- Status: `Ready for Retest`
+- Status: `Open`
 - Contract impact:
   - Provider-specific pricing representation
   - Local storage/schema requirements
@@ -537,6 +547,25 @@ ADR 0002 remains normative until explicitly superseded or amended.
     unchanged at this finding's files (Markdown only, no lint surface).
   - Resolution commit: `8f65f49ae889cfbf991d2859944e7ea1d6c3f8fb`.
   - Status: `Ready for Retest`.
+
+- **Independent retest round 2 (2026-09-17):**
+  - Tested commit: `f37f98cf7e7d03e2169edb93abe916411791e20d`.
+  - The human-approved scope reduction is now present in the Execution
+    Contract, Plan, accepted ADR 0002 amendment, specification, backlog, and
+    validation ledger. The focused storage/reduction set passed 9 relevant
+    tests (within an 11-test PE2-004/PE2-009 set) in 0.08s, and two persisted
+    live runs on the same day kept `d1`, `d2`, `d15`, and `d30` unchanged.
+  - The shipped source remains materially unsynchronized with that decision:
+    `src/anticharon/storage.py`'s module docstring (lines 1-3) and granular-store
+    section comment (lines 90-92) still state that `effective_prices.json`
+    stores "per-model, per-provider daily observations." The approved and
+    tested schema deliberately discards provider identity and stores one
+    cheapest-price observation per model/day.
+  - The original mismatch therefore still exists in public source
+    documentation even though the higher-level documents were amended. This
+    violates AGENTS.md Rule 3 and the finding's own requirement to synchronize
+    implementation documentation with the narrowed architecture.
+  - Result: `Open`.
 
 
 ### PE2-005 — Live backfill canary does not perform the promised cross-validation
@@ -910,7 +939,7 @@ ADR 0002 remains normative until explicitly superseded or amended.
 ### PE2-009 — Planning and validation documents are not synchronized
 
 - Severity: P3
-- Status: `Ready for Retest`
+- Status: `Open`
 - Contract impact:
   - Spec-driven development
   - Execution Contract authority
@@ -1073,11 +1102,38 @@ ADR 0002 remains normative until explicitly superseded or amended.
   - Resolution commit: `8f65f49ae889cfbf991d2859944e7ea1d6c3f8fb`.
   - Status: `Ready for Retest`.
 
+- **Independent retest round 2 (2026-09-17):**
+  - Tested commit: `f37f98cf7e7d03e2169edb93abe916411791e20d`.
+  - The two PE2-009 behavioral regressions (old-header graceful degradation
+    and single-observation zero dispersion) passed as part of the focused
+    11-test set in 0.08s. All ten stable finding IDs remain present exactly
+    once, and no absolute host filesystem path leak was found in public files.
+  - Material synchronization defects remain:
+    - `src/anticharon/storage.py` still describes the persisted store as
+      per-provider although the approved schema intentionally is not;
+    - `docs/specs/spec_v1_anticharon.md`'s CLI section still labels `--zdr` as
+      restricting the "effective/policy price," conflicting with the same
+      specification's rule that effective price is never replaced;
+    - `README.md` still says `anticharon calibrate` saves a prompt/completion
+      mix, omitting the shipped uncached-prompt/cached-prompt/completion split;
+    - every PE2-001 through PE2-010 entry in `[Unreleased]` still says
+      `Ready for Retest`, disagreeing with the authoritative ledger's resolved
+      and reopened statuses;
+    - the Execution Contract contains two separate provider-granular deferral
+      entries, one of which duplicates the approved deferral with inconsistent
+      wording and a misspelling.
+  - Integration-range whitespace validation also fails:
+    `git diff --check main...HEAD` reports trailing whitespace in
+    `EXECUTION_CONTRACT.md:222` and `RELEASE_VALIDATION.md:520,1183`. The exact
+    clean-worktree command `git diff --check` returns 0 only because it checks
+    no committed integration diff.
+  - Result: `Open`.
+
 
 ### PE2-010 — Quality-tooling policy is unclear and not enforced
 
 - Severity: P3
-- Status: `Ready for Retest`
+- Status: `Open`
 - Contract impact:
   - CI quality gates
   - Dependency hygiene
@@ -1209,6 +1265,27 @@ ADR 0002 remains normative until explicitly superseded or amended.
     `8f65f49ae889cfbf991d2859944e7ea1d6c3f8fb` (backlog entry).
   - Status: `Ready for Retest`.
 
+- **Independent retest round 2 (2026-09-17):**
+  - Tested commit: `f37f98cf7e7d03e2169edb93abe916411791e20d`.
+  - Authorized mechanical scope passes:
+    `ruff check --select UP006,UP045,I001,F401 src tests` reports
+    `All checks passed!`. The pass-2 source diff is mechanical annotation and
+    import modernization plus the documented CLI help correction; the complete
+    offline and live suites pass.
+  - The wheel builds offline and declares only `mcp>=1.3.0` and
+    `requests>=2.31.0`; pytest and Ruff remain excluded from runtime metadata.
+  - Full Ruff remains at 51 findings. More importantly, the branch still has
+    two initiative-added `C408` findings in the new `tests/test_cli.py`
+    (lines 70 and 169). The human sign-off explicitly forbade fixing and
+    approved deferral only for `BLE001`, `B023`, `S110`, `PLW1510`, and
+    `S112`; it did not approve a `C408` exception. The traceability table's
+    claim that `C408` is one of the "exact behavioral codes" explicitly
+    deferred by that sign-off is factually incorrect. `docs/BACKLOG.md` also
+    records only the five approved codes, not `C408`.
+  - The agreed rule that initiative-changed files are lint-clean is therefore
+    still not met, and the exception record is not synchronized.
+  - Result: `Open`.
+
 
 ## Acceptance-Criteria Traceability
 
@@ -1222,7 +1299,7 @@ ADR 0002 remains normative until explicitly superseded or amended.
 | Policy-unroutable recommendations | PE2-001 remediation | Independently retested | Pass |
 | Policy-unknown graceful degradation | Tracker/discovery | 11 targeted tests | Pass |
 | Missing/partial pricing fallback | Endpoint/catalog parser | 33 targeted tests | Pass |
-| Provider-granular persistence | Narrowed implementation | Deferral synchronized: ADR 0002 amended, backlog entry added (PE2-004 pass 2) | Pass (pending independent retest) |
+| Provider-granular persistence | Narrowed implementation | Higher-level deferral is approved, but source documentation still claims per-provider persistence | Fail (PE2-004 open) |
 | 28-day backfill | Tracker/storage | Deterministic fixture and live coverage | Pass |
 | Same-day rerun idempotency | Derived dated observations | Unit/integration tests | Pass |
 | Public/internal listed-price canary | Live test | Passed independently | Pass |
@@ -1232,8 +1309,8 @@ ADR 0002 remains normative until explicitly superseded or amended.
 | Correct cache-hit-rate output | Derived prompt-only rate | Unit/integration/manual | Pass |
 | Deterministic offline pytest gate | Pytest configuration and CI | 149 passed, 3 deselected | Pass |
 | Explicit live-test isolation | `@pytest.mark.live` | 3 passed, 149 deselected | Pass |
-| CI merge gate | GitHub Actions | Local equivalents pass. The specific UP006 findings the prior independent retest flagged on remediation-added lines in `discovery.py`/`tracker.py` are fixed. `tracker.py`/`discovery.py`/`test_cli.py` still carry remediation-added `BLE001`/`B023`/`C408` findings -- these are the exact behavioral codes the human sign-off explicitly authorized deferring (not fixing) in this branch, logged in `docs/BACKLOG.md`. This is a documented, human-authorized exception to the changed-line policy, not a claim the policy's letter is fully met -- independent reviewer judgment required | Pass by explicit human-authorized exception (pending independent retest) |
-| Contract/plan/spec synchronization | Documentation | ADR 0002/README/spec/CLI help/EXECUTION_CONTRACT header corrected (PE2-009 pass 2) | Pass (pending independent retest) |
+| CI merge gate | GitHub Actions | Pytest/diagnostic equivalents pass; authorized Ruff codes are clean, but initiative-added C408 findings were not approved for deferral | Fail (PE2-010 open) |
+| Contract/plan/spec synchronization | Documentation | ADR/backlog improved, but source docstrings, spec CLI wording, README calibration wording, changelog statuses, and duplicate deferral remain inconsistent | Fail (PE2-009 open) |
 | Version/changelog/tag consistency | Release files | Pending remediation/release | Blocked |
 
 ## Required Release Gates
@@ -1242,7 +1319,8 @@ ADR 0002 remains normative until explicitly superseded or amended.
 - [x] All P1 findings resolved.
 - [ ] All release-required P2 findings resolved (PE2-004 open).
 - [ ] Any deferred finding explicitly approved and synchronized across the
-      Execution Contract, Plan, specification, backlog, and validation ledger.
+      Execution Contract, Plan, specification, backlog, validation ledger,
+      and source documentation.
 - [x] Regression tests added for every resolved behavioral defect.
 - [x] Realistic effective-pricing fixture added and parsed offline.
 - [x] Deterministic `uv run pytest` passes without network access.
@@ -1254,7 +1332,8 @@ ADR 0002 remains normative until explicitly superseded or amended.
 - [x] Policy-unroutable models are never recommended under the policy.
 - [x] Policy-unknown behavior matches the documented fallback rule.
 - [x] Same-day rerun remains idempotent.
-- [ ] Agreed Ruff/static-analysis scope passes.
+- [ ] Agreed Ruff/static-analysis scope passes (C408 remains outside the
+      recorded deferral approval).
 - [x] `git diff --check` passes on the tested remediation commit.
 - [ ] CI passes on the integrated release commit.
 - [ ] Feature branch is reconciled with the release branch.
@@ -1335,10 +1414,62 @@ ADR 0002 remains normative until explicitly superseded or amended.
 - Independent result: pending
 - Release decision: `BLOCKED` (pending independent retest of this pass)
 
+### Independent retest 2 — Completed, release blocked
+
+- Date: `2026-09-17`
+- Tested commit: `f37f98cf7e7d03e2169edb93abe916411791e20d`
+- Disposable-checkout environment: detached local clone; Darwin 25.6.0 arm64;
+  CPython 3.12.14; pytest 9.1.1; Ruff 0.16.7; isolated `.venv`, uv cache,
+  and runtime-data directory; user runtime data excluded.
+- Findings rechecked: PE2-001 through PE2-010. Prior resolved behavioral
+  findings PE2-001, PE2-002, PE2-003, PE2-005, PE2-006, PE2-007, and PE2-008
+  remain `Resolved`; the full regression suite and required live/manual paths
+  show no regression.
+- Findings reopened/remain open: PE2-004, PE2-009, PE2-010.
+- Offline gate: PASS — 149 passed, 3 deselected in 2.68s (`UV_OFFLINE=1`).
+- Live gate: PASS — 3 passed, 149 deselected in 10.13s.
+- Focused PE2-004/PE2-009 regressions: PASS — 11 passed in 0.08s.
+- Diagnostic gate: PASS — isolated `anticharon test --no-hermes`; all core
+  checks passed, OpenRouter reachable with 445 models at 83ms reported latency.
+- Manual three-price verification: PASS — `openai/gpt-5.6-luna` preserved
+  `effective_price_1m=0.03267` across normal and ZDR checks; ZDR separately
+  reported `policy_price_1m=0.065336`, advertised `$0.20/$1.20`,
+  `is_policy_routable=true`, and `cache_hit_rate_used=0.766701`.
+- Manual same-day persistence: PASS — two live `run` invocations in the
+  isolated runtime directory left Luna's `d1=0.035428`, `d2=0.039042`,
+  `d7=0.054012`, `d15=0.053017`, and `d30=0.046991` unchanged.
+- Packaging: PASS — offline wheel build; version `0.5.2`; runtime metadata
+  contains only `mcp>=1.3.0` and `requests>=2.31.0`.
+- Ruff/static analysis: FAIL — authorized `UP006`/`UP045`/`I001`/`F401`
+  scope is clean, but two initiative-added `C408` findings remain without the
+  explicit deferral approval claimed by the remediation ledger. Full result:
+  51 findings.
+- Whitespace: exact clean-worktree `git diff --check` PASS; integration-range
+  `git diff --check main...HEAD` FAIL with three trailing-whitespace findings.
+- CI-equivalent result: pytest and diagnostic PASS; agreed static/integration
+  quality gates FAIL. No integrated release-branch commit exists.
+- Changed/weakened expectations: provider-granular persistence remains an
+  explicitly human-approved reduction to cheapest-per-day storage; endpoint
+  fetch failure and successful empty endpoint response intentionally share
+  policy-unknown behavior; the old zero-dependency runner remains removed per
+  plan. No skipped, removed, or newly weakened test expectation was observed
+  in this round.
+- SemVer decision: if the blockers are corrected and the remediation is later
+  integrated, the next release should be PATCH `v0.5.3` because this branch
+  corrects already-released v0.5.x behavior, documentation, and packaging
+  without adding another public feature. `v0.5.3` does not currently exist.
+  No version files were changed because validation failed and merge authority
+  was not granted.
+- Branch integration: not attempted; merge authority is `NO`.
+- Push/tag: not attempted; failed validation forbids branch push, version bump,
+  tag creation, and tag push even though branch push authority was otherwise
+  granted.
+- Release decision: `BLOCKED`.
+
 ## Final Sign-Off
 
 - Final validated feature commit: none; behavioral gates passed on
-  `5c98eae427577e04d3b23892c683c5f2fe953d54`, but release gates failed.
+  `f37f98cf7e7d03e2169edb93abe916411791e20d`, but release gates failed.
 - Integrated release-branch commit:
 - Released version:
 - Release commit:
@@ -1346,5 +1477,5 @@ ADR 0002 remains normative until explicitly superseded or amended.
 - Remote branch/tag verification: not attempted; validation failed and merge/tag
   push authority was not granted.
 - Decision: `BLOCKED`
-- Reviewer: Codex (independent retest)
+- Reviewer: Codex (independent retest round 2)
 - Date: `2026-09-17`
