@@ -1,7 +1,11 @@
 """Storage: compact history.csv (fast-read summary) + granular effective_prices.json
-(per-model, per-provider daily observations -- the source of truth history.csv's
-d1..d7/d15/d30 and moving averages are precalculated from, per
-docs/plans/pricing-engine-v2/PLAN.md's "Storage architecture" section).
+(one entry per model per calendar day, storing the cheapest blended endpoint price
+observed that day -- the source of truth history.csv's d1..d7/d15/d30 and moving
+averages are precalculated from, per docs/plans/pricing-engine-v2/PLAN.md's "Storage
+architecture" section). Provider identity and other provider-specific dimensions are
+not persisted; provider-granular historical persistence remains deferred (approved
+scope reduction -- see docs/plans/pricing-engine-v2/EXECUTION_CONTRACT.md's Deferred
+section).
 """
 
 import json
@@ -87,9 +91,13 @@ def write_history(records: list[list[Any]], history_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Granular effective_prices.json store: per-model, per-provider daily
-# observations. history.csv's d1..d30/MA columns are derived from this file,
-# not the other way around.
+# Granular effective_prices.json store: one observation per model per calendar
+# day, holding the cheapest blended endpoint price for that day. Provider
+# identity and other provider-specific dimensions are not persisted (approved
+# scope reduction; provider-granular history remains deferred -- see
+# docs/plans/pricing-engine-v2/EXECUTION_CONTRACT.md's Deferred section).
+# history.csv's d1..d30/MA columns are derived from this file, not the other
+# way around.
 # ---------------------------------------------------------------------------
 
 
