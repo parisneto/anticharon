@@ -67,19 +67,19 @@ class _FakeCatalogResponse:
 
 
 def _discover_args(**overrides):
-    base = dict(
-        model_action="discover",
-        query=None,
-        promo=False,
-        modality="text",
-        filter=[],
-        max_price=None,
-        max_input_price=None,
-        max_output_price=None,
-        config=None,
-        json=True,
-        zdr=False,
-    )
+    base = {
+        "model_action": "discover",
+        "query": None,
+        "promo": False,
+        "modality": "text",
+        "filter": [],
+        "max_price": None,
+        "max_input_price": None,
+        "max_output_price": None,
+        "config": None,
+        "json": True,
+        "zdr": False,
+    }
     base.update(overrides)
     return argparse.Namespace(**base)
 
@@ -166,20 +166,20 @@ def test_discover_zdr_caps_live_checks_and_surfaces_warning(monkeypatch, tmp_pat
 
 
 def _run_args(**overrides):
-    base = dict(
-        data_dir=None,
-        history_csv=False,
-        profile=False,
-        analytics=False,
-        dry_run=True,
-        config=None,
-        timeout=10.0,
-        hermes_config=None,
-        no_hermes=True,
-        hints=False,
-        zdr=False,
-        json=True,
-    )
+    base = {
+        "data_dir": None,
+        "history_csv": False,
+        "profile": False,
+        "analytics": False,
+        "dry_run": True,
+        "config": None,
+        "timeout": 10.0,
+        "hermes_config": None,
+        "no_hermes": True,
+        "hints": False,
+        "zdr": False,
+        "json": True,
+    }
     base.update(overrides)
     return argparse.Namespace(**base)
 
