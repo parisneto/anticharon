@@ -6,15 +6,18 @@
 - Feature branch: `pricing-engine-v2`
 - Base branch: `main`
 - Originally assessed commit: `90aaa06f5b1866b98d0a4463794ed00933a62f0a`
-- Current remediation HEAD: `2894628e9bd41359170f200c57bd9affefa2ef2a`
-  (remediation pass 4, including this ledger update)
+- Current remediation HEAD: `d6dcc7ed88e68bb25929690341d898aa54d5cef5`
+  (remediation pass 4 plus three follow-up fixes)
 - Originally assessed version: `v0.5.2`
 - Initial validation date: `2026-09-16`
 - Reviewer: Codex
-- Overall status: `BLOCKED` (remediation pass 4 addresses independent retest
-  round 4's sole reopening reason, PE2-006's unhandled nested-response-shape
-  crash; PE2-006 is `Ready for Retest`, not `Resolved`, pending independent
-  confirmation — no merge, version bump, tag, or push is permitted)
+- Overall status: `BLOCKED` (independent retest round 5 confirms the nested-
+  response-shape corrections, but reopens PE2-006 because the final malformed-
+  activity-log follow-up still permits negative token counts to produce a
+  negative cached weight and cache-hit rate. PE2-009 and PE2-010 are also
+  reopened because the follow-up behavior and exact lint-deferral inventory
+  are not synchronized with the specification, changelog, backlog, or approval
+  record. No merge, version bump, tag, or push is permitted.)
 
 Round-by-round summary: independent retest 1 (`5c98eae4`, 2026-09-17)
 reopened PE2-004/009/010; remediation pass 2 (`8f65f49e`) addressed those.
@@ -28,7 +31,10 @@ release-required P2 finding PE2-006. Remediation pass 4 (2026-09-18, this
 pass, commit `89dcb75`) adds `isinstance()` guards to all three
 `tracker.py` fetch functions and regression tests reproducing both exact
 crashes end-to-end — see PE2-006's own "Remediation pass 4" entry and the
-Retest Log. Remediation-agent results remain implementation evidence only;
+Retest Log. Independent retest 5 (`d6dcc7e`, 2026-09-18) confirmed those
+guards but reopened PE2-006 on negative token-count handling and reopened
+PE2-009/010 on follow-up documentation and approval-record drift.
+Remediation-agent results remain implementation evidence only;
 the independent results recorded under each finding and in the Retest Log
 control this decision.
 
@@ -714,7 +720,7 @@ ADR 0002 remains normative until explicitly superseded or amended.
 ### PE2-006 — Mandatory failure-path and realistic-payload coverage is incomplete
 
 - Severity: P2
-- Status: `Ready for Retest`
+- Status: `Open`
 - Contract impact:
   - Mature test-suite requirements
   - Deterministic failure handling
@@ -911,6 +917,31 @@ ADR 0002 remains normative until explicitly superseded or amended.
   - Resolution commit: `89dcb75`.
   - Status: `Ready for Retest`.
 
+- **Independent retest round 5 (2026-09-18):**
+  - Tested commit: `d6dcc7ed88e68bb25929690341d898aa54d5cef5`.
+  - The round-4 nested-shape defect is corrected. The focused PE2-006 group
+    passed 17 tests in 0.86s, and mutation-style execution of the seven new
+    tracker regressions against pre-fix commit `1eee45d` produced five expected
+    failures, including the original end-to-end `AttributeError`; the two bulk-
+    catalog guard assertions passed because the old broad fetch exception
+    already normalized those exact inputs to an empty result.
+  - The three follow-up regressions are also load-bearing: running their four
+    tests against pre-follow-up commit `ba001d7` produced four expected failures
+    (discovery nested shape, malformed middle history row, and cached tokens
+    exceeding prompt tokens).
+  - A new equivalent malformed-input probe against the final commit remains
+    unsafe: `tokens_prompt=1000`, `tokens_completion=100`,
+    `tokens_cached=-50` returns `total_cached_tokens=-50`,
+    `weight_cached_prompt=-0.0454545`, and `cache_hit_rate=-0.05`. Token counts
+    cannot be negative. This contradicts the final follow-up's stated guarantee
+    that corrupt input cannot produce a nonsensical negative weight and can
+    still poison persisted calibration output.
+  - Required remediation: reject or clamp every token-count field to a
+    non-negative integer before aggregation; add behavior-based regressions for
+    negative prompt, cached, and completion counts; document the chosen
+    malformed-row behavior in the authoritative specification and changelog.
+  - Result: `Open` (release-required P2 blocker).
+
 ### PE2-007 — CLI diagnostic verifies the retired two-component formula
 
 - Severity: P2
@@ -1074,7 +1105,7 @@ ADR 0002 remains normative until explicitly superseded or amended.
 ### PE2-009 — Planning and validation documents are not synchronized
 
 - Severity: P3
-- Status: `Resolved`
+- Status: `Open`
 - Contract impact:
   - Spec-driven development
   - Execution Contract authority
@@ -1327,11 +1358,25 @@ ADR 0002 remains normative until explicitly superseded or amended.
   - `git diff --check main...HEAD` passed with zero findings.
   - Result: `Resolved`.
 
+- **Independent retest round 5 (2026-09-18):**
+  - Tested commit: `d6dcc7ed88e68bb25929690341d898aa54d5cef5`.
+  - The round-4 synchronization corrections remain intact, but three later
+    source behavior changes (`discovery.py` nested-shape fallback,
+    `storage.py` malformed-row isolation, and `log_parser.py` cached-token
+    clamping) are absent from the authoritative specification and changelog.
+    The ledger header itself still named `2894628e` rather than the supplied
+    and tested handoff `d6dcc7e` before this independent update.
+  - This violates AGENTS.md Rule 3's same-change specification requirement and
+    Rule 6's in-flight changelog requirement. The negative-token probe recorded
+    under PE2-006 additionally shows that the undocumented malformed-log policy
+    is incomplete, not merely missing prose.
+  - Result: `Open`.
+
 
 ### PE2-010 — Quality-tooling policy is unclear and not enforced
 
 - Severity: P3
-- Status: `Resolved`
+- Status: `Open`
 - Contract impact:
   - CI quality gates
   - Dependency hygiene
@@ -1551,6 +1596,22 @@ ADR 0002 remains normative until explicitly superseded or amended.
     initiative is integrated into `main`.
   - Result: `Resolved`.
 
+- **Independent retest round 5 (2026-09-18):**
+  - Tested commit: `d6dcc7ed88e68bb25929690341d898aa54d5cef5`.
+  - The agreed mechanical Ruff scope and both exact-fingerprint gates pass.
+    Full Ruff now reports 47 findings.
+  - The `storage.py` follow-up behaviorally resolved the deferred
+    `S110 storage.py:70` finding even though the human sign-off explicitly
+    forbade fixing S110 findings in this branch without dedicated approval.
+    Its regression test is useful, but it is an unapproved scope change under
+    the recorded lint governance decision.
+  - Removing that fingerprint reduced the exact approved baseline from 39 to
+    38 entries (`BLE001` 24, `B023` 8, `S110` 3, `S112` 1, `PLW1510` 2), while
+    `docs/standards/lint_baseline_pe2010.txt`, `docs/standards/linting.md`, and
+    `docs/BACKLOG.md` still claim 39 findings and `S110` 4. The deferral and
+    approval record are therefore no longer synchronized.
+  - Result: `Open`.
+
 
 ## Acceptance-Criteria Traceability
 
@@ -1569,22 +1630,22 @@ ADR 0002 remains normative until explicitly superseded or amended.
 | Same-day rerun idempotency | Derived dated observations | Unit/integration tests | Pass |
 | Public/internal listed-price canary | Live test | Passed independently | Pass |
 | Realistic effective-pricing fixture | Sanitized fixture | Parsed independently | Pass |
-| Timeout/HTTP/malformed failure paths | Tracker fetch functions | Existing tests plus 7 new wrong-nested-type tests + 1 end-to-end `run_tracker` test (remediation pass 4) | Pending independent retest (PE2-006 `Ready for Retest`) |
+| Timeout/HTTP/malformed failure paths | Tracker fetch functions and local parsers | Nested-response regressions pass and are load-bearing; negative token counts still produce invalid calibration weights | Blocked (PE2-006 open) |
 | CLI diagnostic canonical formula | Production three-component function | Mutation-style regression and diagnostic | Pass |
 | Correct cache-hit-rate output | Derived prompt-only rate | Unit/integration/manual | Pass |
-| Deterministic offline pytest gate | Pytest configuration and CI | 149 passed, 3 deselected | Pass |
-| Explicit live-test isolation | `@pytest.mark.live` | 3 passed, 149 deselected | Pass |
-| CI merge gate | GitHub Actions | Pytest/diagnostic equivalents and exact-fingerprint lint gate pass on feature commit; integrated-commit CI remains pending merge authority | Pass pre-integration (PE2-010 resolved) |
-| Contract/plan/spec synchronization | Documentation | Source, contract, plan, spec, ADR, README, changelog, backlog, and validation ledger independently reconciled | Pass (PE2-009 resolved) |
+| Deterministic offline pytest gate | Pytest configuration and CI | 160 passed, 3 deselected | Pass |
+| Explicit live-test isolation | `@pytest.mark.live` | 3 passed, 160 deselected | Pass |
+| CI merge gate | GitHub Actions | Pytest/diagnostic equivalents and exact-fingerprint lint gate pass on feature commit; integrated-commit CI remains pending merge authority | Behavioral checks pass pre-integration; PE2-010 governance blocker remains |
+| Contract/plan/spec synchronization | Documentation | Three post-ledger behavior changes are absent from the authoritative specification/changelog; lint deferral counts are stale | Blocked (PE2-009/PE2-010 open) |
 | Version/changelog/tag consistency | Release files | Pending remediation/release | Blocked |
 
 ## Required Release Gates
 
 - [x] PE2-001 independently retested and resolved.
 - [x] All P1 findings resolved.
-- [ ] All release-required P2 findings resolved (PE2-006 `Ready for Retest`,
-      pending independent confirmation).
-- [x] Any deferred finding explicitly approved and synchronized across the
+- [ ] All release-required P2 findings resolved (PE2-006 reopened by
+      independent retest round 5).
+- [ ] Any deferred finding explicitly approved and synchronized across the
       Execution Contract, Plan, specification, backlog, validation ledger,
       and source documentation.
 - [x] Regression tests added for every resolved behavioral defect.
@@ -1845,17 +1906,83 @@ ADR 0002 remains normative until explicitly superseded or amended.
 - Independent result: pending
 - Release decision: `BLOCKED` (pending independent retest of this pass)
 
+### Independent retest 5 — Completed, release blocked
+
+- Date: `2026-09-18`
+- Tested commit: `d6dcc7ed88e68bb25929690341d898aa54d5cef5`.
+- Handoff verification: exact match; `pricing-engine-v2` and
+  `origin/pricing-engine-v2` both pointed to the tested commit at start.
+- Disposable-checkout environment: detached Git worktree; Darwin 25.6.0 arm64;
+  CPython 3.12.14; pytest 9.1.1; Ruff 0.16.7; isolated `.venv`, uv cache,
+  config, and runtime-data directory; user runtime data excluded.
+- Findings rechecked: PE2-001 through PE2-010.
+- Findings resolved: PE2-001, PE2-002, PE2-003, PE2-004, PE2-005, PE2-007,
+  PE2-008.
+- Findings reopened: PE2-006, PE2-009, PE2-010.
+- Offline gate: PASS — 160 passed, 3 live tests deselected in 3.42s;
+  dependency downloads disabled and HTTP(S) redirected to a dead local proxy.
+- Live gate: PASS — 3 passed, 160 deselected in 7.85s.
+- Focused finding groups: PASS — PE2-001 3 passed; PE2-002 16 passed;
+  PE2-003 13 passed; PE2-004 15 passed; PE2-005 3 passed; PE2-006 17 passed;
+  PE2-007 3 passed; PE2-008 5 passed; PE2-009 behavioral set 2 passed.
+- Mutation-style regression verification: the seven new tracker tests run
+  against pre-fix `1eee45d` produced 5 failures/2 passes, including the exact
+  original end-to-end crash; the four follow-up tests run against
+  pre-follow-up `ba001d7` produced 4 failures. The corrections are load-bearing.
+- Diagnostic gate: PASS — isolated `anticharon test --no-hermes`; all core
+  checks passed, canonical mathematical engine verified, OpenRouter reachable
+  with 446 models at 78ms reported latency.
+- Manual three-price verification: PASS — `openai/gpt-5.6-sol` preserved
+  `effective_price_1m=0.32357` across normal and ZDR checks; ZDR separately
+  reported `policy_price_1m=1.423707`, advertised `$2/$10`,
+  `is_policy_routable=true`, and `cache_hit_rate_used=0.766701`.
+- Manual same-day persistence: PASS — two isolated live `run` invocations
+  changed only `last_updated`; `ma_3d=0.29238`, `ma_7d=0.286689`, and all
+  historical slots (`d1` through `d30`) remained unchanged.
+- New malformed-input probe: FAIL — a row with `tokens_cached=-50` produced a
+  negative cached total, cached weight, and cache-hit rate. PE2-006 remains a
+  release-required blocker.
+- Packaging: PASS — offline wheel build; version `0.5.2`; runtime metadata
+  contains only `mcp>=1.3.0` and `requests>=2.31.0`.
+- Ruff/static analysis: changed-line gate PASS against both `main` and
+  `1eee45d`; authorized mechanical rules clean; full inventory 47 findings.
+  Governance/synchronization FAIL — an explicitly forbidden deferred S110
+  finding was behaviorally resolved without approval, and the resulting
+  38-entry baseline is still documented as 39.
+- Whitespace: PASS — both `git diff --check` and
+  `git diff --check main...HEAD` returned zero findings before this ledger
+  update.
+- CI-equivalent result: pytest and isolated diagnostic PASS; actual integrated
+  release-branch CI remains pending because merge authority is `NO`.
+- Changed/weakened expectations: provider-granular history remains the explicit
+  human-approved reduction to cheapest-per-day storage; fetch failure and a
+  successful empty endpoint response intentionally share policy-unknown
+  behavior; `tests/run_tests.py` remains retired. The storage follow-up changed
+  a specifically deferred behavioral-lint path without approval; this is an
+  unexplained governance change, not an accepted weakening.
+- SemVer decision: after remediation and authorized integration, the next
+  release remains PATCH `v0.5.3` because the branch corrects released v0.5.x
+  behavior, documentation, tests, and packaging without adding a public
+  feature. Neither local nor remote tag `v0.5.3` exists. No version files were
+  changed.
+- Branch integration: not attempted; merge authority is `NO`.
+- Push/tag: not attempted. Failed validation forbids branch push, version bump,
+  tag creation, and tag push despite branch-push authorization.
+- Release decision: `BLOCKED`.
+
 ## Final Sign-Off
 
-- Final validated feature commit: none; most gates passed on
-  `1eee45d0ae09fd715a319f444feb0c7033dbe33b`, but PE2-006 failed and was
-  addressed by remediation pass 4 (`89dcb75`), pending independent retest.
+- Final validated feature commit: none; deterministic, live, diagnostic,
+  manual, packaging, whitespace, and changed-line lint gates passed on
+  `d6dcc7ed88e68bb25929690341d898aa54d5cef5`, but PE2-006, PE2-009, and
+  PE2-010 remain open.
 - Integrated release-branch commit:
 - Released version:
 - Release commit:
 - Release tag:
 - Remote branch/tag verification: feature branch already matched the tested
-  handoff at validation start; no branch or tag push attempted after failure.
+  handoff at validation start; proposed `v0.5.3` was absent locally and
+  remotely; no branch or tag push attempted after failure.
 - Decision: `BLOCKED`
-- Reviewer: Codex (independent retest round 4)
+- Reviewer: Codex (independent retest round 5)
 - Date: `2026-09-18`
