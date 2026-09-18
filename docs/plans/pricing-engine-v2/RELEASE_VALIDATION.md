@@ -6,15 +6,15 @@
 - Feature branch: `pricing-engine-v2`
 - Base branch: `main`
 - Originally assessed commit: `90aaa06f5b1866b98d0a4463794ed00933a62f0a`
-- Current remediation HEAD: `18ba8e26a6c46a52c36755689420a0697fc11165`
-  (remediation pass 3)
+- Current remediation HEAD: `1eee45d0ae09fd715a319f444feb0c7033dbe33b`
+  (remediation pass 3 handoff commit independently tested in round 4)
 - Originally assessed version: `v0.5.2`
 - Initial validation date: `2026-09-16`
 - Reviewer: Codex
-- Overall status: `BLOCKED` (remediation pass 3 addresses independent retest
-  round 2's reopening reasons for PE2-004, PE2-009, and PE2-010; findings are
-  `Ready for Retest`, not `Resolved`, pending independent confirmation — no
-  merge, version bump, tag, or push is permitted)
+- Overall status: `BLOCKED` (independent retest round 4 resolved PE2-004,
+  PE2-009, and PE2-010, but reopened release-required P2 finding PE2-006 after
+  reproducing an unhandled nested-response-shape crash in the historical
+  backfill path; no merge, version bump, tag, or push is permitted)
 
 The remediation HEAD from the first independent retest
 (`5c98eae427577e04d3b23892c683c5f2fe953d54`) received independent validation
@@ -411,7 +411,7 @@ ADR 0002 remains normative until explicitly superseded or amended.
 ### PE2-004 — Granular historical persistence does not match the plan
 
 - Severity: P2
-- Status: `Open`
+- Status: `Resolved`
 - Contract impact:
   - Provider-specific pricing representation
   - Local storage/schema requirements
@@ -609,6 +609,21 @@ ADR 0002 remains normative until explicitly superseded or amended.
     `59bbd83` (EXECUTION_CONTRACT.md consolidation).
   - Status: `Ready for Retest`.
 
+- **Independent retest round 4 (2026-09-18):**
+  - Tested commit: `1eee45d0ae09fd715a319f444feb0c7033dbe33b`.
+  - Independently inspected the implementation, approved reduction-rule test,
+    Execution Contract, Plan, accepted ADR 0002 amendment, specification,
+    backlog, source docstrings/comments, and human approval record. They now
+    consistently describe one cheapest blended observation per model/day and
+    explicitly defer provider-granular persistence.
+  - Focused storage/backfill set: 24 passed, 2 live tests deselected in 0.07s.
+    The provider-identity-discard test asserts the exact persisted shape and
+    cheapest-of-day behavior; store round-trip, duplicate refresh, partial
+    provider data, and no-fabrication behavior remain covered.
+  - Two isolated live persisted runs changed only `last_updated`; `d1` through
+    `d30`, `ma_3d`, and `ma_7d` remained identical.
+  - Result: `Resolved`.
+
 
 ### PE2-005 — Live backfill canary does not perform the promised cross-validation
 
@@ -706,7 +721,7 @@ ADR 0002 remains normative until explicitly superseded or amended.
 ### PE2-006 — Mandatory failure-path and realistic-payload coverage is incomplete
 
 - Severity: P2
-- Status: `Resolved`
+- Status: `Open`
 - Contract impact:
   - Mature test-suite requirements
   - Deterministic failure handling
@@ -817,6 +832,32 @@ ADR 0002 remains normative until explicitly superseded or amended.
   - Realistic effective-pricing fixture parsing and deterministic MCP/CLI
     three-price assertions passed.
   - Result: `Resolved`.
+
+- **Independent retest round 4 (2026-09-18):**
+  - Tested commit: `1eee45d0ae09fd715a319f444feb0c7033dbe33b`.
+  - Full offline suite passed (149 passed, 3 live tests deselected), and the
+    focused network/policy-unknown set passed 23 tests. Those passing tests do
+    not cover a wrong nested `data` type inside an otherwise valid top-level
+    response object.
+  - Equivalent targeted probes reproduced two unhandled schema-drift paths:
+    - `fetch_effective_pricing_history()` returns `[]` for `{"data": []}`;
+      `sync_effective_prices_for_model()` then calls
+      `_reduce_to_daily_observations()`, which raises
+      `AttributeError: 'list' object has no attribute 'get'`.
+    - `fetch_endpoint_policy_pricing()` returns a mapping for a non-empty
+      `{"data": {...}}`; `resolve_policy_pricing()` iterates its string keys
+      and raises `AttributeError: 'str' object has no attribute 'get'`.
+  - The existing `wrong_response_shape` tests only use a wrong top-level bare
+    list. They therefore pass while the production fetchers return invalid
+    nested values that crash downstream consumers. This violates the
+    Execution Contract's wrong-shape/failure-path requirement and the
+    specification's graceful-degradation/no-unhandled-crash contract.
+  - Required remediation: validate the nested `data` type in all three fetch
+    functions, return the documented empty value on mismatch, add regression
+    tests for wrong nested types (including empty and non-empty mappings/lists),
+    and prove the full `run_tracker`/backfill sync path degrades without an
+    exception.
+  - Result: `Open` (release-required P2 blocker).
 
 ### PE2-007 — CLI diagnostic verifies the retired two-component formula
 
@@ -981,7 +1022,7 @@ ADR 0002 remains normative until explicitly superseded or amended.
 ### PE2-009 — Planning and validation documents are not synchronized
 
 - Severity: P3
-- Status: `Open`
+- Status: `Resolved`
 - Contract impact:
   - Spec-driven development
   - Execution Contract authority
@@ -1221,11 +1262,24 @@ ADR 0002 remains normative until explicitly superseded or amended.
     consolidation), `6a1f09f` (remaining whitespace).
   - Status: `Ready for Retest`.
 
+- **Independent retest round 4 (2026-09-18):**
+  - Tested commit: `1eee45d0ae09fd715a319f444feb0c7033dbe33b`.
+  - Verified all ten stable finding IDs remain present exactly once; no host
+    path leaks were found in public Markdown; remaining `OPEN`/placeholder
+    terms occur only in historical finding evidence or explanatory text.
+  - Source documentation, specification `--zdr` semantics, README calibration
+    wording, changelog entries, Execution Contract deferral, Plan, accepted
+    ADR amendment, and backlog are synchronized with the shipped behavior.
+  - Old-header graceful degradation and single-observation dispersion
+    regressions passed in the focused storage/analytics runs.
+  - `git diff --check main...HEAD` passed with zero findings.
+  - Result: `Resolved`.
+
 
 ### PE2-010 — Quality-tooling policy is unclear and not enforced
 
 - Severity: P3
-- Status: `Open`
+- Status: `Resolved`
 - Contract impact:
   - CI quality gates
   - Dependency hygiene
@@ -1428,6 +1482,23 @@ ADR 0002 remains normative until explicitly superseded or amended.
     across `AGENTS.md`/`PLAN.md`/`docs/BACKLOG.md`/`docs/standards/linting.md`).
   - Status: `Ready for Retest`.
 
+- **Independent retest round 4 (2026-09-18):**
+  - Tested commit: `1eee45d0ae09fd715a319f444feb0c7033dbe33b`.
+  - Authorized mechanical Ruff scope (`UP006`, `UP045`, `I001`, `F401`,
+    `C408`) passed with zero findings. Full Ruff inventory remains 49 findings;
+    the exact-fingerprint changed-line gate passed both against `main` and
+    against remediation-pass base `2bf4831`.
+  - The approved baseline contains the exact 39 behavioral findings authorized
+    for deferral; a new finding at another location is not exempted by rule
+    code. Remaining non-baselined findings are on untouched lines and are
+    outside this initiative's changed-line scope.
+  - Offline wheel build passed; metadata declares only `mcp>=1.3.0` and
+    `requests>=2.31.0` as runtime dependencies (pytest and Ruff absent).
+  - CI-equivalent pytest and diagnostic commands passed. The documented CI
+    workflow intentionally does not add the changed-line gate until the
+    initiative is integrated into `main`.
+  - Result: `Resolved`.
+
 
 ## Acceptance-Criteria Traceability
 
@@ -1441,26 +1512,26 @@ ADR 0002 remains normative until explicitly superseded or amended.
 | Policy-unroutable recommendations | PE2-001 remediation | Independently retested | Pass |
 | Policy-unknown graceful degradation | Tracker/discovery | 11 targeted tests | Pass |
 | Missing/partial pricing fallback | Endpoint/catalog parser | 33 targeted tests | Pass |
-| Provider-granular persistence | Narrowed implementation | Remediation pass 3 corrected `storage.py`'s docstring/comment and consolidated the duplicate Execution Contract deferral entry | Pending independent retest (PE2-004 `Ready for Retest`) |
+| Provider-granular persistence | Narrowed implementation | Human-approved deferral synchronized and independently retested | Pass (PE2-004 resolved) |
 | 28-day backfill | Tracker/storage | Deterministic fixture and live coverage | Pass |
 | Same-day rerun idempotency | Derived dated observations | Unit/integration tests | Pass |
 | Public/internal listed-price canary | Live test | Passed independently | Pass |
 | Realistic effective-pricing fixture | Sanitized fixture | Parsed independently | Pass |
-| Timeout/HTTP/malformed failure paths | Tracker fetch functions | 19 deterministic tests | Pass |
+| Timeout/HTTP/malformed failure paths | Tracker fetch functions | Existing 19 tests pass, but wrong nested `data` types crash downstream consumers | Fail (PE2-006 open) |
 | CLI diagnostic canonical formula | Production three-component function | Mutation-style regression and diagnostic | Pass |
 | Correct cache-hit-rate output | Derived prompt-only rate | Unit/integration/manual | Pass |
 | Deterministic offline pytest gate | Pytest configuration and CI | 149 passed, 3 deselected | Pass |
 | Explicit live-test isolation | `@pytest.mark.live` | 3 passed, 149 deselected | Pass |
-| CI merge gate | GitHub Actions | Pytest/diagnostic equivalents pass; C408 fixed (commit `2bf4831`); deferral is now an exact-fingerprint baseline (`docs/standards/lint_baseline_pe2010.txt`) + `scripts/lint_gate.py`, not a rule-code exemption | Pending independent retest (PE2-010 `Ready for Retest`) |
-| Contract/plan/spec synchronization | Documentation | Source docstrings, spec CLI wording, README calibration wording, changelog statuses, and duplicate deferral all corrected in remediation pass 3 | Pending independent retest (PE2-009 `Ready for Retest`) |
+| CI merge gate | GitHub Actions | Pytest/diagnostic equivalents and exact-fingerprint lint gate pass on feature commit; integrated-commit CI remains pending merge authority | Pass pre-integration (PE2-010 resolved) |
+| Contract/plan/spec synchronization | Documentation | Source, contract, plan, spec, ADR, README, changelog, backlog, and validation ledger independently reconciled | Pass (PE2-009 resolved) |
 | Version/changelog/tag consistency | Release files | Pending remediation/release | Blocked |
 
 ## Required Release Gates
 
 - [x] PE2-001 independently retested and resolved.
 - [x] All P1 findings resolved.
-- [ ] All release-required P2 findings resolved (PE2-004 open).
-- [ ] Any deferred finding explicitly approved and synchronized across the
+- [ ] All release-required P2 findings resolved (PE2-006 reopened).
+- [x] Any deferred finding explicitly approved and synchronized across the
       Execution Contract, Plan, specification, backlog, validation ledger,
       and source documentation.
 - [x] Regression tests added for every resolved behavioral defect.
@@ -1474,8 +1545,7 @@ ADR 0002 remains normative until explicitly superseded or amended.
 - [x] Policy-unroutable models are never recommended under the policy.
 - [x] Policy-unknown behavior matches the documented fallback rule.
 - [x] Same-day rerun remains idempotent.
-- [ ] Agreed Ruff/static-analysis scope passes (C408 remains outside the
-      recorded deferral approval).
+- [x] Agreed Ruff/static-analysis scope passes.
 - [x] `git diff --check` passes on the tested remediation commit.
 - [ ] CI passes on the integrated release commit.
 - [ ] Feature branch is reconciled with the release branch.
@@ -1640,16 +1710,72 @@ ADR 0002 remains normative until explicitly superseded or amended.
 - Independent result: pending
 - Release decision: `BLOCKED` (pending independent retest of this pass)
 
+### Independent retest 4 — Completed, release blocked
+
+- Date: `2026-09-18`
+- Tested commit: `1eee45d0ae09fd715a319f444feb0c7033dbe33b`.
+- Handoff verification: exact match; `pricing-engine-v2` and
+  `origin/pricing-engine-v2` both pointed to the tested commit at start.
+- Disposable-checkout environment: detached Git worktree; Darwin 25.6.0 arm64;
+  CPython 3.12.14; pytest 9.1.1; Ruff 0.16.7; isolated `.venv`, uv cache,
+  config, and runtime-data directory; user runtime data excluded.
+- Findings rechecked: PE2-001 through PE2-010.
+- Findings resolved: PE2-001, PE2-002, PE2-003, PE2-004, PE2-005, PE2-007,
+  PE2-008, PE2-009, PE2-010.
+- Finding reopened: PE2-006 (wrong nested response shapes can crash the
+  endpoint-policy and historical-backfill downstream paths).
+- Offline gate: PASS — 149 passed, 3 deselected in 2.56s; dependency downloads
+  disabled and HTTP(S) redirected to a dead local proxy to detect accidental
+  network access.
+- Live gate: PASS — 3 passed, 149 deselected in 8.71s.
+- Targeted groups: PASS — 13 pricing/PE2-001 tests; 32 required-price/PE2-002
+  tests; 23 policy/failure-path/PE2-003 tests; 24 storage/backfill tests with
+  2 live deselected; 10 CLI/MCP tests with 1 live deselected; 5 diagnostic/
+  analytics/cache-rate tests.
+- Diagnostic gate: PASS — isolated `anticharon test --no-hermes`; all core
+  checks passed, canonical mathematical engine verified, OpenRouter reachable
+  with 446 models at 91ms reported latency.
+- Manual three-price verification: PASS — `openai/gpt-5.6-sol` preserved
+  `effective_price_1m=0.32357` across normal and ZDR checks; ZDR separately
+  reported `policy_price_1m=1.423707`, advertised `$2/$10`,
+  `is_policy_routable=true`, and `cache_hit_rate_used=0.766701`.
+- Manual same-day persistence: PASS — two isolated live `run` invocations
+  changed only `last_updated`; `ma_3d=0.29238`, `ma_7d=0.286689`, and all
+  historical slots (`d1` through `d30`) remained unchanged.
+- Packaging: PASS — offline wheel build; version `0.5.2`; runtime metadata
+  contains only `mcp>=1.3.0` and `requests>=2.31.0`.
+- Ruff/static analysis: PASS for the agreed changed-line scope. Authorized
+  mechanical rule set has zero findings; exact-fingerprint gate passes against
+  `main`; full repository inventory remains 49 deferred/pre-existing findings.
+- Whitespace: PASS — both `git diff --check` and
+  `git diff --check main...HEAD` return zero findings.
+- CI-equivalent result: pytest and isolated diagnostic PASS; actual integrated
+  release-branch CI is pending because merge authority is `NO`.
+- Changed/weakened expectations: provider-granular history remains the explicit
+  human-approved reduction to cheapest-per-day storage; fetch failure and a
+  successful empty endpoint response intentionally share policy-unknown
+  behavior; `tests/run_tests.py` remains retired per the Plan. No skipped,
+  removed, or newly weakened expectation was observed. The newly discovered
+  PE2-006 gap is an omitted wrong-nested-shape case, not an authorized change.
+- SemVer decision: after remediation and authorized integration, the next
+  release remains PATCH `v0.5.3` because this branch corrects released v0.5.x
+  behavior, documentation, tests, and packaging without adding another public
+  feature. Local tag `v0.5.3` does not exist. No version files were changed.
+- Branch integration: not attempted; merge authority is `NO`.
+- Push/tag: not attempted. Failed validation forbids branch push, version bump,
+  tag creation, and tag push despite branch-push authorization.
+- Release decision: `BLOCKED`.
+
 ## Final Sign-Off
 
-- Final validated feature commit: none; behavioral gates passed on
-  `f37f98cf7e7d03e2169edb93abe916411791e20d`, but release gates failed.
+- Final validated feature commit: none; most gates passed on
+  `1eee45d0ae09fd715a319f444feb0c7033dbe33b`, but PE2-006 failed.
 - Integrated release-branch commit:
 - Released version:
 - Release commit:
 - Release tag:
-- Remote branch/tag verification: not attempted; validation failed and merge/tag
-  push authority was not granted.
+- Remote branch/tag verification: feature branch already matched the tested
+  handoff at validation start; no branch or tag push attempted after failure.
 - Decision: `BLOCKED`
-- Reviewer: Codex (independent retest round 2)
-- Date: `2026-09-17`
+- Reviewer: Codex (independent retest round 4)
+- Date: `2026-09-18`
