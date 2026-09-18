@@ -52,12 +52,17 @@ OPENROUTER_EFFECTIVE_PRICING_URL = "https://openrouter.ai/api/frontend/v1/stats/
 
 
 def fetch_openrouter_models(timeout: float = 10.0) -> dict[str, Any]:
-    """Fetch all active model records from OpenRouter public bulk catalog (advertised price/metadata)."""
+    """Fetch all active model records from OpenRouter public bulk catalog (advertised price/metadata).
+    Graceful degradation: {} on any failure, including a wrong-typed nested `data`
+    payload (e.g. not a list, or a list of non-dict entries) -- never raise past
+    this function into a downstream consumer (PE2-006)."""
     try:
         resp = requests.get(OPENROUTER_MODELS_URL, timeout=timeout)
         resp.raise_for_status()
         data = resp.json().get("data", [])
-        return {m["id"]: m for m in data if "id" in m}
+        if not isinstance(data, list):
+            return {}
+        return {m["id"]: m for m in data if isinstance(m, dict) and "id" in m}
     except Exception as e:
         print(f"[WARN] Failed to query OpenRouter API ({e}). Falling back to cached history.", file=sys.stderr)
         return {}
@@ -68,7 +73,9 @@ def fetch_endpoint_policy_pricing(canonical_slug: str, timeout: float = 10.0) ->
     (`provider_info.dataPolicy.retainsPrompts`) -- supersedes the public
     `/models/{slug}/endpoints` call for this project (live-verified: that call's
     `status` field reports 0/routable for everyone on an unauthenticated request).
-    Graceful degradation: [] on any failure."""
+    Graceful degradation: [] on any failure, including a wrong-typed nested `data`
+    payload (e.g. a mapping instead of a list, or a list of non-dict entries) --
+    never raise past this function into a downstream consumer (PE2-006)."""
     try:
         resp = requests.get(
             OPENROUTER_ENDPOINT_STATS_URL,
@@ -81,7 +88,10 @@ def fetch_endpoint_policy_pricing(canonical_slug: str, timeout: float = 10.0) ->
             timeout=timeout,
         )
         resp.raise_for_status()
-        return resp.json().get("data", [])
+        data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
+        return [ep for ep in data if isinstance(ep, dict)]
     except Exception:
         return []
 
@@ -113,7 +123,10 @@ def fetch_effective_pricing_history(canonical_slug: str, timeout: float = 10.0) 
     returns the last 8 days. Graceful degradation: {} on failure, or when the
     model has no persistent history of its own (e.g. a `~`-prefixed router
     alias like `~deepseek/deepseek-pro-latest`, live-verified to return an
-    empty-but-200-OK payload since "latest" has no fixed permaslug identity)."""
+    empty-but-200-OK payload since "latest" has no fixed permaslug identity).
+    Also degrades to {} for a wrong-typed nested `data` payload (e.g. a list
+    instead of a mapping) -- never raise past this function into
+    `_reduce_to_daily_observations` (PE2-006)."""
     try:
         resp = requests.get(
             OPENROUTER_EFFECTIVE_PRICING_URL,
@@ -121,7 +134,10 @@ def fetch_effective_pricing_history(canonical_slug: str, timeout: float = 10.0) 
             timeout=timeout,
         )
         resp.raise_for_status()
-        return resp.json().get("data", {})
+        data = resp.json().get("data", {})
+        if not isinstance(data, dict):
+            return {}
+        return data
     except Exception:
         return {}
 

@@ -581,4 +581,65 @@ def test_run_tracker_cache_hit_rate_used_is_the_real_rate_not_the_raw_weight(mon
 
     model_price = result.prices_shortlist[0]
     assert model_price.price.cache_hit_rate_used == pytest.approx(0.766701, abs=1e-5)
+
+
+# --- PE2-006 (independent retest round 4): a wrong-typed nested `data` payload
+# from the endpoint-stats or effective-pricing routes must degrade gracefully
+# through the whole run_tracker path, not raise AttributeError out of
+# resolve_policy_pricing() or _reduce_to_daily_observations().
+# See docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-006.
+
+
+def test_run_tracker_survives_nested_schema_drift_on_both_stats_routes(monkeypatch, tmp_path):
+    """End-to-end reproduction of both crashes the independent retest reported:
+    the endpoint-stats route's "data" is a mapping instead of a list of
+    endpoint dicts, and the effective-pricing route's "data" is a list instead
+    of a mapping. Before the PE2-006 fix, this raised AttributeError out of
+    resolve_policy_pricing()/_reduce_to_daily_observations() and crashed the
+    whole `anticharon run`. Deliberately does NOT use the `no_backfill`
+    fixture -- the point is to exercise sync_effective_prices_for_model's real
+    fetch_effective_pricing_history() call, not bypass it."""
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {
+        "openai/gpt-5.6-sol": {
+            "id": "openai/gpt-5.6-sol",
+            "canonical_slug": "openai/gpt-5.6-sol-20260709",
+            "pricing": {"prompt": "0.000002", "completion": "0.00001"},
+        },
+    })
+
+    class _FakeResponse:
+        def __init__(self, json_data):
+            self._json_data = json_data
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._json_data
+
+    def fake_get(url, **kwargs):
+        if "stats/endpoint" in url:
+            # Drift reproduced verbatim from the independent retest report:
+            # a non-empty mapping where a list of endpoint dicts is expected.
+            return _FakeResponse({"data": {"ep1": {"provider_name": "OpenAI"}}})
+        if "stats/effective-pricing" in url:
+            # Drift reproduced verbatim from the independent retest report:
+            # a list (here, empty) where a mapping is expected.
+            return _FakeResponse({"data": []})
+        raise AssertionError(f"unexpected URL in test: {url}")
+
+    monkeypatch.setattr("anticharon.tracker.requests.get", fake_get)
+
+    cfg_path = _write_shortlist(tmp_path, ["openai/gpt-5.6-sol"])
+    # Must not raise.
+    result = run_tracker(dry_run=True, config_path=cfg_path, history_path=tmp_path / "history.csv", no_hermes=True)
+
+    assert len(result.prices_shortlist) == 1
+    model_price = result.prices_shortlist[0]
+    # Both drifted routes degrade to their documented empty value, so pricing
+    # falls back to the bulk catalog's own headline, cache-aware blended --
+    # never a crash, never a fabricated zero.
+    assert model_price.price.effective_price_1m > 0
+    assert model_price.price.policy_price_1m is None
+    assert model_price.price.is_policy_routable is None
     assert model_price.price.cache_hit_rate_used != pytest.approx(0.764478, abs=1e-4)

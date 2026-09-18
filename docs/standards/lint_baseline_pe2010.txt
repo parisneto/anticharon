@@ -13,6 +13,15 @@
 # Regenerate only when the human explicitly approves a change to this exact
 # deferred set (a line moving because of an unrelated, non-behavioral edit to
 # the same file does not by itself justify silently re-baselining).
+#
+# 2026-09-18 (PE2-006 remediation): tracker.py's three BLE001 entries were
+# relocated from lines 61/85/125 to 66/95/141. This is a pure line-number
+# shift, not a re-scoping: the PE2-006 fix added isinstance() type-checking
+# guard lines directly above each of these same three unmodified
+# `except Exception`/`except Exception as e:` clauses (fetch_openrouter_models,
+# fetch_endpoint_policy_pricing, fetch_effective_pricing_history). Verified
+# line-by-line that each except block's own code is byte-for-byte unchanged;
+# only its position in the file moved.
 B023 src/anticharon/discovery.py:193
 B023 src/anticharon/discovery.py:194
 B023 src/anticharon/discovery.py:195
@@ -42,9 +51,9 @@ BLE001 src/anticharon/tester.py:216
 BLE001 src/anticharon/tester.py:35
 BLE001 src/anticharon/tester.py:39
 BLE001 src/anticharon/tester.py:90
-BLE001 src/anticharon/tracker.py:125
-BLE001 src/anticharon/tracker.py:61
-BLE001 src/anticharon/tracker.py:85
+BLE001 src/anticharon/tracker.py:141
+BLE001 src/anticharon/tracker.py:66
+BLE001 src/anticharon/tracker.py:95
 PLW1510 src/anticharon/hermes.py:68
 PLW1510 src/anticharon/hermes.py:89
 S110 src/anticharon/cli.py:321

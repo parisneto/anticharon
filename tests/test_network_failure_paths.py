@@ -98,6 +98,34 @@ def test_fetch_endpoint_policy_pricing_success_returns_real_data(monkeypatch):
     assert fetch_endpoint_policy_pricing("openai/gpt-5.6-luna-20260709") == real_data
 
 
+def test_fetch_endpoint_policy_pricing_nested_data_wrong_type_mapping_returns_empty_list(monkeypatch):
+    """PE2-006 (independent retest round 4): valid JSON, valid top-level shape
+    (a dict with a "data" key), but "data" itself is a mapping instead of a
+    list -- e.g. the route started returning endpoints keyed by ID. Must
+    degrade to [] rather than pass the mapping through: iterating a dict
+    yields its string keys, and resolve_policy_pricing()'s per-endpoint
+    ep.get(...) calls raise AttributeError on a str."""
+    monkeypatch.setattr(
+        "anticharon.tracker.requests.get",
+        lambda *a, **kw: _FakeResponse(json_data={"data": {"ep1": {"provider_name": "OpenAI"}}}),
+    )
+    assert fetch_endpoint_policy_pricing("openai/gpt-5.6-luna-20260709") == []
+
+
+def test_fetch_endpoint_policy_pricing_nested_data_wrong_element_type_returns_empty_list(monkeypatch):
+    """PE2-006: "data" is itself a list (the expected outer type), but its
+    elements are strings, not endpoint dicts -- the exact drift shape from the
+    independent retest's report (`{"data": ["strings"]}`). Non-dict elements
+    must be filtered out rather than passed through, since
+    resolve_policy_pricing()'s ep.get(...) call would raise AttributeError on
+    a str element."""
+    monkeypatch.setattr(
+        "anticharon.tracker.requests.get",
+        lambda *a, **kw: _FakeResponse(json_data={"data": ["strings", "more strings"]}),
+    )
+    assert fetch_endpoint_policy_pricing("openai/gpt-5.6-luna-20260709") == []
+
+
 # --- fetch_openrouter_models (bulk catalog): same failure normalization, returns {} ---
 
 
@@ -151,6 +179,29 @@ def test_fetch_openrouter_models_success_returns_real_data(monkeypatch):
     assert fetch_openrouter_models() == {"openai/gpt-5.6-luna": real_data[0]}
 
 
+def test_fetch_openrouter_models_nested_data_wrong_type_mapping_returns_empty_dict(monkeypatch):
+    """PE2-006: "data" is a mapping instead of a list of model dicts. Iterating
+    a dict yields its string keys; `"id" in m`/`m["id"]` on a string key would
+    silently misbehave or (for a non-string-like key) raise. Must degrade to {}."""
+    monkeypatch.setattr(
+        "anticharon.tracker.requests.get",
+        lambda *a, **kw: _FakeResponse(json_data={"data": {"openai/gpt-5.6-luna": {"id": "openai/gpt-5.6-luna"}}}),
+    )
+    assert fetch_openrouter_models() == {}
+
+
+def test_fetch_openrouter_models_nested_data_wrong_element_type_returns_empty_dict(monkeypatch):
+    """PE2-006: "data" is a list (the expected outer type), but its elements
+    are not dicts (e.g. bare integers) -- `"id" in m` raises TypeError for a
+    non-iterable element like an int. Must skip non-dict elements rather than
+    crash or silently misclassify them."""
+    monkeypatch.setattr(
+        "anticharon.tracker.requests.get",
+        lambda *a, **kw: _FakeResponse(json_data={"data": [1, 2, 3]}),
+    )
+    assert fetch_openrouter_models() == {}
+
+
 # --- fetch_effective_pricing_history (28-day backfill route): returns {} on failure ---
 
 
@@ -202,3 +253,27 @@ def test_fetch_effective_pricing_history_success_returns_real_data(monkeypatch):
         lambda *a, **kw: _FakeResponse(json_data={"data": real_data}),
     )
     assert fetch_effective_pricing_history("openai/gpt-5.6-luna-20260709") == real_data
+
+
+def test_fetch_effective_pricing_history_nested_data_wrong_type_empty_list_returns_empty_dict(monkeypatch):
+    """PE2-006 (independent retest round 4): valid JSON, valid top-level shape
+    (a dict with a "data" key), but "data" itself is a list instead of a
+    mapping -- the exact reported reproduction (`{"data": []}`). Must degrade
+    to {} rather than pass the list through: _reduce_to_daily_observations()
+    immediately calls history_data.get(...), which raises AttributeError on
+    a list."""
+    monkeypatch.setattr(
+        "anticharon.tracker.requests.get",
+        lambda *a, **kw: _FakeResponse(json_data={"data": []}),
+    )
+    assert fetch_effective_pricing_history("openai/gpt-5.6-luna-20260709") == {}
+
+
+def test_fetch_effective_pricing_history_nested_data_wrong_type_nonempty_list_returns_empty_dict(monkeypatch):
+    """PE2-006: same drift as above, but with a non-empty list -- confirms the
+    guard checks the type, not just emptiness."""
+    monkeypatch.setattr(
+        "anticharon.tracker.requests.get",
+        lambda *a, **kw: _FakeResponse(json_data={"data": ["unexpected", "entries"]}),
+    )
+    assert fetch_effective_pricing_history("openai/gpt-5.6-luna-20260709") == {}
