@@ -63,17 +63,26 @@ def fetch_catalog(
     (see `apply_zdr_filter`) applied *after* local filtering, so a live per-endpoint
     check only ever runs against the small set of models actually matching the user's
     query/filters, not the full ~440-model catalog.
+
+    Graceful degradation: [] on any failure, including a wrong-typed nested
+    `data` payload (e.g. not a list, or a list of non-dict entries) -- never
+    raise past this function into a downstream consumer (same class of gap
+    as PE2-006, in tracker.py's fetch functions).
     """
     try:
         resp = requests.get(OPENROUTER_MODELS_URL, timeout=timeout)
         if resp.status_code != 200:
             return []
         data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
     except Exception:
         return []
 
     catalog: list[CatalogModel] = []
     for item in data:
+        if not isinstance(item, dict):
+            continue
         model_id = item.get("id", "")
         if not model_id:
             continue

@@ -54,6 +54,49 @@ def test_fetch_catalog_skips_sentinel_priced_model(monkeypatch):
     assert all(m.blended_price_1m >= 0 for m in catalog)
 
 
+# --- Schema-drift resilience (same class of gap as PE2-006, found while surveying
+# the codebase for related risk during that finding's remediation): fetch_catalog()
+# had the identical unguarded pattern PE2-006 fixed in tracker.py's fetch functions
+# -- a wrong-typed nested "data" payload passed the try/except (which only catches
+# request/parse failures, not shape mismatches) and crashed the for-loop below it. ---
+
+
+def test_fetch_catalog_nested_data_wrong_type_mapping_returns_empty_list(monkeypatch):
+    """"data" is a mapping instead of a list of model dicts -- iterating a dict
+    yields its string keys, and `item.get("id", "")` on a string raises
+    AttributeError. Must degrade to []."""
+
+    def fake_get(url, timeout=10.0):
+        return _FakeResponse({"openai/gpt-5.6-luna": {"id": "openai/gpt-5.6-luna"}})
+
+    monkeypatch.setattr("anticharon.discovery.requests.get", fake_get)
+    assert fetch_catalog() == []
+
+
+def test_fetch_catalog_nested_data_wrong_element_type_skips_non_dict_entries(monkeypatch):
+    """"data" is a list (the expected outer type), but contains a mix of valid
+    model dicts and non-dict entries (e.g. bare strings) -- the non-dict entries
+    must be skipped individually, not crash the whole fetch, since
+    `item.get("id", "")` on a string element raises AttributeError."""
+    fake_data = [
+        "unexpected string entry",
+        {
+            "id": "openai/gpt-5.6-luna",
+            "name": "OpenAI: GPT-5.6 Luna",
+            "pricing": {"prompt": "0.0000002", "completion": "0.0000012"},
+        },
+    ]
+
+    def fake_get(url, timeout=10.0):
+        return _FakeResponse(fake_data)
+
+    monkeypatch.setattr("anticharon.discovery.requests.get", fake_get)
+    catalog = fetch_catalog()
+    ids = [m.id for m in catalog]
+
+    assert ids == ["openai/gpt-5.6-luna"]
+
+
 # --- PE2-002: missing/partial bulk-catalog pricing must never become a fabricated $0 ---
 # See docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-002.
 
