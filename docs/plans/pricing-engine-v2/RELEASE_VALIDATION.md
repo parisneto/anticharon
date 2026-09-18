@@ -527,7 +527,7 @@ ADR 0002 remains normative until explicitly superseded or amended.
     Contract, Plan, specification, ADR material, backlog/approval record, and
     validation ledger before accepting the narrowed schema.
   - Result: `Open`.
-  - **Human Sign-Off - parisneto - (2026-09-17):** I explicitly approve the scope reduction. Deferring provider-granular persistence aligns with the K.I.S.S. mandate since no current feature consumes it. Parked in  'docs/plans/pricing-engine-v2/EXECUTION_CONTRACT.md' **Provider-Granular Persistence:** item. 
+  - **Human Sign-Off - parisneto - (2026-09-17):** I explicitly approve the scope reduction. Deferring provider-granular persistence aligns with the K.I.S.S. mandate since no current feature consumes it. Parked in  'docs/plans/pricing-engine-v2/EXECUTION_CONTRACT.md' **Provider-Granular Persistence:** item.
 
 - **Remediation pass 2 (2026-09-17), executing the Human Sign-Off above:**
   - `docs/specs/adr/0002_internal_frontend_stats_api_for_historical_trajectories.md`
@@ -1236,7 +1236,7 @@ ADR 0002 remains normative until explicitly superseded or amended.
     them as matching legacy style; that exception contradicts the mandatory
     changed-line policy and therefore cannot pass the agreed static gate.
   - Result: `Open`.
-- **Human Sign-Off - parisneto - (2026-09-17):** I authorize the Code Agent to run `ruff check --fix` to resolve ONLY the safe, non-behavioral formatting errors (UP006, UP045, I001, F401). 
+- **Human Sign-Off - parisneto - (2026-09-17):** I authorize the Code Agent to run `ruff check --fix` to resolve ONLY the safe, non-behavioral formatting errors (UP006, UP045, I001, F401).
   However, I explicitly **FORBID** fixing behavioral rules (B023, BLE001, PLW1510, S110, S112) in this branch. Park those specific behavioral rules in `docs/BACKLOG.md` as a separate tech-debt initiative, as they require dedicated regression tests and violate the minimal-change scope of this pricing release.
 
 - **Remediation pass 2 (2026-09-17), executing the Human Sign-Off above:**
