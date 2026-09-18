@@ -79,6 +79,42 @@ def test_history_csv_old_pre_rename_format_degrades_gracefully(tmp_path):
     assert history == {}  # graceful fallback, never a fabricated/misparsed partial read
 
 
+def test_history_csv_malformed_row_is_skipped_without_discarding_later_rows(tmp_path):
+    """A single row with a non-numeric price cell (data corruption, e.g. a
+    truncated/garbled write) must be skipped individually -- it must NOT abort
+    parsing of the rest of the file. Found while surveying the codebase for
+    risk similar to PE2-006's schema-drift crash: read_history() previously
+    wrapped its entire per-row loop in one try/except, so a single bad row
+    silently discarded every model listed after it in the file (reproduced:
+    a model before the bad row survived, a model after it vanished with no
+    warning)."""
+    good_row_a = (
+        "model-a,2026-09-18T00:00:00Z,0.05,0.04,0.4,0.05,0.05,"
+        "0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05"
+    )
+    bad_row = (
+        "model-b,2026-09-18T00:00:00Z,NOT_A_NUMBER,0.04,0.4,0.05,0.05,"
+        "0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05"
+    )
+    good_row_c = (
+        "model-c,2026-09-18T00:00:00Z,0.07,0.04,0.4,0.05,0.05,"
+        "0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05"
+    )
+    csv_path = tmp_path / "history.csv"
+    csv_path.write_text(
+        "model,last_updated,effective_price_1m,advertised_prompt_1m,advertised_completion_1m,"
+        "ma_3d,ma_7d,d1,d2,d3,d4,d5,d6,d7,d15,d30\n"
+        f"{good_row_a}\n{bad_row}\n{good_row_c}\n",
+        encoding="utf-8",
+    )
+
+    history = read_history(csv_path)
+
+    assert set(history.keys()) == {"model-a", "model-c"}
+    assert history["model-a"].effective_price_1m == pytest.approx(0.05, abs=1e-6)
+    assert history["model-c"].effective_price_1m == pytest.approx(0.07, abs=1e-6)
+
+
 def test_effective_prices_store_roundtrip(tmp_path):
     path = tmp_path / "effective_prices.json"
     store = {

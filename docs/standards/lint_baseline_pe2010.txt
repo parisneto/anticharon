@@ -22,27 +22,45 @@
 # fetch_endpoint_policy_pricing, fetch_effective_pricing_history). Verified
 # line-by-line that each except block's own code is byte-for-byte unchanged;
 # only its position in the file moved.
-B023 src/anticharon/discovery.py:193
-B023 src/anticharon/discovery.py:194
-B023 src/anticharon/discovery.py:195
-B023 src/anticharon/discovery.py:196
-B023 src/anticharon/discovery.py:197
-B023 src/anticharon/discovery.py:198
-B023 src/anticharon/discovery.py:199
-B023 src/anticharon/discovery.py:200
+#
+# 2026-09-18 (PE2-006 follow-up investigation, same session): applying the
+# identical isinstance() guard pattern to discovery.py's fetch_catalog()
+# (same bug class as PE2-006, found while surveying the codebase for related
+# risk) relocated its BLE001 from line 72 to 79, and shifted its eight B023
+# entries from lines 193-200 to 202-209 (unmodified `check_inequality`
+# closure, shifted only by the new guard lines added above it in the same
+# function). storage.py's read_history() was restructured to isolate a
+# malformed CSV row instead of aborting the whole read on any row's failure:
+# its blind file-open except moved from line 70 to line 48 (the per-row
+# except is now narrowly typed `except (ValueError, TypeError)`, no longer
+# blind, so it no longer needs a baseline entry at all -- this also resolved
+# the S110 finding previously recorded at storage.py:70, since the former
+# combined try/except's `pass` is gone). storage.py's read_effective_prices()
+# BLE001 shifted from line 116 to 122 as a pure consequence of the same
+# insertion above it; its own code is unchanged. Verified line-by-line in
+# every case that no flagged except block's or closure's own code changed,
+# only position.
+B023 src/anticharon/discovery.py:202
+B023 src/anticharon/discovery.py:203
+B023 src/anticharon/discovery.py:204
+B023 src/anticharon/discovery.py:205
+B023 src/anticharon/discovery.py:206
+B023 src/anticharon/discovery.py:207
+B023 src/anticharon/discovery.py:208
+B023 src/anticharon/discovery.py:209
 BLE001 src/anticharon/cli.py:286
 BLE001 src/anticharon/cli.py:305
 BLE001 src/anticharon/cli.py:321
 BLE001 src/anticharon/cli.py:387
 BLE001 src/anticharon/config.py:130
-BLE001 src/anticharon/discovery.py:72
+BLE001 src/anticharon/discovery.py:79
 BLE001 src/anticharon/hermes.py:111
 BLE001 src/anticharon/hermes.py:128
 BLE001 src/anticharon/hermes.py:179
 BLE001 src/anticharon/hermes.py:238
 BLE001 src/anticharon/mcp.py:221
-BLE001 src/anticharon/storage.py:116
-BLE001 src/anticharon/storage.py:70
+BLE001 src/anticharon/storage.py:122
+BLE001 src/anticharon/storage.py:48
 BLE001 src/anticharon/tester.py:113
 BLE001 src/anticharon/tester.py:131
 BLE001 src/anticharon/tester.py:170
@@ -59,5 +77,4 @@ PLW1510 src/anticharon/hermes.py:89
 S110 src/anticharon/cli.py:321
 S110 src/anticharon/config.py:130
 S110 src/anticharon/mcp.py:221
-S110 src/anticharon/storage.py:70
 S112 src/anticharon/cli.py:305

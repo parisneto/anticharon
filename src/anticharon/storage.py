@@ -35,7 +35,9 @@ def _parse_nullable_float(raw: str) -> float | None:
 
 
 def read_history(history_path: Path) -> dict[str, PriceRecord]:
-    """Read historical price records from CSV file."""
+    """Read historical price records from CSV file. A malformed row is skipped
+    individually rather than aborting the whole read -- one corrupted row must
+    never silently discard every model listed after it in the file."""
     history: dict[str, PriceRecord] = {}
     if not history_path.exists():
         return history
@@ -43,32 +45,37 @@ def read_history(history_path: Path) -> dict[str, PriceRecord]:
     try:
         with open(history_path, "r", encoding="utf-8") as f:
             lines = [line.rstrip("\n") for line in f if line.strip()]
-            if len(lines) <= 1:
-                return history
-
-            for line in lines[1:]:
-                parts = [p.strip() for p in line.split(",")]
-                if len(parts) >= 16:
-                    model = parts[0]
-                    last_updated = parts[1]
-                    effective_price_1m = float(parts[2])
-                    advertised_prompt_1m = float(parts[3])
-                    advertised_completion_1m = float(parts[4])
-                    ma_3d = float(parts[5])
-                    ma_7d = float(parts[6])
-                    prices = [_parse_nullable_float(p) for p in parts[7:16]]  # d1..d7, d15, d30
-                    history[model] = PriceRecord(
-                        model=model,
-                        last_updated=last_updated,
-                        effective_price_1m=effective_price_1m,
-                        advertised_prompt_1m=advertised_prompt_1m,
-                        advertised_completion_1m=advertised_completion_1m,
-                        ma_3d=ma_3d,
-                        ma_7d=ma_7d,
-                        prices=prices
-                    )
     except Exception:
-        pass
+        return history
+
+    if len(lines) <= 1:
+        return history
+
+    for line in lines[1:]:
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 16:
+            continue
+        try:
+            model = parts[0]
+            last_updated = parts[1]
+            effective_price_1m = float(parts[2])
+            advertised_prompt_1m = float(parts[3])
+            advertised_completion_1m = float(parts[4])
+            ma_3d = float(parts[5])
+            ma_7d = float(parts[6])
+            prices = [_parse_nullable_float(p) for p in parts[7:16]]  # d1..d7, d15, d30
+        except (ValueError, TypeError):
+            continue
+        history[model] = PriceRecord(
+            model=model,
+            last_updated=last_updated,
+            effective_price_1m=effective_price_1m,
+            advertised_prompt_1m=advertised_prompt_1m,
+            advertised_completion_1m=advertised_completion_1m,
+            ma_3d=ma_3d,
+            ma_7d=ma_7d,
+            prices=prices
+        )
     return history
 
 
@@ -86,8 +93,7 @@ def write_history(records: list[list[Any]], history_path: Path) -> None:
     history_path.parent.mkdir(parents=True, exist_ok=True)
     with open(history_path, "w", encoding="utf-8") as f:
         f.write(CSV_HEADER + "\n")
-        for rec in records:
-            f.write(",".join(_format_cell(x) for x in rec) + "\n")
+        f.writelines(",".join(_format_cell(x) for x in rec) + "\n" for rec in records)
 
 
 # ---------------------------------------------------------------------------
