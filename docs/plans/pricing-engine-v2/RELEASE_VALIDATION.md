@@ -6,28 +6,39 @@
 - Feature branch: `pricing-engine-v2`
 - Base branch: `main`
 - Originally assessed commit: `90aaa06f5b1866b98d0a4463794ed00933a62f0a`
-- Current remediation HEAD: `f37f98cf7e7d03e2169edb93abe916411791e20d`
+- Current remediation HEAD: pending (remediation pass 3, this pass; final
+  commit SHA recorded in the Retest Log's "Remediation pass 3" entry below
+  once committed)
 - Originally assessed version: `v0.5.2`
 - Initial validation date: `2026-09-16`
 - Reviewer: Codex
-- Overall status: `BLOCKED` (independent retest round 2 reopened PE2-004,
-  PE2-009, and PE2-010; no merge, version bump, tag, or push is permitted)
+- Overall status: `BLOCKED` (remediation pass 3 addresses independent retest
+  round 2's reopening reasons for PE2-004, PE2-009, and PE2-010; findings are
+  `Ready for Retest`, not `Resolved`, pending independent confirmation — no
+  merge, version bump, tag, or push is permitted)
 
 The remediation HEAD from the first independent retest
 (`5c98eae427577e04d3b23892c683c5f2fe953d54`) received independent validation
 on 2026-09-17 and was reopened for PE2-004, PE2-009, and PE2-010. A second
 remediation pass at `8f65f49ae889cfbf991d2859944e7ea1d6c3f8fb` (this same
-date) addresses the reopening reasons; see each finding's own "Remediation
-pass 2" entry and the Retest Log. Remediation-agent results remain
-implementation evidence only; the independent results recorded under each
-finding and in the Retest Log control this decision.
+date) addressed those reopening reasons; independent retest round 2 found
+five residual gaps (source-documentation drift, `--zdr` spec wording, README
+calibration wording, CHANGELOG status duplication, a duplicate deferral
+entry, and integration-range whitespace) and reopened all three findings
+again. A third remediation pass (2026-09-18, this pass) addresses each of
+those five gaps — see each finding's own "Remediation pass 3" entry and the
+Retest Log. Remediation-agent results remain implementation evidence only;
+the independent results recorded under each finding and in the Retest Log
+control this decision.
 
 Independent retest round 2 tested the requested handoff commit
 `f37f98cf7e7d03e2169edb93abe916411791e20d` in a detached disposable clone.
 Behavioral, live, diagnostic, packaging, and same-day-idempotency checks passed,
 but source/documentation synchronization, integration-diff whitespace, and the
-agreed changed-line lint scope still fail. The detailed evidence is appended
-under PE2-004, PE2-009, PE2-010, and the Retest Log.
+agreed changed-line lint scope still failed. The detailed evidence is appended
+under PE2-004, PE2-009, PE2-010, and the Retest Log; remediation pass 3's own
+evidence for each corrected gap is appended alongside it, pending independent
+retest round 3.
 
 ## Scope and Sources
 
@@ -566,6 +577,38 @@ ADR 0002 remains normative until explicitly superseded or amended.
     violates AGENTS.md Rule 3 and the finding's own requirement to synchronize
     implementation documentation with the narrowed architecture.
   - Result: `Open`.
+
+- **Remediation pass 3 (2026-09-18), addressing the round-2 reopening reason above:**
+  - `src/anticharon/storage.py`'s module docstring and granular-store section
+    comment corrected to state the actual approved schema: one entry per
+    model per calendar day, holding the cheapest blended endpoint price for
+    that day; provider identity and other provider-specific dimensions are
+    not persisted; provider-granular historical persistence remains deferred
+    (cross-referenced to `EXECUTION_CONTRACT.md`'s Deferred section). No
+    storage behavior changed -- comment/docstring only.
+  - `EXECUTION_CONTRACT.md`'s Deferred section also consolidated: it had
+    carried two overlapping provider-granular-persistence entries (one fully
+    reconciled with the human sign-off reference, one an inconsistent,
+    misspelled leftover). Merged into one canonical entry preserving the
+    human sign-off reference, the approved cheapest-per-model/day scope,
+    the "provider identity intentionally discarded" statement, the
+    concrete-consumer revisit trigger, and links to the Plan/ADR
+    amendment/backlog/this finding.
+  - Verification performed: `grep -rn "per-model, per-provider daily
+    observations"` across `src/` and public docs now returns no match;
+    `docs/specs/spec_v1_anticharon.md:195` and
+    `docs/specs/adr/0002_internal_frontend_stats_api_for_historical_trajectories.md:64`
+    are historical "Correction"/"superseded" narration describing what was
+    wrong before, not active misleading claims.
+  - Remediation-agent verification: `uv run pytest` 149 passed, 3 deselected;
+    `uv run ruff check --select UP006,UP045,I001,F401,C408 src tests` all
+    checks passed; `uv run python scripts/lint_gate.py 2bf4831` PASSED (no
+    new findings on changed lines outside the approved baseline); isolated
+    `anticharon test --no-hermes` all PASS (445 models reachable);
+    `git diff --check` clean; `git diff --check main...HEAD` clean.
+  - Resolution commits: `459184f` (storage.py docstring),
+    `59bbd83` (EXECUTION_CONTRACT.md consolidation).
+  - Status: `Ready for Retest`.
 
 
 ### PE2-005 — Live backfill canary does not perform the promised cross-validation
@@ -1129,6 +1172,56 @@ ADR 0002 remains normative until explicitly superseded or amended.
     no committed integration diff.
   - Result: `Open`.
 
+- **Remediation pass 3 (2026-09-18), one item per reopening reason above:**
+  - "`src/anticharon/storage.py` still describes the persisted store as
+    per-provider" -- corrected (same fix recorded under PE2-004's own
+    Remediation pass 3 entry above; not duplicated here).
+  - "`docs/specs/spec_v1_anticharon.md`'s CLI section still labels `--zdr` as
+    restricting the effective/policy price" -- corrected: the CLI examples
+    section's `# 15. Policy (ZDR) Pricing` line changed from "restrict
+    effective/policy price to ZDR-compliant endpoints" to "calculate a
+    separate ZDR-constrained `policy_price_1m` without replacing
+    `effective_price_1m`," matching §3.1's own normative rule and the
+    already-correct `--zdr` CLI help text (`src/anticharon/cli.py`, corrected
+    in an earlier pass). Searched the rest of the spec and public docs for
+    equivalent wording -- none found; §3.1's own text and the CLI help
+    already stated the additive rule correctly.
+  - "`README.md` still says `anticharon calibrate` saves a prompt/completion
+    mix" -- corrected: the "One-Command Calibration" bullet now says "your
+    exact three-component mix — uncached prompt, cached prompt, and
+    completion," matching the shipped `weight_uncached_prompt`/
+    `weight_cached_prompt`/`weight_completion` config.
+  - "every PE2-001 through PE2-010 entry in `[Unreleased]` still says `Ready
+    for Retest`" -- corrected: removed the `Status: \`Ready for Retest\`.`
+    line from all ten `CHANGELOG.md` entries. `CHANGELOG.md` is release-facing
+    documentation; finding status remains authoritative only in this ledger.
+    The change descriptions and `RELEASE_VALIDATION.md` links are unchanged.
+  - "the Execution Contract contains two separate provider-granular deferral
+    entries" -- corrected (same fix recorded under PE2-004's own Remediation
+    pass 3 entry above; not duplicated here).
+  - "Integration-range whitespace validation also fails" -- corrected: both
+    flagged `RELEASE_VALIDATION.md` lines and the `EXECUTION_CONTRACT.md:222`
+    line (resolved incidentally by the provider-granular consolidation, which
+    rewrote that block) had their trailing whitespace stripped; no other
+    content changed on those lines.
+  - Remediation-agent verification: `uv run pytest` 149 passed, 3 deselected;
+    `uv run ruff check --select UP006,UP045,I001,F401,C408 src tests` all
+    checks passed; `uv run python scripts/lint_gate.py 2bf4831` PASSED;
+    isolated `anticharon test --no-hermes` all PASS (445 models reachable);
+    `git diff --check` clean; `git diff --check main...HEAD` clean (0 findings,
+    verified after all commits below). Searches re-run: no source/doc claims
+    `effective_prices.json` is per-provider outside historical "Correction"/
+    "superseded" narration; no spec text says `--zdr` replaces/restricts
+    effective price; no README text describes calibration as prompt/completion
+    only; exactly one provider-granular deferral entry remains in
+    `EXECUTION_CONTRACT.md`; no PE2 `CHANGELOG.md` entry contains a mutable
+    validation status.
+  - Resolution commits: `1ac0732` (spec `--zdr` wording), `459184f`
+    (storage.py docstring), `f2d8a49` (README calibration wording),
+    `cf66d6f` (changelog status removal), `59bbd83` (Execution Contract
+    consolidation), `6a1f09f` (remaining whitespace).
+  - Status: `Ready for Retest`.
+
 
 ### PE2-010 — Quality-tooling policy is unclear and not enforced
 
@@ -1286,6 +1379,56 @@ ADR 0002 remains normative until explicitly superseded or amended.
     still not met, and the exception record is not synchronized.
   - Result: `Open`.
 
+- **Remediation pass 3 (2026-09-18), addressing the round-2 reopening reason above:**
+  - The two initiative-added `C408` findings in `tests/test_cli.py` (lines 70
+    and 169: `_discover_args()`'s and `_run_args()`'s `dict(...)` helper
+    calls) were fixed in commit `2bf4831` (immediately preceding this
+    remediation pass) by rewriting both to dict-literal syntax. Verified:
+    `uv run ruff check --select C408 src tests` reports "All checks passed!".
+    No behavioral rule (`BLE001`/`B023`/`S110`/`S112`/`PLW1510`) was touched.
+  - The deeper required correction -- "do not create blanket exemptions by
+    Ruff rule code... identify parked findings by exact rule and
+    file/location" -- was still outstanding: `docs/standards/linting.md`
+    described deferral only in terms of rule codes and finding counts, which
+    is exactly the blanket-by-code pattern this requirement forbids (it would
+    have silently passed a brand-new `BLE001` anywhere in the codebase, not
+    just the 39 originally approved). Corrected:
+    - New `docs/standards/lint_baseline_pe2010.txt`: the exact
+      `<rule> <file>:<line>` fingerprint of each of the 39 findings the human
+      sign-off approved (`BLE001`×24, `B023`×8, `S110`×4, `PLW1510`×2,
+      `S112`×1 -- unchanged from the sign-off's own counts).
+    - New `scripts/lint_gate.py`: fails a build only when a Ruff finding is
+      both on a line changed relative to a base ref and absent from the
+      baseline file. A finding on an untouched line never blocks it
+      regardless of rule code (pre-existing/out-of-scope, per AGENTS.md
+      Rule 13); a *new* finding of an already-baselined code at a different
+      location still fails it -- the property a rule-code-only exemption
+      cannot provide. Verified against the immediately-preceding commit
+      (`2bf4831`): `PASSED, no new findings on changed lines outside the
+      approved baseline`.
+    - `docs/standards/linting.md`, `AGENTS.md` Rule 13, `PLAN.md`'s
+      Verification section, and `docs/BACKLOG.md`'s Ruff-cleanup entry all
+      now point at the same fingerprint-baseline mechanism and script,
+      rather than describing the policy inconsistently across documents.
+    - `.github/workflows/ci.yml` deliberately left unchanged: `main` does not
+      yet contain this initiative, so a gate diffing against `main` today
+      would conflate the whole initiative's history with a genuine
+      regression (confirmed live: running `scripts/lint_gate.py` with its
+      default `main` base surfaces a pre-existing `FURB122` on a
+      initiative-rewritten but behaviorally-unrelated `storage.py` line as a
+      false positive). The reasoning for not yet wiring the gate into CI, and
+      the trigger for doing so once this branch merges, is now written down
+      in `docs/standards/linting.md` instead of being implicit.
+  - Remediation-agent verification: `uv run pytest` 149 passed, 3 deselected;
+    `uv run ruff check --select UP006,UP045,I001,F401,C408 src tests` all
+    checks passed; `uv run ruff check src tests --statistics` unchanged at 49
+    findings (all pre-existing, none newly introduced by this pass -- see
+    the `lint_gate.py` result above); isolated `anticharon test --no-hermes`
+    all PASS; `git diff --check` clean; `git diff --check main...HEAD` clean.
+  - Resolution commit: `b671824` (baseline file, gate script, policy sync
+    across `AGENTS.md`/`PLAN.md`/`docs/BACKLOG.md`/`docs/standards/linting.md`).
+  - Status: `Ready for Retest`.
+
 
 ## Acceptance-Criteria Traceability
 
@@ -1299,7 +1442,7 @@ ADR 0002 remains normative until explicitly superseded or amended.
 | Policy-unroutable recommendations | PE2-001 remediation | Independently retested | Pass |
 | Policy-unknown graceful degradation | Tracker/discovery | 11 targeted tests | Pass |
 | Missing/partial pricing fallback | Endpoint/catalog parser | 33 targeted tests | Pass |
-| Provider-granular persistence | Narrowed implementation | Higher-level deferral is approved, but source documentation still claims per-provider persistence | Fail (PE2-004 open) |
+| Provider-granular persistence | Narrowed implementation | Remediation pass 3 corrected `storage.py`'s docstring/comment and consolidated the duplicate Execution Contract deferral entry | Pending independent retest (PE2-004 `Ready for Retest`) |
 | 28-day backfill | Tracker/storage | Deterministic fixture and live coverage | Pass |
 | Same-day rerun idempotency | Derived dated observations | Unit/integration tests | Pass |
 | Public/internal listed-price canary | Live test | Passed independently | Pass |
@@ -1309,8 +1452,8 @@ ADR 0002 remains normative until explicitly superseded or amended.
 | Correct cache-hit-rate output | Derived prompt-only rate | Unit/integration/manual | Pass |
 | Deterministic offline pytest gate | Pytest configuration and CI | 149 passed, 3 deselected | Pass |
 | Explicit live-test isolation | `@pytest.mark.live` | 3 passed, 149 deselected | Pass |
-| CI merge gate | GitHub Actions | Pytest/diagnostic equivalents pass; authorized Ruff codes are clean, but initiative-added C408 findings were not approved for deferral | Fail (PE2-010 open) |
-| Contract/plan/spec synchronization | Documentation | ADR/backlog improved, but source docstrings, spec CLI wording, README calibration wording, changelog statuses, and duplicate deferral remain inconsistent | Fail (PE2-009 open) |
+| CI merge gate | GitHub Actions | Pytest/diagnostic equivalents pass; C408 fixed (commit `2bf4831`); deferral is now an exact-fingerprint baseline (`docs/standards/lint_baseline_pe2010.txt`) + `scripts/lint_gate.py`, not a rule-code exemption | Pending independent retest (PE2-010 `Ready for Retest`) |
+| Contract/plan/spec synchronization | Documentation | Source docstrings, spec CLI wording, README calibration wording, changelog statuses, and duplicate deferral all corrected in remediation pass 3 | Pending independent retest (PE2-009 `Ready for Retest`) |
 | Version/changelog/tag consistency | Release files | Pending remediation/release | Blocked |
 
 ## Required Release Gates
@@ -1465,6 +1608,38 @@ ADR 0002 remains normative until explicitly superseded or amended.
   tag creation, and tag push even though branch push authority was otherwise
   granted.
 - Release decision: `BLOCKED`.
+
+### Remediation pass 3 — PE2-004, PE2-009, PE2-010
+
+- Date: `2026-09-18`
+- Implementation commits: `1ac0732` (spec `--zdr` wording), `459184f`
+  (storage.py docstring), `f2d8a49` (README calibration wording), `cf66d6f`
+  (changelog status removal), `59bbd83` (Execution Contract deferral
+  consolidation), `b671824` (exact-fingerprint lint baseline + gate script +
+  policy sync), `6a1f09f` (remaining integration-range whitespace)
+- Findings: PE2-004, PE2-009, PE2-010
+- Remediation status: `Ready for Retest`
+- Remediation-agent offline result: 149 passed, 3 deselected
+- Remediation-agent diagnostic result: PASS (isolated data dir; 445 models
+  reachable)
+- Remediation-agent `git diff --check`: clean
+- Remediation-agent `git diff --check main...HEAD`: clean (0 findings; the
+  three trailing-whitespace lines independent retest round 2 flagged are
+  resolved)
+- Remediation-agent Ruff result: `--select UP006,UP045,I001,F401,C408`
+  reports "All checks passed!"; full repository-wide result unchanged at 49
+  findings (down from 51 only because C408's 2 were already fixed in the
+  preceding commit `2bf4831`; no new findings introduced by this pass)
+- Remediation-agent `scripts/lint_gate.py 2bf4831` result: PASSED — no new
+  findings on lines changed by this pass outside the approved baseline
+- Searches re-confirmed: no source/doc claims `effective_prices.json` is
+  per-provider outside historical "Correction"/"superseded" narration; no
+  spec text says `--zdr` replaces/restricts effective price; no README text
+  describes calibration as prompt/completion only; exactly one
+  provider-granular deferral entry remains in `EXECUTION_CONTRACT.md`; no
+  PE2 `CHANGELOG.md` entry contains a mutable validation status
+- Independent result: pending
+- Release decision: `BLOCKED` (pending independent retest of this pass)
 
 ## Final Sign-Off
 
