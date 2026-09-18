@@ -6,9 +6,8 @@
 - Feature branch: `pricing-engine-v2`
 - Base branch: `main`
 - Originally assessed commit: `90aaa06f5b1866b98d0a4463794ed00933a62f0a`
-- Current remediation HEAD: pending (remediation pass 3, this pass; final
-  commit SHA recorded in the Retest Log's "Remediation pass 3" entry below
-  once committed)
+- Current remediation HEAD: `18ba8e26a6c46a52c36755689420a0697fc11165`
+  (remediation pass 3)
 - Originally assessed version: `v0.5.2`
 - Initial validation date: `2026-09-16`
 - Reviewer: Codex
