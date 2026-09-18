@@ -1,0 +1,54 @@
+# PE2-010 approved-deferral lint baseline (2026-09-17).
+#
+# Exact "<rule> <file>:<line>" fingerprints of the 39 pre-existing findings
+# human-sign-off explicitly approved for deferral -- see
+# docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#pe2-010's
+# "Human Sign-Off - parisneto - (2026-09-17)" and docs/BACKLOG.md's
+# "Repository-wide behavioral Ruff cleanup" entry. Limited to exactly these
+# five rule codes: BLE001, B023, S110, S112, PLW1510. This is a per-location
+# fingerprint list, not a blanket per-rule-code exemption: a NEW finding of one
+# of these same codes at a different file/line is NOT covered by this baseline
+# and still fails scripts/lint_gate.py.
+#
+# Regenerate only when the human explicitly approves a change to this exact
+# deferred set (a line moving because of an unrelated, non-behavioral edit to
+# the same file does not by itself justify silently re-baselining).
+B023 src/anticharon/discovery.py:193
+B023 src/anticharon/discovery.py:194
+B023 src/anticharon/discovery.py:195
+B023 src/anticharon/discovery.py:196
+B023 src/anticharon/discovery.py:197
+B023 src/anticharon/discovery.py:198
+B023 src/anticharon/discovery.py:199
+B023 src/anticharon/discovery.py:200
+BLE001 src/anticharon/cli.py:286
+BLE001 src/anticharon/cli.py:305
+BLE001 src/anticharon/cli.py:321
+BLE001 src/anticharon/cli.py:387
+BLE001 src/anticharon/config.py:130
+BLE001 src/anticharon/discovery.py:72
+BLE001 src/anticharon/hermes.py:111
+BLE001 src/anticharon/hermes.py:128
+BLE001 src/anticharon/hermes.py:179
+BLE001 src/anticharon/hermes.py:238
+BLE001 src/anticharon/mcp.py:221
+BLE001 src/anticharon/storage.py:116
+BLE001 src/anticharon/storage.py:70
+BLE001 src/anticharon/tester.py:113
+BLE001 src/anticharon/tester.py:131
+BLE001 src/anticharon/tester.py:170
+BLE001 src/anticharon/tester.py:190
+BLE001 src/anticharon/tester.py:216
+BLE001 src/anticharon/tester.py:35
+BLE001 src/anticharon/tester.py:39
+BLE001 src/anticharon/tester.py:90
+BLE001 src/anticharon/tracker.py:125
+BLE001 src/anticharon/tracker.py:61
+BLE001 src/anticharon/tracker.py:85
+PLW1510 src/anticharon/hermes.py:68
+PLW1510 src/anticharon/hermes.py:89
+S110 src/anticharon/cli.py:321
+S110 src/anticharon/config.py:130
+S110 src/anticharon/mcp.py:221
+S110 src/anticharon/storage.py:70
+S112 src/anticharon/cli.py:305

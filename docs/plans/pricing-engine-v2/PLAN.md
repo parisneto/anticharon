@@ -140,3 +140,4 @@ This plan now has **no remaining open decisions**. The next session should imple
 3. `uv run anticharon test` — diagnostic self-check still green.
 4. Manual: `uv run anticharon check --dry-run --json` shows advertised/effective (and policy, with `--zdr`) as three distinct numbers for a known cache-heavy model; reproduces the `openai/gpt-5.6-sol` ZDR finding under `--zdr`.
 5. Manual: run `anticharon run` twice in the same day against a test data dir; confirm `d1` does not change between the two runs (same-day-rerun fix).
+6. `uv run python scripts/lint_gate.py` (PE2-010) — deterministic changed-line/baseline Ruff gate; see `docs/standards/linting.md` and `docs/standards/lint_baseline_pe2010.txt` for the exact-fingerprint policy.

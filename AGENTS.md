@@ -106,6 +106,7 @@ The agent MUST update all 4 files in a single atomic commit:
 - All agents must strictly adhere to the deterministic linting policies and release gates defined in `docs/standards/linting.md`.
 - Unsafe fixes, or any attempt to autonomously fix out-of-scope legacy lint findings, are strictly prohibited to prevent token burn and scope creep.
 - Agents MUST park out-of-scope lint debt in `docs/BACKLOG.md` without investigating it.
+- A human-approved deferral of specific pre-existing findings MUST be recorded as an exact `<rule> <file>:<line>` fingerprint baseline (e.g. `docs/standards/lint_baseline_pe2010.txt`), never as a blanket exemption by rule code — see `docs/standards/linting.md`'s "Deterministic changed-line/baseline gate" section and `scripts/lint_gate.py`.
 ---
 
 ## 3. Project Architecture & Directory Layout
