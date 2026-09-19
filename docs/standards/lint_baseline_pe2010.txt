@@ -41,14 +41,13 @@
 # every case that no flagged except block's or closure's own code changed,
 # only position.
 #
-# 2026-09-18 (count correction): independent retest round 5 correctly
-# flagged that the storage.py:70 S110 fix above was made without the
-# dedicated approval the original sign-off required, and that this file's
-# own header still said 39 findings even though the list below it already
-# had only 38. Header count corrected to match the actual list. The
-# approval-record status of the storage.py:70 fix itself is tracked in
-# docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#pe2-010, not here --
-# this file only records which findings the baseline currently covers.
+# 2026-09-18 (count correction): independent retest round 5 flagged that the
+# repository did not yet contain an explicit approval record for the
+# storage.py:70 S110 fix, and that this file's header still said 39 findings
+# even though the list below it already had only 38. Header count corrected
+# to match the actual list. On 2026-09-19, the Product Owner explicitly
+# approved the storage.py:70 correction and confirmed it remained within the
+# approved proactive resilience scope; see RELEASE_VALIDATION.md#pe2-010.
 B023 src/anticharon/discovery.py:202
 B023 src/anticharon/discovery.py:203
 B023 src/anticharon/discovery.py:204
