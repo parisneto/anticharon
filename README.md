@@ -1,6 +1,6 @@
-# Anticharon 🪙⚖️ (v0.4.3)
+# Anticharon 🪙⚖️ (v0.5.2)
 
-[![Version](https://img.shields.io/badge/version-0.4.3-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.5.2-blue.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/parisneto/anticharon/actions/workflows/ci.yml/badge.svg)](https://github.com/parisneto/anticharon/actions)
 
@@ -17,21 +17,21 @@
 
 In Greek mythology, **Charon** is the grim ferryman who demands an obol coin toll to carry souls across the rivers Styx and Acheron. In modern agentic AI systems, every prompt expansion, reasoning chain, and tool history represents an accumulating token toll.
 
-**Anticharon** is the counter-agent: the vigilant watcher that monitors OpenRouter model pricing, computes weighted prompt/completion blended costs, detects unexpected price spikes or promotional drops, and ensures your agents always cross the token river for the lowest possible toll.
+**Anticharon** is the counter-agent: the vigilant watcher that monitors OpenRouter model pricing, computes cache-aware, three-price (advertised / effective / policy) blended costs, detects unexpected price spikes or promotional drops, and ensures your agents always cross the token river for the lowest possible toll.
 
 ---
 
 ## ✨ Key Features
 
-- **Blended Weighted Pricing:** Calculates realistic cost per 1M tokens based on your agent's actual prompt vs completion ratio (calibrated default: **99.71% input / 0.29% output**).
+- **Cache-Aware Blended Pricing:** Calculates realistic cost per 1M tokens based on your agent's actual uncached-prompt / cached-prompt / completion token mix (calibrated default: **23.26% uncached / 76.45% cached / 0.29% output**), never a cache-blind prompt-vs-completion split.
 - **Backed by 114 Billion Tokens of Empirical Science:** Why do pricing calculators assume a 50/50 token mix? Autonomous agents (Hermes, Claude Code, Cursor, Codex) don't chat—they work. They consume massive contexts (system prompts, workspace trees, code snippets, git logs) and output concise tool calls and surgical diffs. We validated our default calibration against University of Washington's research paper [*"TraceLab: Characterizing Coding Agent Workloads for LLM Serving"*](https://syfi.cs.washington.edu/blog/2026-06-25-tracelab/) ([live demo](https://tracelab.cs.washington.edu/), [GitHub](https://github.com/uw-syfi/TraceLab)). Across **114.2 billion input tokens** and **391.8 million output tokens** (a **291.5 to 1 ratio**), the academic dataset recorded 99.66% input / 0.34% output—differing from Anticharon's operational baseline by **only 0.05% (-0.0005)**. We did the heavy lifting so you and your agents get real-world mathematical accuracy out of the box!
 - **Eliminates AI Cost Anxiety & Slop:** When you know true blended costs, price hikes don't terrify you, and promotional windows don't deceive you. Developers and agents can deploy frontier models responsibly within a sensible personal budget.
 - **TUI ASCII Price Spectrum Chart:** Instant visual ASCII bar chart in every run showing relative pricing distribution from `▲ Cheaper` to `▼ More Expensive`, badging `🏆 [BEST]` and `★ [DEFAULT]`.
-- **Model Discovery Engine (`anticharon model discover`):** Search and filter OpenRouter's entire catalog (~417+ models) with multi-criteria keywords, output modalities (`--modality text`), promotional / free discounts (`--promo`), and price threshold expressions (`--filter "price < 10"`).
+- **Catalog Search & Filter (`anticharon model discover`):** Filter OpenRouter's entire catalog (~417+ models) by keyword substring match, output modality (`--modality text`), promotional / free flags (`--promo`), and price threshold expressions (`--filter "price < 10"`) — plain criteria matching, sorted cheapest-first. No AI ranking, curation, or recommendations.
 - **Model Shortlist Management (`anticharon model add / remove / list`):** Manage your configuration right from the terminal with live catalog slug validation and `--dry-run` safety.
-- **One-Command Calibration (`anticharon calibrate`):** Directly ingest CSV log exports from OpenRouter to automatically calculate and save your exact prompt/completion mix for better life quality. Remember: Y.M.M.V. (Your Mix May Vary).
+- **One-Command Calibration (`anticharon calibrate`):** Directly ingest CSV log exports from OpenRouter to automatically calculate and save your exact three-component mix — uncached prompt, cached prompt, and completion — for better life quality. Remember: Y.M.M.V. (Your Mix May Vary).
 - **Moving Average & Volatility Detection:** Tracks 3-day and 7-day moving averages (`MA_3d`, `MA_7d`) to trigger instant `PRICE_SPIKE`, `PRICE_DROP`, and `BEST_OPTION_CHANGED` alerts. No Scientific Analysis here just simple moving averages and threshold based logic.
-- **Compact Historical Storage:** Keeps a clean, 1-line-per-model sliding CSV history (`history.csv`) with automatic cold-start padding.
+- **Compact Historical Storage with Real 28-Day Backfill:** Keeps a clean, 1-line-per-model sliding CSV history (`history.csv`), precalculated from a granular per-model daily store (`effective_prices.json`) that backfills real 28-day pricing history on first tracking a model — never fabricated flat padding.
 - **Resilient & Safe:** 10-second API timeouts with graceful fallback to local cache when offline or rate-limited.
 - **Built-in Self-Test (`anticharon test`):** Instant pre-flight checks validating runtime environment, dependencies, math calculations, and network access.
 - **Fast, Zero-Bloat Distribution:** Managed with `uv`, runnable as a standalone CLI or directly installed from Git.
@@ -108,12 +108,12 @@ uv run anticharon model import-hermes --dry-run
 uv run anticharon model import-hermes --hermes-config /custom/path/to/config.yaml
 ```
 
-### Model Discovery & Catalog Exploration
+### Catalog Search & Filtering
 ```bash
-# Search models by family / name
+# Filter models by family / name (substring match)
 uv run anticharon model discover "gemini"
 
-# Discover promotional and free (:free, $0.00) models
+# Filter for promotional and free (:free, $0.00) models
 uv run anticharon model discover --promo
 
 # Multi-criteria filtering (provider, modality, price threshold expressions)
@@ -174,9 +174,11 @@ Anticharon looks for configuration in:
     "minimax/minimax-m2.7",
     "google/gemini-2.5-flash-lite"
   ],
-  "weight_prompt": 0.9922,
-  "weight_completion": 0.0078,
-  "spike_threshold_pct": 20.0
+  "weight_uncached_prompt": 0.2326,
+  "weight_cached_prompt": 0.7645,
+  "weight_completion": 0.0029,
+  "spike_threshold_pct": 20.0,
+  "min_tracking_days_for_profile": 14
 }
 ```
 
@@ -315,4 +317,4 @@ Anticharon is built for the agentic developer community. Contributions, suggesti
 
 - **Found a bug or price discrepancy?** Open an [Issue](https://github.com/parisneto/anticharon/issues).
 - **Want to add a feature or provider filter?** Fork the repo, create a branch, and submit a [Pull Request](https://github.com/parisneto/anticharon/pulls).
-- **Code Standards**: Anticharon follows spec-driven development, zero-dependency testing, and plain Markdown math. Always run `uv run python tests/run_tests.py` before submitting a PR.
+- **Code Standards**: Anticharon follows spec-driven development, deterministic `pytest`-based testing, and plain Markdown math. Always run `uv run pytest` before submitting a PR.

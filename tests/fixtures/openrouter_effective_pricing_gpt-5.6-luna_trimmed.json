@@ -1,0 +1,212 @@
+{
+  "data": {
+    "weightedInputPrice": 0.06752103290340206,
+    "weightedOutputPrice": 1.315884845426437,
+    "weightedCacheHitRate": 0.8363819024667389,
+    "providerSummaries": [
+      {
+        "endpointId": "eebea444-34a5-4642-a766-cb319471d33a",
+        "providerName": "OpenAI (2)",
+        "providerSlug": "openai",
+        "effectiveInputPrice": 0.08185761374198942,
+        "effectiveOutputPrice": 1.2024033428666472,
+        "cacheHitRate": 0.7497656970979464,
+        "totalTokens": 410002472969
+      },
+      {
+        "endpointId": "297a2285-308d-4bfb-a120-a9c2ead800b0",
+        "providerName": "OpenAI (1)",
+        "providerSlug": "openai",
+        "effectiveInputPrice": 0.050227203136922575,
+        "effectiveOutputPrice": 2.401223410528887,
+        "cacheHitRate": 0.9777938909936108,
+        "totalTokens": 279121184616
+      },
+      {
+        "endpointId": "ff94b1f1-db76-42c5-a21e-06083c3cc7d0",
+        "providerName": "OpenAI (3)",
+        "providerSlug": "openai",
+        "effectiveInputPrice": 0.034825442384162075,
+        "effectiveOutputPrice": 0.6002065596261129,
+        "cacheHitRate": 0.7912523885448925,
+        "totalTokens": 41648823166
+      },
+      {
+        "endpointId": "3e1fe018-94f7-4499-874b-34254ca271a7",
+        "providerName": "Azure (1)",
+        "providerSlug": "azure",
+        "effectiveInputPrice": 0.07245619423165171,
+        "effectiveOutputPrice": 1.2019771226722786,
+        "cacheHitRate": 0.7890507787627028,
+        "totalTokens": 39090982712
+      },
+      {
+        "endpointId": "84f2862d-b070-4497-b1f2-e44af8304e7f",
+        "providerName": "Amazon Bedrock",
+        "providerSlug": "amazon-bedrock",
+        "effectiveInputPrice": 0.07390728505087395,
+        "effectiveOutputPrice": 1.3232226593923442,
+        "cacheHitRate": 0.8071402232174699,
+        "totalTokens": 6392575047
+      },
+      {
+        "endpointId": "bf333980-ba45-412c-9eb3-bac520ea764d",
+        "providerName": "Azure (2)",
+        "providerSlug": "azure",
+        "effectiveInputPrice": 0.08112780997370876,
+        "effectiveOutputPrice": 1.3213415858466877,
+        "cacheHitRate": 0.7659482149239837,
+        "totalTokens": 4500416739
+      },
+      {
+        "endpointId": "eb706c2a-0b59-4497-ac86-31baf7e4876e",
+        "providerName": "Azure (3)",
+        "providerSlug": "azure",
+        "effectiveInputPrice": 0.20960679132980747,
+        "effectiveOutputPrice": 1.3189074500214288,
+        "cacheHitRate": 0.25839857805942673,
+        "totalTokens": 796488132
+      }
+    ],
+    "providerNames": [
+      "Azure (1)",
+      "Amazon Bedrock",
+      "OpenAI (2)",
+      "Azure (2)",
+      "OpenAI (1)",
+      "Azure (3)",
+      "OpenAI (3)"
+    ],
+    "endpointNames": {
+      "297a2285-308d-4bfb-a120-a9c2ead800b0": "OpenAI (1)",
+      "3e1fe018-94f7-4499-874b-34254ca271a7": "Azure (1)",
+      "84f2862d-b070-4497-b1f2-e44af8304e7f": "Amazon Bedrock",
+      "bf333980-ba45-412c-9eb3-bac520ea764d": "Azure (2)",
+      "eb706c2a-0b59-4497-ac86-31baf7e4876e": "Azure (3)",
+      "eebea444-34a5-4642-a766-cb319471d33a": "OpenAI (2)",
+      "ff94b1f1-db76-42c5-a21e-06083c3cc7d0": "OpenAI (3)"
+    },
+    "endpointRawNames": {
+      "bf333980-ba45-412c-9eb3-bac520ea764d": "Azure",
+      "3e1fe018-94f7-4499-874b-34254ca271a7": "Azure",
+      "eb706c2a-0b59-4497-ac86-31baf7e4876e": "Azure",
+      "84f2862d-b070-4497-b1f2-e44af8304e7f": "Amazon Bedrock",
+      "eebea444-34a5-4642-a766-cb319471d33a": "OpenAI",
+      "ff94b1f1-db76-42c5-a21e-06083c3cc7d0": "OpenAI",
+      "297a2285-308d-4bfb-a120-a9c2ead800b0": "OpenAI"
+    },
+    "endpointProviderSlugs": {
+      "bf333980-ba45-412c-9eb3-bac520ea764d": "azure",
+      "3e1fe018-94f7-4499-874b-34254ca271a7": "azure",
+      "eb706c2a-0b59-4497-ac86-31baf7e4876e": "azure",
+      "84f2862d-b070-4497-b1f2-e44af8304e7f": "amazon-bedrock",
+      "eebea444-34a5-4642-a766-cb319471d33a": "openai",
+      "ff94b1f1-db76-42c5-a21e-06083c3cc7d0": "openai",
+      "297a2285-308d-4bfb-a120-a9c2ead800b0": "openai"
+    },
+    "inputChartData": [
+      {
+        "x": "2026-08-17 00:00:00",
+        "y": {
+          "bf333980-ba45-412c-9eb3-bac520ea764d": 0.1703051944844335,
+          "3e1fe018-94f7-4499-874b-34254ca271a7": 0.0821044300527387,
+          "eb706c2a-0b59-4497-ac86-31baf7e4876e": 0.10350863918677664,
+          "84f2862d-b070-4497-b1f2-e44af8304e7f": 0.11251413359720015,
+          "eebea444-34a5-4642-a766-cb319471d33a": 0.043969300025796715
+        }
+      },
+      {
+        "x": "2026-08-18 00:00:00",
+        "y": {
+          "84f2862d-b070-4497-b1f2-e44af8304e7f": 0.10440100992528217,
+          "3e1fe018-94f7-4499-874b-34254ca271a7": 0.06886041098452345,
+          "eb706c2a-0b59-4497-ac86-31baf7e4876e": 0.0835704582741665,
+          "eebea444-34a5-4642-a766-cb319471d33a": 0.0615952345905531,
+          "bf333980-ba45-412c-9eb3-bac520ea764d": 0.08511382417979672
+        }
+      },
+      {
+        "x": "2026-08-19 00:00:00",
+        "y": {
+          "84f2862d-b070-4497-b1f2-e44af8304e7f": 0.14101931575912102,
+          "bf333980-ba45-412c-9eb3-bac520ea764d": 0.04324320921694041,
+          "3e1fe018-94f7-4499-874b-34254ca271a7": 0.0671192433338419,
+          "eb706c2a-0b59-4497-ac86-31baf7e4876e": 0.06433689364739911,
+          "eebea444-34a5-4642-a766-cb319471d33a": 0.06564172785668822
+        }
+      },
+      {
+        "x": "2026-08-20 00:00:00",
+        "y": {
+          "bf333980-ba45-412c-9eb3-bac520ea764d": 0.14286352200244953,
+          "eb706c2a-0b59-4497-ac86-31baf7e4876e": 0.0750441959835899,
+          "3e1fe018-94f7-4499-874b-34254ca271a7": 0.06652131114780861,
+          "84f2862d-b070-4497-b1f2-e44af8304e7f": 0.153128881077016,
+          "eebea444-34a5-4642-a766-cb319471d33a": 0.0737529568504158
+        }
+      },
+      {
+        "x": "2026-08-21 00:00:00",
+        "y": {
+          "bf333980-ba45-412c-9eb3-bac520ea764d": 0.1408130750226826,
+          "84f2862d-b070-4497-b1f2-e44af8304e7f": 0.15807638173818708,
+          "eb706c2a-0b59-4497-ac86-31baf7e4876e": 0.09289024472890958,
+          "eebea444-34a5-4642-a766-cb319471d33a": 0.07424920637729987,
+          "3e1fe018-94f7-4499-874b-34254ca271a7": 0.07428573724632904
+        }
+      }
+    ],
+    "outputChartData": [
+      {
+        "x": "2026-08-17 00:00:00",
+        "y": {
+          "bf333980-ba45-412c-9eb3-bac520ea764d": 1.3410284209322987,
+          "3e1fe018-94f7-4499-874b-34254ca271a7": 1.2174143902927113,
+          "eb706c2a-0b59-4497-ac86-31baf7e4876e": 1.337101132081582,
+          "84f2862d-b070-4497-b1f2-e44af8304e7f": 1.3214942083477166,
+          "eebea444-34a5-4642-a766-cb319471d33a": 0.8773449381292232
+        }
+      },
+      {
+        "x": "2026-08-18 00:00:00",
+        "y": {
+          "84f2862d-b070-4497-b1f2-e44af8304e7f": 1.326324463275711,
+          "3e1fe018-94f7-4499-874b-34254ca271a7": 1.2105913411786353,
+          "eb706c2a-0b59-4497-ac86-31baf7e4876e": 1.328127572871495,
+          "eebea444-34a5-4642-a766-cb319471d33a": 1.176284107425662,
+          "bf333980-ba45-412c-9eb3-bac520ea764d": 1.3296693366456172
+        }
+      },
+      {
+        "x": "2026-08-19 00:00:00",
+        "y": {
+          "84f2862d-b070-4497-b1f2-e44af8304e7f": 1.3197412805863995,
+          "bf333980-ba45-412c-9eb3-bac520ea764d": 1.3194497236232143,
+          "3e1fe018-94f7-4499-874b-34254ca271a7": 1.2247466364235131,
+          "eb706c2a-0b59-4497-ac86-31baf7e4876e": 1.348923553730041,
+          "eebea444-34a5-4642-a766-cb319471d33a": 1.172587464801847
+        }
+      },
+      {
+        "x": "2026-08-20 00:00:00",
+        "y": {
+          "bf333980-ba45-412c-9eb3-bac520ea764d": 1.3203255644414926,
+          "eb706c2a-0b59-4497-ac86-31baf7e4876e": 1.35227507383713,
+          "3e1fe018-94f7-4499-874b-34254ca271a7": 1.212314166086888,
+          "84f2862d-b070-4497-b1f2-e44af8304e7f": 1.3183637188962618,
+          "eebea444-34a5-4642-a766-cb319471d33a": 0.9145623111043536
+        }
+      },
+      {
+        "x": "2026-08-21 00:00:00",
+        "y": {
+          "bf333980-ba45-412c-9eb3-bac520ea764d": 1.3201536955055273,
+          "84f2862d-b070-4497-b1f2-e44af8304e7f": 1.3187125927626056,
+          "eb706c2a-0b59-4497-ac86-31baf7e4876e": 1.3423297779252938,
+          "eebea444-34a5-4642-a766-cb319471d33a": 1.170927219235374,
+          "3e1fe018-94f7-4499-874b-34254ca271a7": 1.2084359178741904
+        }
+      }
+    ]
+  }
+}

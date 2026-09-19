@@ -10,8 +10,11 @@
     "google/gemini-2.5-flash-lite",
     "minimax/minimax-m2.7"
   ],
-  "weight_prompt": 0.997063,
+  "weight_uncached_prompt": 0.232614,
+  "weight_cached_prompt": 0.764449,
   "weight_completion": 0.002937,
   "spike_threshold_pct": 20.0,
-  "_comment": "Calibrated based on Author's August 2026 dataset (99.71% in / 0.29% out) and corroborated by UW TraceLab Claude Code traces (99.63% in / 0.37% out)."
+  "min_tracking_days_for_profile": 14,
+  "max_zdr_check_count": 10,
+  "_comment": "Cache-aware 3-way split (ADR-2026-0002-TOKENS-CACHED): decomposes the Author's August 2026 dataset's 99.71% in / 0.29% out (corroborated by UW TraceLab Claude Code traces, 99.63% in / 0.37% out) using the pooled interim cache-hit-rate from docs/plans/pricing-engine-v2/PLAN.md."
 }

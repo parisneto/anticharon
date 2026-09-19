@@ -7,10 +7,10 @@
 > Any material change to scope, architecture, acceptance criteria, non-goals, or
 > testing strategy MUST update this section in the same change.
 
-Written by:
-Reviewed by:
-Last synchronized:
-Plan/ADR revision:
+Written by: parisneto (human) + remediation coding agent
+Reviewed by: Codex (independent release validation, `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md`)
+Last synchronized: 2026-09-17
+Plan/ADR revision: `PLAN.md` revision 3; `docs/specs/adr/0002_internal_frontend_stats_api_for_historical_trajectories.md` amendment 2026-09-17
 
 ## 1. Anticharon Feature Chosen for This Plan
 
@@ -98,9 +98,6 @@ response parsing or normal operation works.
 
 ## 3. Acceptance Criteria
 
-
-## 3. Acceptance Criteria
-
 The feature is complete when:
 
 ### Pricing model
@@ -121,7 +118,7 @@ The feature is complete when:
 
 ### Storage
 - Local persistence stores both the newly required pricing dimensions and the 28-day historical observations needed by downstream calculations.
-- Existing stored data is either backward-compatible or has an explicit, tested migration/fallback path.
+- Existing stored data is either backward-compatible or has an explicit, tested migration/fallback path. **Resolved 2026-09-17 (PE2-009):** no backward-compatibility shim was added for the `current_price_1m` → `effective_price_1m` rename (a deliberate K.I.S.S. decision, pre-launch/single-digit testers — see `PLAN.md`'s "Core pricing semantics"); the fallback path is that a stale old-format `history.csv` degrades gracefully to empty history (never crashes, never misparses old columns into the new schema's different positions) rather than being migrated. Now explicitly tested: `tests/test_storage.py::test_history_csv_old_pre_rename_format_degrades_gracefully`.
 
 ### Downstream behavior
 
@@ -152,23 +149,19 @@ The feature is complete when:
   silently filled solely to enable calculations or profile classification.
 
 Sample Golden cases:
-- Single historical observation
+- Single historical observation (i.e. a model tracked for exactly one day,
+  zero backfill available)
   Expected:
-  - mean = observed value
-  - dispersion = <explicit Anticharon-defined behavior>
+  - mean = observed value (the single observation, trivially — see
+    `price_min_30d`/`price_max_30d` in `tests/test_analytics.py::test_single_observation_zero_dispersion_golden_case`)
+  - dispersion = `0.0%` (`volatility_cv_pct`) — **resolved 2026-09-17 (PE2-009):**
+    the coefficient of variation of a single data point is mathematically
+    zero (there is no second point to vary against), not undefined and not
+    a fabricated nonzero guess. Live-verified against the actual
+    implementation (`calculate_model_analytics`) and locked in by the test
+    referenced above.
   - profile = 🌱 NEWLY_TRACKED
   - no synthetic historical observations
-
-
-### Verification
-- Mandatory pytest suite passes without network access.
-- Golden cases pass.
-- Mocked integration path passes.
-- Defined failure/fallback cases pass.
-- At least one test would fail if cached-token pricing were removed again.
-- At least one test would fail if a realistic external payload were parsed
-  incorrectly.
-- CI blocks completion/merge when mandatory gates fail.
 
 
 ### Verification
@@ -219,6 +212,7 @@ Scope is bounded by the acceptance criteria. Anything not required to meet them 
 Items discovered during implementation belong here unless explicitly approved and promoted into the current scope.
 
 Current candidates:
-- ( peding start )
-- ...
-- previous items ( not yet in backlog, pending confirmation, research or prioritization) :
+- **Provider-granular historical persistence (PE2-004, deferred 2026-09-17; human-approved — see `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#pe2-004`'s "Human Sign-Off - parisneto - (2026-09-17)"):** `PLAN.md`'s original "Storage architecture" section described a per-model, *per-provider* daily time series (`date`, `provider`, effective price, listed price, cache-hit rate, token share). The approved and shipped scope instead persists one collapsed cheapest-price-per-model/day observation in `effective_prices.json`; provider identity and other provider-specific dimensions are intentionally discarded, not merely omitted. This is the approved shipped scope, not an oversight — see `PLAN.md`'s "Storage architecture" → "Scope correction" note for the full reconciliation and rationale (no current downstream consumer needs provider-level history; building it speculatively would violate this section's own "concrete over general" rule above), `docs/specs/adr/0002_internal_frontend_stats_api_for_historical_trajectories.md`'s 2026-09-17 Amendment (supersedes Decision §2's `fullhistory.csv` design), and `docs/BACKLOG.md`'s "Provider-granular historical persistence" entry. Provider-granular history remains deferred until a concrete consumer requires it (e.g. a "cheapest provider over time" view, or historical cache-hit-rate trending, unlocking OpenRouter provider-routing filters such as `max_price`, `sort: "throughput"`/`:nitro`, and `data_collection`/`enforce_distillable_text` — see [provider-selection](https://openrouter.ai/docs/guides/routing/provider-selection), [API reference](https://openrouter.ai/docs/api_reference/parameters), [service tiers](https://openrouter.ai/docs/guides/features/service-tiers)) — scope it as its own initiative against that concrete need, not sight-unseen.
+- **Documentation/reality drift: `smoke` test subset (discovered during PE2-010, 2026-09-17):** the "Verification" section above states "A small `smoke` subset MAY be used as an explicit emergency local bypass," but no `smoke` pytest marker, mark registration, or subset selection exists anywhere in this repository (`grep -rn "smoke"` across `pyproject.toml`, `tests/`, `.github/workflows/`, `AGENTS.md` returns nothing). This line pre-dates PE2-010 and is out of that finding's affected-files scope, so it was not changed here — flagged for a future planning round to either implement the described `smoke` marker or remove the aspirational claim.
+- **Repository-wide Ruff cleanup (discovered during PE2-010, 2026-09-17):** `ruff check src tests` reports pre-existing findings unrelated to any single tracked initiative, beyond the exact fingerprints named in `docs/standards/lint_baseline_pe2010.txt`. Out of scope for a targeted bug-fix pass per this document's own "concrete over general" / "minimal change" Non-Goals. See `docs/standards/linting.md`'s lint-gate policy, `AGENTS.md` Rule 13, and `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#pe2-010` for the current CI-gate decision. Revisit as its own initiative if/when a blanket `ruff check` CI gate is wanted.
+- **Negative-token-count validation hardening (PE2-006, deferred 2026-09-18; non-release-blocking — see `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#pe2-006` for the deferral decision and its rationale):** `log_parser.py`'s `parse_activity_log()` clamps a row's `tokens_cached` to that row's own `tokens_prompt` when cached exceeds prompt (fixed and tested, commit `d6dcc7e`), but does not yet floor a raw *negative* value in `tokens_prompt`, `tokens_completion`, or `tokens_cached` at zero — a synthetic probe with `tokens_cached=-50` still produces a negative `weight_cached_prompt`/`cache_hit_rate`. Not yet observed in a real activity-log export. See `docs/BACKLOG.md`'s "Negative-token-count validation hardening" entry for the concrete fix when picked up.
