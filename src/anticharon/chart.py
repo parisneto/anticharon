@@ -59,3 +59,53 @@ def render_ascii_price_bar(
 
     lines.append("  ▼ More Expensive")
     return lines
+
+if __name__ == "__main__":
+    # Example usage for testing
+
+    mock_prices = [
+        ModelPrice(
+            model="openai/gptx-neo-7",
+            price_1m=2.25,
+            ma_7d=7.90,
+            change_vs_7d_pct=10.76,
+        ),
+        ModelPrice(
+            model="anthropic/claude-Myth-9",
+            price_1m=5.20,
+            ma_7d=5.85,
+            change_vs_7d_pct=-11.11,
+        ),
+        ModelPrice(
+            model="meta/titan-7",
+            price_1m=2.15,
+            ma_7d=1.95,
+            change_vs_7d_pct=10.26,
+        ),
+        ModelPrice(
+            model="xai/grok-heavy-8d",
+            price_1m=3.70,
+            ma_7d=4.10,
+            change_vs_7d_pct=-9.76,
+        ),
+        ModelPrice(
+            model="google/gemini-ultron-4.7",
+            price_1m=1.25,
+            ma_7d=1.25,
+            change_vs_7d_pct=0.00,
+        ),
+        ModelPrice(
+            model="deepseek/deepseek-z32",
+            price_1m=0.98,
+            ma_7d=0.55,
+            change_vs_7d_pct=-30.91,
+        ),
+    ]
+
+    mock_prices.sort(key=lambda x: x.price_1m)
+    chart_lines = render_ascii_price_bar(mock_prices, default_model="openai/gptx-neo-7", max_bar_width=32)
+    
+    print("-" * 74)
+    print()
+    print("\n".join(chart_lines))
+    print("-" * 74)
