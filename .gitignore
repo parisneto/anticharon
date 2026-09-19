@@ -39,3 +39,4 @@ anticharon.code-workspace
 
 # local temp folder
 .local/
+gitleaks-report.json

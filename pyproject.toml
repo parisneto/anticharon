@@ -1,6 +1,6 @@
 [project]
 name = "anticharon"
-version = "0.5.2"
+version = "0.5.3"
 description = "OpenRouter model price tracker, volatility detector, and token cost optimizer for Hermes Agent and MCP pipelines"
 readme = "README.md"
 authors = [
@@ -22,6 +22,8 @@ dependencies = [
 dev = [
     "ruff>=0.16.7",
     "pytest>=9.1.1",
+    "pip-audit>=2.10.1",
+    "pip-licenses>=5.5.5",
 ]
 
 [project.scripts]
