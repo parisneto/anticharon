@@ -1,0 +1,116 @@
+{
+  "data": [
+    {
+      "provider_name": "OpenAI",
+      "provider_slug": "openai/flex",
+      "pricing": {
+        "prompt": "0.0000001",
+        "completion": "0.0000006",
+        "input_cache_read": "0.00000001",
+        "input_cache_write": "0.000000125"
+      },
+      "provider_info": {
+        "dataPolicy": {
+          "retainsPrompts": true
+        }
+      },
+      "status": 0
+    },
+    {
+      "provider_name": "Azure",
+      "provider_slug": "azure",
+      "pricing": {
+        "prompt": "0.0000002",
+        "completion": "0.0000012",
+        "input_cache_read": "0.00000002",
+        "input_cache_write": "0.00000025"
+      },
+      "provider_info": {
+        "dataPolicy": {
+          "retainsPrompts": false
+        }
+      },
+      "status": 0
+    },
+    {
+      "provider_name": "OpenAI",
+      "provider_slug": "openai",
+      "pricing": {
+        "prompt": "0.0000002",
+        "completion": "0.0000012",
+        "input_cache_read": "0.00000002",
+        "input_cache_write": "0.00000025"
+      },
+      "provider_info": {
+        "dataPolicy": {
+          "retainsPrompts": true
+        }
+      },
+      "status": 0
+    },
+    {
+      "provider_name": "Azure",
+      "provider_slug": "azure/us",
+      "pricing": {
+        "prompt": "0.00000022",
+        "completion": "0.00000132",
+        "input_cache_read": "0.000000022",
+        "input_cache_write": "0.000000275"
+      },
+      "provider_info": {
+        "dataPolicy": {
+          "retainsPrompts": false
+        }
+      },
+      "status": 0
+    },
+    {
+      "provider_name": "Amazon Bedrock",
+      "provider_slug": "amazon-bedrock/us-east-1",
+      "pricing": {
+        "prompt": "0.00000022",
+        "completion": "0.00000132",
+        "input_cache_read": "0.000000022",
+        "input_cache_write": "0.000000275"
+      },
+      "provider_info": {
+        "dataPolicy": {
+          "retainsPrompts": false
+        }
+      },
+      "status": 0
+    },
+    {
+      "provider_name": "Azure",
+      "provider_slug": "azure/eu",
+      "pricing": {
+        "prompt": "0.00000022",
+        "completion": "0.00000132",
+        "input_cache_read": "0.000000022",
+        "input_cache_write": "0.000000275"
+      },
+      "provider_info": {
+        "dataPolicy": {
+          "retainsPrompts": false
+        }
+      },
+      "status": 0
+    },
+    {
+      "provider_name": "OpenAI",
+      "provider_slug": "openai/fast",
+      "pricing": {
+        "prompt": "0.0000004",
+        "completion": "0.0000024",
+        "input_cache_read": "0.00000004",
+        "input_cache_write": "0.0000005"
+      },
+      "provider_info": {
+        "dataPolicy": {
+          "retainsPrompts": true
+        }
+      },
+      "status": 0
+    }
+  ]
+}

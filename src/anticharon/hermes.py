@@ -7,15 +7,15 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from anticharon.config import get_config_path, load_config, update_config_shortlist
 
 
 def resolve_hermes_config_path(
-    custom_path: Optional[str | Path] = None,
+    custom_path: str | Path | None = None,
     prompt_if_missing: bool = False
-) -> Optional[Path]:
+) -> Path | None:
     """Resolve the path to Hermes configuration file (config.yaml).
     
     Resolution Priority:
@@ -58,7 +58,7 @@ def resolve_hermes_config_path(
     return None
 
 
-def fetch_models_from_cli() -> Optional[Dict[str, Any]]:
+def fetch_models_from_cli() -> dict[str, Any] | None:
     """Tier 1: Query Hermes active models directly via `hermes config get`."""
     if not shutil.which("hermes"):
         return None
@@ -85,7 +85,7 @@ def fetch_models_from_cli() -> Optional[Dict[str, Any]]:
             return None
 
         # 2. Query fallback_providers
-        fallback_models: List[str] = []
+        fallback_models: list[str] = []
         proc_fallback = subprocess.run(
             ["hermes", "config", "get", "fallback_providers"],
             capture_output=True,
@@ -129,19 +129,19 @@ def fetch_models_from_cli() -> Optional[Dict[str, Any]]:
         return None
 
 
-def extract_models_from_file(config_file: Path) -> Optional[Dict[str, Any]]:
+def extract_models_from_file(config_file: Path) -> dict[str, Any] | None:
     """Tier 2: Stream-grep Hermes config file line-by-line without loading entire file."""
     if not config_file.exists():
         return None
 
-    default_model: Optional[str] = None
-    default_provider: Optional[str] = None
-    fallback_models: List[str] = []
+    default_model: str | None = None
+    default_provider: str | None = None
+    fallback_models: list[str] = []
 
     in_model_block = False
     in_fallback_block = False
-    current_fallback_provider: Optional[str] = None
-    current_fallback_model: Optional[str] = None
+    current_fallback_provider: str | None = None
+    current_fallback_model: str | None = None
 
     try:
         with open(config_file, "r", encoding="utf-8") as f:
@@ -240,10 +240,10 @@ def extract_models_from_file(config_file: Path) -> Optional[Dict[str, Any]]:
 
 
 def get_hermes_models(
-    custom_path: Optional[str | Path] = None,
+    custom_path: str | Path | None = None,
     prompt_if_missing: bool = False,
     use_cli: bool = True
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Retrieve Hermes active models using Tier 1 (CLI) or Tier 2 (File Stream Grep)."""
     # If custom path explicitly specified, use file extractor directly
     if custom_path:
@@ -265,10 +265,10 @@ def get_hermes_models(
 
 
 def sync_hermes_to_config(
-    hermes_models: Dict[str, Any],
-    config_path: Optional[Path] = None,
+    hermes_models: dict[str, Any],
+    config_path: Path | None = None,
     dry_run: bool = False
-) -> Tuple[bool, List[str], Path]:
+) -> tuple[bool, list[str], Path]:
     """Synchronize Hermes models into Anticharon shortlist.json.
     
     Returns (changed: bool, shortlist: List[str], config_path: Path).

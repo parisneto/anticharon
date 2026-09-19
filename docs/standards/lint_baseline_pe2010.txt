@@ -1,0 +1,88 @@
+# PE2-010 approved-deferral lint baseline (2026-09-17; count corrected 2026-09-18).
+#
+# Exact "<rule> <file>:<line>" fingerprints of the 38 pre-existing findings
+# human-sign-off explicitly approved for deferral -- see
+# docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#pe2-010's
+# "Human Sign-Off - parisneto - (2026-09-17)" and docs/BACKLOG.md's
+# "Repository-wide behavioral Ruff cleanup" entry. Limited to exactly these
+# five rule codes: BLE001, B023, S110, S112, PLW1510. This is a per-location
+# fingerprint list, not a blanket per-rule-code exemption: a NEW finding of one
+# of these same codes at a different file/line is NOT covered by this baseline
+# and still fails scripts/lint_gate.py.
+#
+# Regenerate only when the human explicitly approves a change to this exact
+# deferred set (a line moving because of an unrelated, non-behavioral edit to
+# the same file does not by itself justify silently re-baselining).
+#
+# 2026-09-18 (PE2-006 remediation): tracker.py's three BLE001 entries were
+# relocated from lines 61/85/125 to 66/95/141. This is a pure line-number
+# shift, not a re-scoping: the PE2-006 fix added isinstance() type-checking
+# guard lines directly above each of these same three unmodified
+# `except Exception`/`except Exception as e:` clauses (fetch_openrouter_models,
+# fetch_endpoint_policy_pricing, fetch_effective_pricing_history). Verified
+# line-by-line that each except block's own code is byte-for-byte unchanged;
+# only its position in the file moved.
+#
+# 2026-09-18 (PE2-006 follow-up investigation, same session): applying the
+# identical isinstance() guard pattern to discovery.py's fetch_catalog()
+# (same bug class as PE2-006, found while surveying the codebase for related
+# risk) relocated its BLE001 from line 72 to 79, and shifted its eight B023
+# entries from lines 193-200 to 202-209 (unmodified `check_inequality`
+# closure, shifted only by the new guard lines added above it in the same
+# function). storage.py's read_history() was restructured to isolate a
+# malformed CSV row instead of aborting the whole read on any row's failure:
+# its blind file-open except moved from line 70 to line 48 (the per-row
+# except is now narrowly typed `except (ValueError, TypeError)`, no longer
+# blind, so it no longer needs a baseline entry at all -- this also resolved
+# the S110 finding previously recorded at storage.py:70, since the former
+# combined try/except's `pass` is gone). storage.py's read_effective_prices()
+# BLE001 shifted from line 116 to 122 as a pure consequence of the same
+# insertion above it; its own code is unchanged. Verified line-by-line in
+# every case that no flagged except block's or closure's own code changed,
+# only position.
+#
+# 2026-09-18 (count correction): independent retest round 5 flagged that the
+# repository did not yet contain an explicit approval record for the
+# storage.py:70 S110 fix, and that this file's header still said 39 findings
+# even though the list below it already had only 38. Header count corrected
+# to match the actual list. On 2026-09-19, the Product Owner explicitly
+# approved the storage.py:70 correction and confirmed it remained within the
+# approved proactive resilience scope; see RELEASE_VALIDATION.md#pe2-010.
+B023 src/anticharon/discovery.py:202
+B023 src/anticharon/discovery.py:203
+B023 src/anticharon/discovery.py:204
+B023 src/anticharon/discovery.py:205
+B023 src/anticharon/discovery.py:206
+B023 src/anticharon/discovery.py:207
+B023 src/anticharon/discovery.py:208
+B023 src/anticharon/discovery.py:209
+BLE001 src/anticharon/cli.py:286
+BLE001 src/anticharon/cli.py:305
+BLE001 src/anticharon/cli.py:321
+BLE001 src/anticharon/cli.py:387
+BLE001 src/anticharon/config.py:130
+BLE001 src/anticharon/discovery.py:79
+BLE001 src/anticharon/hermes.py:111
+BLE001 src/anticharon/hermes.py:128
+BLE001 src/anticharon/hermes.py:179
+BLE001 src/anticharon/hermes.py:238
+BLE001 src/anticharon/mcp.py:221
+BLE001 src/anticharon/storage.py:122
+BLE001 src/anticharon/storage.py:48
+BLE001 src/anticharon/tester.py:113
+BLE001 src/anticharon/tester.py:131
+BLE001 src/anticharon/tester.py:170
+BLE001 src/anticharon/tester.py:190
+BLE001 src/anticharon/tester.py:216
+BLE001 src/anticharon/tester.py:35
+BLE001 src/anticharon/tester.py:39
+BLE001 src/anticharon/tester.py:90
+BLE001 src/anticharon/tracker.py:141
+BLE001 src/anticharon/tracker.py:66
+BLE001 src/anticharon/tracker.py:95
+PLW1510 src/anticharon/hermes.py:68
+PLW1510 src/anticharon/hermes.py:89
+S110 src/anticharon/cli.py:321
+S110 src/anticharon/config.py:130
+S110 src/anticharon/mcp.py:221
+S112 src/anticharon/cli.py:305

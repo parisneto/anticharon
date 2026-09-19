@@ -1,12 +1,19 @@
 """Model catalog discovery and multi-criteria exploration engine."""
 
-import re
 import json
+import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 import requests
 
-from anticharon.tracker import OPENROUTER_MODELS_URL
+from anticharon.pricing import (
+    blended_rate_1m,
+    is_valid_listed_price,
+    parse_required_price_1m,
+    resolve_cache_read_price_1m,
+)
+from anticharon.tracker import OPENROUTER_MODELS_URL, fetch_endpoint_policy_pricing
 
 
 @dataclass
@@ -19,10 +26,13 @@ class CatalogModel:
     completion_price_1m: float
     blended_price_1m: float
     is_promo: bool
-    output_modalities: List[str] = field(default_factory=list)
+    output_modalities: list[str] = field(default_factory=list)
     description: str = ""
+    # Not surfaced in to_dict() -- internal use only, e.g. by apply_zdr_filter()'s
+    # live per-endpoint lookup, which needs the real permaslug, not the display id.
+    canonical_slug: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "name": self.name,
@@ -38,20 +48,41 @@ class CatalogModel:
 
 def fetch_catalog(
     timeout: float = 10.0,
-    weight_prompt: float = 0.9971,
-    weight_completion: float = 0.0029
-) -> List[CatalogModel]:
-    """Fetch and parse all models from OpenRouter API."""
+    weight_uncached_prompt: float = 0.232622,
+    weight_cached_prompt: float = 0.764478,
+    weight_completion: float = 0.0029,
+) -> list[CatalogModel]:
+    """Fetch and parse all models from OpenRouter API.
+
+    `blended_price_1m` is the cache-aware 3-component blend (ADR-2026-0002-TOKENS-CACHED),
+    using each model's own `pricing.input_cache_read` from the bulk catalog (confirmed
+    present per-model, not just per-endpoint) with calibrated/default weights -- not a
+    per-provider routing decision, since the bulk catalog has no per-endpoint data.
+
+    Does not live-check ZDR routability -- that's a separate, opt-in, post-filter step
+    (see `apply_zdr_filter`) applied *after* local filtering, so a live per-endpoint
+    check only ever runs against the small set of models actually matching the user's
+    query/filters, not the full ~440-model catalog.
+
+    Graceful degradation: [] on any failure, including a wrong-typed nested
+    `data` payload (e.g. not a list, or a list of non-dict entries) -- never
+    raise past this function into a downstream consumer (same class of gap
+    as PE2-006, in tracker.py's fetch functions).
+    """
     try:
         resp = requests.get(OPENROUTER_MODELS_URL, timeout=timeout)
         if resp.status_code != 200:
             return []
         data = resp.json().get("data", [])
+        if not isinstance(data, list):
+            return []
     except Exception:
         return []
 
-    catalog: List[CatalogModel] = []
+    catalog: list[CatalogModel] = []
     for item in data:
+        if not isinstance(item, dict):
+            continue
         model_id = item.get("id", "")
         if not model_id:
             continue
@@ -64,15 +95,30 @@ def fetch_catalog(
         arch = item.get("architecture") or {}
         output_modalities = arch.get("output_modalities") or ["text"]
 
-        # Pricing per 1M tokens
+        # Pricing per 1M tokens. PE2-002: prompt/completion are required fields --
+        # a missing/blank/malformed value must skip the model entirely, never
+        # fabricate a $0 price (live-verified 2026-09-17: every real catalog
+        # entry, including :free models, always includes both keys explicitly;
+        # see parse_required_price_1m).
         pricing = item.get("pricing") or {}
-        try:
-            p_in = float(pricing.get("prompt", 0)) * 1_000_000
-            p_out = float(pricing.get("completion", 0)) * 1_000_000
-        except (ValueError, TypeError):
-            p_in, p_out = 0.0, 0.0
+        p_in = parse_required_price_1m(pricing, "prompt")
+        p_out = parse_required_price_1m(pricing, "completion")
+        if p_in is None or p_out is None:
+            continue
 
-        blended = (p_in * weight_prompt) + (p_out * weight_completion)
+        if not (is_valid_listed_price(p_in) and is_valid_listed_price(p_out)):
+            # Sentinel/non-priced model (e.g. a meta-router like openrouter/auto-beta) --
+            # skip rather than let a negative sentinel masquerade as "cheapest".
+            continue
+
+        cache_read_raw = pricing.get("input_cache_read")
+        try:
+            p_cache_raw = float(cache_read_raw) * 1_000_000 if cache_read_raw not in (None, "") else None
+        except (ValueError, TypeError):
+            p_cache_raw = None
+        p_cache = resolve_cache_read_price_1m(p_in, p_cache_raw)
+
+        blended = blended_rate_1m(p_in, p_cache, p_out, weight_uncached_prompt, weight_cached_prompt, weight_completion)
 
         # Promo / Discount detection
         is_promo = (
@@ -91,22 +137,23 @@ def fetch_catalog(
             blended_price_1m=blended,
             is_promo=is_promo,
             output_modalities=output_modalities,
-            description=desc
+            description=desc,
+            canonical_slug=item.get("canonical_slug") or model_id
         ))
 
     return catalog
 
 
 def filter_catalog(
-    models: List[CatalogModel],
-    query: Optional[str] = None,
+    models: list[CatalogModel],
+    query: str | None = None,
     promo_only: bool = False,
-    modality: Optional[str] = "text",
-    max_price: Optional[float] = None,
-    max_input_price: Optional[float] = None,
-    max_output_price: Optional[float] = None,
-    filter_expressions: Optional[List[str]] = None
-) -> List[CatalogModel]:
+    modality: str | None = "text",
+    max_price: float | None = None,
+    max_input_price: float | None = None,
+    max_output_price: float | None = None,
+    filter_expressions: list[str] | None = None
+) -> list[CatalogModel]:
     """Filter catalog models using multi-criteria keywords, modality, and price inequalities."""
     results = models
 
@@ -181,7 +228,74 @@ def filter_catalog(
     return results
 
 
-def format_discovery_output(models: List[CatalogModel], json_mode: bool = False) -> None:
+def apply_zdr_filter(
+    models: list[CatalogModel],
+    timeout: float = 10.0,
+    max_check_count: int = 10,
+) -> tuple[list[CatalogModel], str | None]:
+    """Live-check ZDR routability, but only against an already-narrowed candidate list.
+
+    Must run *after* `filter_catalog()`, not before -- a live per-endpoint check is one
+    extra HTTP call per model, so checking the full ~440-model catalog before any local
+    filter is applied is needlessly slow. `models` is expected pre-sorted by
+    `blended_price_1m` ascending (what `filter_catalog()` already returns).
+
+    If more than `max_check_count` models remain after local filtering, only the
+    cheapest `max_check_count` are live-checked -- never silently truncated without
+    saying so: the second element of the returned tuple is a warning string describing
+    exactly how many of how many were checked, or `None` when no cap was needed.
+
+    PE2-003: `fetch_endpoint_policy_pricing` returns `[]` both when the fetch itself
+    failed (timeout/HTTP/malformed response) and when it genuinely succeeded but
+    found no endpoint data -- there is no real endpoint pricing to judge routability
+    from either way. Per PLAN.md's graceful-degradation rule ("policy-unknown,
+    routable-by-default"), a model in that state is KEPT (never fabricated as
+    "not compliant" from missing data), distinctly from a model with real endpoint
+    data where none are ZDR-compliant (confirmed noncompliant, excluded).
+    """
+    if len(models) > max_check_count:
+        candidates = models[:max_check_count]
+        cap_warning = (
+            f"Only checking ZDR for {max_check_count} of {len(models)} matching models; "
+            f"narrow your filters or raise max_zdr_check_count to check more."
+        )
+    else:
+        candidates = models
+        cap_warning = None
+
+    compliant: list[CatalogModel] = []
+    unknown_model_ids: list[str] = []
+    for m in candidates:
+        endpoints = fetch_endpoint_policy_pricing(m.canonical_slug, timeout=timeout)
+        if not endpoints:
+            # Policy-unknown (no endpoint data at all) -- routable-by-default,
+            # never fabricated noncompliance from missing data.
+            compliant.append(m)
+            unknown_model_ids.append(m.id)
+            continue
+        is_zdr_compliant = any(
+            ((ep.get("provider_info") or {}).get("dataPolicy") or {}).get("retainsPrompts") is False
+            for ep in endpoints
+        )
+        if is_zdr_compliant:
+            compliant.append(m)
+
+    warning_parts = [cap_warning] if cap_warning else []
+    if unknown_model_ids:
+        warning_parts.append(
+            f"ZDR compliance unknown (endpoint data unavailable) for: {', '.join(unknown_model_ids)} "
+            f"-- kept per the routable-by-default fallback, not confirmed compliant."
+        )
+    warning = " ".join(warning_parts) if warning_parts else None
+
+    return compliant, warning
+
+
+def format_discovery_output(
+    models: list[CatalogModel],
+    json_mode: bool = False,
+    zdr_warning: str | None = None,
+) -> None:
     """Format and print discovered catalog models."""
     if json_mode:
         payload = {
@@ -189,12 +303,18 @@ def format_discovery_output(models: List[CatalogModel], json_mode: bool = False)
             "count": len(models),
             "models": [m.to_dict() for m in models]
         }
+        if zdr_warning:
+            payload["zdr_warning"] = zdr_warning
         print(json.dumps(payload, indent=2))
         return
 
     print("\n" + "=" * 90)
     print(f"🔍 ANTICHARON — OpenRouter Model Discovery (Found: {len(models)} models)")
     print("=" * 90)
+
+    if zdr_warning:
+        print(f"⚠️  {zdr_warning}")
+        print("-" * 90)
 
     if not models:
         print("  No models matched your search or filter criteria.")

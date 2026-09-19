@@ -6,19 +6,18 @@ This backlog tracks completed milestones, upcoming sprint priorities, and long-t
 
 ## 🎯 Current Sprint (Ecosystem Expansion & Intelligence Engine)
 
+- [ ] **Repository-wide behavioral Ruff cleanup (deferred from PE2-010, approved 2026-09-17; count corrected 2026-09-18):** `ruff check src tests` retains 38 pre-existing findings across five behavioral rule codes that PE2-010's human sign-off explicitly forbade autofixing in the pricing-engine-v2 branch, since each requires a dedicated regression test to confirm no behavior change (out of scope for a minimal-change pricing release): `BLE001` (24, blind `except Exception`), `B023` (8, loop-variable closure binding), `S110`/`S112` (3 + 1, silent `try/except/pass` and `try/except/continue`), `PLW1510` (2, `subprocess.run` without explicit `check=`). One `S110` finding (`storage.py:70`) originally in this deferred set was resolved as a disclosed side effect of a PE2-006 follow-up fix (`storage.py`'s `read_history()` malformed-row isolation, commit `59598a0`) and explicitly approved by the Product Owner on 2026-09-19. The exact `<rule> <file>:<line>` fingerprints of these 38 findings are recorded in `docs/standards/lint_baseline_pe2010.txt` (a location-based deferral, not a blanket exemption by rule code — see `docs/standards/linting.md`'s "Deterministic changed-line/baseline gate" and `scripts/lint_gate.py`). See `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#pe2-010` for the sign-off and full finding history, and `docs/plans/pricing-engine-v2/EXECUTION_CONTRACT.md`'s Deferred section for the pre-existing broader (repository-wide, all-rule) Ruff cleanup candidate this is a named subset of.
+
+- [ ] **Negative-token-count validation hardening (deferred from PE2-006, tracked 2026-09-18):** `log_parser.py`'s `parse_activity_log()` clamps a row's `tokens_cached` to that row's own `tokens_prompt` when cached exceeds prompt, but does not yet floor a raw *negative* value in `tokens_prompt`, `tokens_completion`, or `tokens_cached` at zero. A row with, e.g., `tokens_cached=-50` still contributes a negative value to that column's total, which can produce a negative `weight_cached_prompt`/`cache_hit_rate` and poison persisted calibration output. Found via a synthetic malformed-input probe during independent review, not a real-world corrupted export. See `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#pe2-006` for the deferral decision and its rationale. When picked up: floor each field parsed by `_parse_token_count()` at zero, add a fixture/regression test for negative `tokens_prompt`/`tokens_completion`/`tokens_cached`, and update `docs/specs/spec_v1_anticharon.md` §4's "Known gap" note.
+
+- [ ] **Provider-granular historical persistence (deferred from PE2-004, approved 2026-09-17):** `PLAN.md`'s original design called for a per-model, *per-provider* daily time series (date, provider, effective price, listed price, cache-hit rate, token share). Human sign-off approved narrowing to the shipped single collapsed cheapest-price-per-day observation (`effective_prices.json`), since no current downstream consumer needs provider-level history. Revisit as its own initiative if a real feature needs it — see `docs/plans/pricing-engine-v2/PLAN.md`'s "Scope correction" note under "Storage architecture," `docs/plans/pricing-engine-v2/EXECUTION_CONTRACT.md`'s Deferred section, and `docs/specs/adr/0002_internal_frontend_stats_api_for_historical_trajectories.md`'s amendment for the full reconciliation. When picked up, it would unlock provider-routing features against OpenRouter's own API surface: price ceilings (`max_price`), performance sorting (`sort: "throughput"` / `:nitro`), and privacy enforcement (`data_collection: "allow" | "deny"`, `enforce_distillable_text`) — see [OpenRouter provider-selection docs](https://openrouter.ai/docs/guides/routing/provider-selection), [API reference](https://openrouter.ai/docs/api_reference/parameters), [service tiers](https://openrouter.ai/docs/guides/features/service-tiers).
+
 - [ ] **Shortlist Resilience Eval Harness & EDD Gate (`anticharon eval` + MCP Tool/Prompt)**:
   - Implement zero-dependency shortlist resilience evaluation ([`docs/specs/pre-work/draft_eval_harness.md`](docs/specs/pre-work/draft_eval_harness.md)).
   - Dual-mode support:
     1. Automated CI / CLI runner (`anticharon eval`) asserting candidate shortlist adequacy (`is_adequate: bool`, diversity, maturity, alias risk).
     2. FastMCP tool (`eval_shortlist`) and agent prompt (`anticharon_eval_advisor`) enabling host agents (Hermes, Claude Desktop) on Day 1 to detect single-vendor monocultures, alias volatility (`:latest`, `:free`), and cold-start models (<15d old).
   - Add golden benchmark test matrix (`tests/fixtures/eval_test_matrix.json`) covering modern model families (Gemini 2.5, DeepSeek R1/V3, Llama 3.3, Claude 3.5).
-
-- [ ] **Pricing Engine v2: Cache-Aware + Provider-Routable Pricing + 28-Day Backfill**:
-  - Unifies three prior threads into one initiative — see [`docs/plans/pricing-engine-v2/`](docs/plans/pricing-engine-v2/) (`EXECUTION_CONTRACT.md`, `PLAN.md`, `ADR_CANDIDATE_TOKENS_CACHED.md`) for the full plan and evidence.
-  - **Cache-aware 3-component blended pricing:** `tokens_cached` was never read from activity logs, overestimating real cost by 55–75% for cache-heavy agents.
-  - **Provider-routable pricing:** headline/listed prices are often not what an account can actually route to under a policy constraint (Zero Data Retention is the verified case — e.g. `openai/gpt-5.6-sol` listed $2/$10 vs. ZDR-routable $5–$5.50/$30–$33, +150–200%). Surfaced via CLI flag `--zdr`.
-  - **28-day historical backfill on cold start:** dual-source (public catalog + OpenRouter's internal effective-pricing route, cross-validated) replaces fabricated flat-padding with real observations; dual storage (`history.csv` compact summary + a new granular effective-pricing store).
-  - Test suite matures to `pytest` with golden pricing cases as part of this initiative (tracked in `AGENTS.md` Rule 8).
 
 - [ ] **Update default cache-hit-rate using TraceLab's cache breakdown**:
   - TraceLab's dataset (Total input 114.2B / Cached-read 109.2B / Append 5.01B / Output 391.8M) implies a ~95.3% cache-hit-rate — materially higher than the current interim default (~76.4%, pooled from only two personal `docs/sample/` log exports).
@@ -30,7 +29,7 @@ This backlog tracks completed milestones, upcoming sprint priorities, and long-t
   - **Needs verification first**: confirm whether `token_share`/similar is a clean field in the `effective-pricing` or `/stats/endpoint` raw JSON responses, or whether it must be derived from something like relative `request_count` across a model's endpoints.
 
 - [ ] **Expose `calibrate` as an MCP Tool (`calibrate_token_weights`)**:
-  - Expose the OpenRouter activity log parser directly as an MCP tool so orchestrators can calibrate agent token mixes (`weight_prompt` / `weight_completion`) on the fly from log snippets or paths.
+  - Expose the OpenRouter activity log parser directly as an MCP tool so orchestrators can calibrate agent token mixes (`weight_uncached_prompt` / `weight_cached_prompt` / `weight_completion`) on the fly from log snippets or paths.
 
 - [ ] **Universal One-Way Shortlist Importers**:
   - Expand beyond Hermes to support one-way import of model slugs from other agent orchestrator configs and routing proxies (e.g. LiteLLM `config.yaml`, OpenRouter curated collections/rankings, Claude Code, and Cursor model definitions) into Anticharon's `shortlist.json`.
@@ -59,6 +58,16 @@ This backlog tracks completed milestones, upcoming sprint priorities, and long-t
 ---
 
 ## ✅ Completed Milestones
+
+### Milestone 5: Pricing Engine v2 — Cache-Aware + Provider-Routable Pricing + 28-Day Backfill (v0.5.0)
+- [x] Unifies three prior threads into one initiative — see [`docs/plans/pricing-engine-v2/`](docs/plans/pricing-engine-v2/) (`EXECUTION_CONTRACT.md`, `PLAN.md`, `ADR_CANDIDATE_TOKENS_CACHED.md`) for the full plan and evidence.
+- [x] Cache-aware 3-component blended pricing (`tokens_cached` was never read from activity logs, overestimating real cost by 55–75% for cache-heavy agents), validated against 5 golden cases.
+- [x] Provider-routable pricing via the real ZDR signal (`provider_info.dataPolicy.retainsPrompts`, live-verified — not the public `/endpoints` call's `status` field, which was initially assumed but doesn't carry it on an unauthenticated request). Surfaced via CLI flag `--zdr`.
+- [x] The three-price model (advertised / effective / policy) as distinct, never-collapsed numbers everywhere a price is shown.
+- [x] 28-day historical backfill on cold start (internal effective-pricing route with `range=1m`, live-verified required for ~30 days vs. the ~8-day default) replacing fabricated flat-padding with real observations; dual storage (`history.csv` compact summary + new granular `effective_prices.json` store).
+- [x] Same-day-rerun bug fixed: `d1..d30`/MA columns derived fresh from dated observations each sync instead of shifted per run.
+- [x] Elapsed-days `NEWLY_TRACKED` analytics threshold (`min_tracking_days_for_profile`), nullable history slots throughout.
+- [x] Test suite matured to `pytest` as part of this initiative (`tests/run_tests.py` retired outright as the CI gate, per `AGENTS.md` Rule 8).
 
 ### Milestone 4: Public Release, Community Hardening & Ergonomics (v0.4.1 - v0.4.3)
 - [x] GitHub Actions CI Automation (`.github/workflows/ci.yml`) on Python 3.12.

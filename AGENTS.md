@@ -69,7 +69,6 @@ To maintain a clean public repository while preserving exploratory thought, adhe
 - Agents MUST disclose any skipped, removed, weakened, or changed test expectation.
 - Keep the default suite fast (target <30s).
 
-
 ### Rule 9: Strict English Language Policy
 - All code, variable names, function names, docstrings, inline comments, specifications, documentation, and commit messages MUST be in English.
 - Original draft notes in Portuguese are archived in `dev_bucket/` as historical references; any public documentation must be purely in English.
@@ -103,6 +102,11 @@ The agent MUST update all 4 files in a single atomic commit:
 - Always use clean, repo-relative paths (e.g. `docs/specs/spec_v1_anticharon.md`, `[README.md](README.md)`, or `src/anticharon/models.py`).
 - This ensures all links work portably on GitHub/GitLab, prevent personal OS username leaks, and work seamlessly across different machines.
 
+### Rule 13: Linting, Remediation & Code Quality
+- All agents must strictly adhere to the deterministic linting policies and release gates defined in `docs/standards/linting.md`.
+- Unsafe fixes, or any attempt to autonomously fix out-of-scope legacy lint findings, are strictly prohibited to prevent token burn and scope creep.
+- Agents MUST park out-of-scope lint debt in `docs/BACKLOG.md` without investigating it.
+- A human-approved deferral of specific pre-existing findings MUST be recorded as an exact `<rule> <file>:<line>` fingerprint baseline (e.g. `docs/standards/lint_baseline_pe2010.txt`), never as a blanket exemption by rule code — see `docs/standards/linting.md`'s "Deterministic changed-line/baseline gate" section and `scripts/lint_gate.py`.
 ---
 
 ## 3. Project Architecture & Directory Layout
@@ -136,7 +140,8 @@ anticharon/
 │       ├── cli.py                  # CLI commands (run, check, test, calibrate, model)
 │       ├── config.py               # Config & environment variable loader
 │       ├── models.py               # Dataclasses & types
-│       ├── storage.py              # history.csv compact sliding window & cold-start logic
+│       ├── pricing.py              # Pure cache-aware 3-component pricing formulas
+│       ├── storage.py              # history.csv (nullable slots) + effective_prices.json granular store
 │       ├── tracker.py              # OpenRouter API fetcher, calculations & alerts
 │       ├── log_parser.py           # OpenRouter activity CSV parser & prompt mix calculator
 │       ├── tester.py               # anticharon test self-check implementation
@@ -147,7 +152,9 @@ anticharon/
 │       ├── mcp.py                  # FastMCP server (tools, resources, prompts)
 │       └── llms.txt                # Package-bundled A2A discovery briefing
 ├── tests/
-│   └── run_tests.py                # Zero-dependency test suite (12/12 passing in <1s)
+│   ├── conftest.py, test_*.py      # pytest suite (Rule 8) -- deterministic by default,
+│   │                               # @pytest.mark.live tests excluded unless run explicitly
+│   └── fixtures/                   # Sanitized real API payloads used by fixture-based tests
 └── .local/                         # [GIT-IGNORED] Private developer environment & scratchpad
     └── docs/
         ├── github_release_and_pr_playbook.md
@@ -178,8 +185,11 @@ uv pip install git+https://github.com/parisneto/anticharon.git
 # Run built-in self-check
 uv run anticharon test
 
-# Run standalone test runner
-uv run python tests/run_tests.py
+# Run the mandatory deterministic pytest gate (no network, excludes @pytest.mark.live)
+uv run pytest
+
+# Run live network contract tests explicitly (not part of the default gate)
+uv run pytest -m live
 
 # Test CLI dry run against OpenRouter live API
 uv run anticharon run --dry-run
