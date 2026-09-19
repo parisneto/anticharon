@@ -72,6 +72,8 @@ Anticharon represents cost with three deliberately distinct numbers, never colla
 
 OpenRouter meta-router models (`openrouter/auto`, `auto-beta`, `fusion`, `pareto-code`, `bodybuilder` — live-verified 2026-09-16) list `pricing.prompt`/`pricing.completion` as the raw sentinel string `"-1"`, meaning "routes to whatever backing model at that model's own price," not a real fixed cost. §3.1's formulas convert raw pricing by multiplying by `1,000,000`; applied naively to a sentinel this produces `-1,000,000.0/1M`, which then sorts as the cheapest model everywhere pricing is compared. `src/anticharon/pricing.py`'s `is_valid_listed_price()` rejects any negative listed price (zero is still valid — that's how genuine free/promo-tier models are listed); `run_tracker` (`tracker.py`) and `fetch_catalog` (`discovery.py`) both skip a model failing this check rather than surfacing it.
 
+**Nested-shape schema drift:** `fetch_catalog()` also validates that the bulk catalog's top-level `data` value is actually a list, and skips any list entry that isn't a dict, before iterating it — a wrong-typed nested `data` payload (e.g. a mapping, or a list containing non-dict entries) degrades to an empty catalog `[]` instead of raising `AttributeError`/`TypeError` out of the per-model parsing loop.
+
 **Required-field guard (PE2-002, corrected 2026-09-17):** `pricing.prompt`/`pricing.completion` are *required* fields on both the bulk catalog and each per-endpoint entry — never optional with a `0` default. Live-verified 2026-09-17: every real catalog model and every real per-endpoint entry, including genuine free (`:free`) models, always includes both keys explicitly (free models list them as the string `"0"`, never by omitting the key). A prior implementation used `pricing.get("prompt", 0)`, so a missing key, `null` value, blank string, or non-numeric value silently defaulted to `0.0` — a fabricated free price, indistinguishable from a genuine `$0` model, that could then win "cheapest" sorting and `BEST_OPTION_CHANGED` recommendations. `src/anticharon/pricing.py`'s `parse_required_price_1m()` now returns `None` (not `0.0`) for a missing/blank/malformed required field; every call site (`tracker.py`'s advertised-price parsing and per-endpoint blending, `discovery.py`'s catalog parsing) skips a model/endpoint entirely when either required field is `None`, rather than pricing it at a fabricated `$0`. This is distinct from `pricing.input_cache_read`, which is genuinely optional and legitimately defaults per the 10%-of-uncached-prompt fallback above — only `prompt`/`completion` are required.
 
 ### 3.2 Policy (ZDR) Pricing Data Source
@@ -163,6 +165,8 @@ Cache_Hit_Rate         = Total_Cached_Tokens   / Total_Prompt_Tokens
 
 `anticharon calibrate` persists `weight_uncached_prompt`/`weight_cached_prompt`/`weight_completion` to `shortlist.json` (§6). Logs exported before `tokens_cached` existed (or missing the column) still parse correctly: the cached bucket defaults to 0, i.e. 100% uncached.
 
+**Per-row clamp:** since `tokens_cached` is logically a subset of `tokens_prompt`, a row reporting more cached tokens than prompt tokens (corrupt/garbled export data) has its cached count clamped to that row's own `tokens_prompt` value before aggregation, so one bad row cannot drive the whole log's `Total_Uncached_Tokens` negative. **Known gap (deferred, tracked in `docs/BACKLOG.md`):** this clamp does not yet reject or floor a raw *negative* token count in any of the three columns — a row with, e.g., `tokens_cached=-50` still contributes a negative value to that column's total. Deferral status recorded in `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-006`; a future pass should floor each parsed field at zero.
+
 ---
 
 ## 5. Data Storage: Two Files, Two Lifecycles
@@ -170,6 +174,8 @@ Cache_Hit_Rate         = Total_Cached_Tokens   / Total_Prompt_Tokens
 ### 5.1 `history.csv` — compact, fast-read summary (one line per model)
 
 **Breaking rename:** the blended-price column is `effective_price_1m`, not `current_price_1m` — pre-launch, single-digit testers, so there is deliberately no backward-compatibility shim; a stale local `history.csv` from before this change should be deleted/regenerated.
+
+**Malformed-row isolation:** `read_history()` parses each row independently — a single row with a non-numeric cell (e.g. from a truncated or corrupted write) is skipped individually rather than aborting the read for the rest of the file. Every model listed before and after a malformed row is still recovered.
 
 ### Header Format:
 ```csv

@@ -1,6 +1,6 @@
-# PE2-010 approved-deferral lint baseline (2026-09-17).
+# PE2-010 approved-deferral lint baseline (2026-09-17; count corrected 2026-09-18).
 #
-# Exact "<rule> <file>:<line>" fingerprints of the 39 pre-existing findings
+# Exact "<rule> <file>:<line>" fingerprints of the 38 pre-existing findings
 # human-sign-off explicitly approved for deferral -- see
 # docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#pe2-010's
 # "Human Sign-Off - parisneto - (2026-09-17)" and docs/BACKLOG.md's
@@ -40,6 +40,15 @@
 # insertion above it; its own code is unchanged. Verified line-by-line in
 # every case that no flagged except block's or closure's own code changed,
 # only position.
+#
+# 2026-09-18 (count correction): independent retest round 5 correctly
+# flagged that the storage.py:70 S110 fix above was made without the
+# dedicated approval the original sign-off required, and that this file's
+# own header still said 39 findings even though the list below it already
+# had only 38. Header count corrected to match the actual list. The
+# approval-record status of the storage.py:70 fix itself is tracked in
+# docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#pe2-010, not here --
+# this file only records which findings the baseline currently covers.
 B023 src/anticharon/discovery.py:202
 B023 src/anticharon/discovery.py:203
 B023 src/anticharon/discovery.py:204

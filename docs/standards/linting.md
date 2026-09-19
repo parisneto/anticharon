@@ -60,7 +60,7 @@ policy mechanically:
 Each initiative that gets an explicit human-approved deferral creates its own
 baseline file under `docs/standards/lint_baseline_<initiative>.txt` and passes
 it via `scripts/lint_gate.py`'s baseline lookup; the current one in use is
-`docs/standards/lint_baseline_pe2010.txt` (pricing-engine-v2's 39
+`docs/standards/lint_baseline_pe2010.txt` (pricing-engine-v2's 38
 human-approved `BLE001`/`B023`/`S110`/`S112`/`PLW1510` findings — see
 `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#pe2-010`).
 
