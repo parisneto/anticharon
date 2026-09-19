@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-09-19
+
+### Added
+- **Pricing Engine v2:** Replaces flat-rate pricing with a 3-tier model (advertised, effective cache-aware, and Zero Data Retention rates) plus 28-day historical backfill.
+- **Pre-Flight Release Audits:** Added Advisory Auditor agent ledger process with `pip-licenses`, `pip-audit`, `gitleaks`, and `git ls-files` exposure reviews.
+
 ### Fixed
 - **PE2-001 — Effective and policy prices no longer collapse under `--zdr` (`src/anticharon/tracker.py`, `src/anticharon/models.py`):**
   - `ModelPrice.price_1m` (and the serialized `effective_price_1m` field in CLI `--json`/`check_prices` MCP output) is now ALWAYS the unconstrained effective price, never silently replaced by the policy-constrained price when `--zdr` is active. Previously, an active ZDR filter collapsed the two into one number under the `effective_price_1m` label — e.g. Luna's real effective price ($0.03267/1M) was reported as $0.06534/1M (its ZDR policy price) once `--zdr` was passed.
