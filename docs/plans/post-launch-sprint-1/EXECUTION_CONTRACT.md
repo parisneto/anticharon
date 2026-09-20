@@ -10,7 +10,33 @@ Written by: parisneto (human) + planning agent
 Reviewed by: *pending*
 Last synchronized: 2026-09-20
 Tracking: [Issue #4](https://github.com/parisneto/anticharon/issues/4) (bug, critical),
-[Issue #3](https://github.com/parisneto/anticharon/issues/3) (bug)
+[Issue #3](https://github.com/parisneto/anticharon/issues/3) (bug).
+[Issue #5](https://github.com/parisneto/anticharon/issues/5) (bug, `uv.lock`
+corruption) was found during scoping and already fixed on `main` — see the
+note below, not part of this sprint's remaining work.
+
+## Base commit note — uv.lock fix landed outside this sprint
+
+[Issue #5](https://github.com/parisneto/anticharon/issues/5) (`uv.lock` had a
+duplicate `dev-dependencies` table, breaking `uv sync --frozen` on every fresh
+clone) was found while scoping this sprint but is unrelated to Issues #4/#3, so
+it was fixed and merged directly to `main` ahead of this sprint rather than
+folded into its scope — see commits `ec326aa` (fix) and `9afcf8a` (Rule 11
+version bump to `0.5.4`). The `v0.5.4` tag itself is deliberately deferred to
+be pushed when this sprint's own PR closes, not pushed standalone.
+
+**Consequence for implementation:** anyone starting the code work for this
+sprint (see the start prompt already circulated) must branch/worktree from the
+current `main` tip (post-`9afcf8a`), not from the older commit `main` was at
+when this contract was first drafted (`6bf0ad8`) — that older commit has the
+broken lock file. Anyone with an existing local venv from before this fix
+should reset it before continuing work here:
+
+```bash
+git pull origin main   # or re-branch/worktree from the current main tip
+rm -rf .venv
+uv sync
+```
 
 ## Document set
 
