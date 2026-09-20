@@ -11,6 +11,91 @@ from typing import Any
 
 from anticharon.config import get_config_path, load_config, update_config_shortlist
 
+# Detection outcomes for a single source (CLI tier / file tier), per Issue #4:
+#   "complete"    -- parseable default model AND the complete fallback set.
+#   "incomplete"  -- a model configuration demonstrably exists, but the complete
+#                    set cannot be established (e.g. non-empty fallback_providers
+#                    output that parses to zero entries).
+#   "unavailable" -- the source cannot be read/queried at all; represented by a
+#                    `None` return from the tier function (no dict to carry a flag).
+DETECTION_COMPLETE = "complete"
+DETECTION_INCOMPLETE = "incomplete"
+
+INCOMPLETE_DETECTION_WARNING = (
+    "Hermes model detection is incomplete: its fallback model list could not be fully "
+    "read. The existing Anticharon shortlist was preserved unchanged (no overwrite)."
+)
+
+# Literal scalars Hermes may emit for an unset fallback_providers key. These are
+# a definite "no fallbacks configured" answer, not an unreadable one.
+_EMPTY_FALLBACK_SCALARS = {"", "null", "none", "~", "[]", "{}", "nil"}
+
+
+def _parse_fallback_value(raw_val: str) -> tuple[list[str], bool]:
+    """Parse a `fallback_providers` value into OpenRouter model slugs.
+
+    Accepts the inline JSON list form and the raw YAML list form the Hermes CLI
+    actually emits (`- provider: openrouter\\n  model: <slug>`).
+
+    Returns `(models, recognized)`. `recognized` is False only when the value is
+    non-empty yet no known structure could be read from it -- an `incomplete`
+    detection, never a silently-empty success (Issue #4).
+    """
+    raw_val = raw_val.strip()
+    if len(raw_val) >= 2 and raw_val[0] == raw_val[-1] and raw_val[0] in "'\"":
+        raw_val = raw_val[1:-1].strip()
+
+    if raw_val.lower() in _EMPTY_FALLBACK_SCALARS:
+        return [], True
+
+    # 1. Inline JSON list (json.JSONDecodeError subclasses ValueError)
+    try:
+        data = json.loads(raw_val)
+    except (ValueError, TypeError):
+        data = None
+    if isinstance(data, list):
+        models = []
+        for item in data:
+            if isinstance(item, dict):
+                prov = str(item.get("provider", "")).lower()
+                mod = str(item.get("model", "")).strip()
+                if prov == "openrouter" and mod:
+                    models.append(mod)
+        return models, True
+
+    # 2. Regex salvage for malformed/truncated JSON object syntax
+    matches = re.findall(
+        r'\{[^{}]*"provider"\s*:\s*"openrouter"[^{}]*"model"\s*:\s*"([^"]+)"[^{}]*\}',
+        raw_val
+    )
+    if matches:
+        return matches, True
+
+    # 3. Raw YAML list (the format the Hermes CLI emits -- Issue #4 root cause)
+    models = []
+    entries = 0
+    provider: str | None = None
+    model: str | None = None
+    for line in raw_val.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("- ") or stripped == "-":
+            if provider == "openrouter" and model:
+                models.append(model)
+            provider = None
+            model = None
+            entries += 1
+            stripped = stripped[1:].strip()
+        if stripped.startswith("provider:"):
+            provider = stripped.split("provider:", 1)[1].strip().strip("'\"").lower()
+        elif stripped.startswith("model:"):
+            model = stripped.split("model:", 1)[1].strip().strip("'\"")
+    if provider == "openrouter" and model:
+        models.append(model)
+
+    return models, entries > 0
+
 
 def resolve_hermes_config_path(
     custom_path: str | Path | None = None,
@@ -86,6 +171,7 @@ def fetch_models_from_cli() -> dict[str, Any] | None:
 
         # 2. Query fallback_providers
         fallback_models: list[str] = []
+        detection = DETECTION_COMPLETE
         proc_fallback = subprocess.run(
             ["hermes", "config", "get", "fallback_providers"],
             capture_output=True,
@@ -93,34 +179,17 @@ def fetch_models_from_cli() -> dict[str, Any] | None:
             timeout=2.0
         )
         if proc_fallback.returncode == 0 and proc_fallback.stdout.strip():
-            raw_val = proc_fallback.stdout.strip()
-            if raw_val.startswith("'") and raw_val.endswith("'"):
-                raw_val = raw_val[1:-1]
-            elif raw_val.startswith('"') and raw_val.endswith('"'):
-                raw_val = raw_val[1:-1]
-
-            try:
-                data = json.loads(raw_val)
-                if isinstance(data, list):
-                    for item in data:
-                        if isinstance(item, dict):
-                            prov = item.get("provider", "").lower()
-                            mod = item.get("model", "").strip()
-                            if prov == "openrouter" and mod:
-                                fallback_models.append(mod)
-            except Exception:
-                # Regex fallback if JSON parse fails
-                matches = re.findall(
-                    r'\{[^{}]*"provider"\s*:\s*"openrouter"[^{}]*"model"\s*:\s*"([^"]+)"[^{}]*\}',
-                    raw_val
-                )
-                if matches:
-                    fallback_models = matches
+            fallback_models, recognized = _parse_fallback_value(proc_fallback.stdout)
+            if not recognized:
+                # Non-empty but unreadable output: a model configuration exists,
+                # but the complete set cannot be established (Issue #4).
+                detection = DETECTION_INCOMPLETE
 
         all_models = [default_model] + [m for m in fallback_models if m != default_model]
         return {
             "source": "cli:hermes",
             "method": "cli",
+            "detection": detection,
             "default_model": default_model,
             "fallback_models": fallback_models,
             "all_models": all_models
@@ -137,6 +206,7 @@ def extract_models_from_file(config_file: Path) -> dict[str, Any] | None:
     default_model: str | None = None
     default_provider: str | None = None
     fallback_models: list[str] = []
+    detection = DETECTION_COMPLETE
 
     in_model_block = False
     in_fallback_block = False
@@ -153,6 +223,17 @@ def extract_models_from_file(config_file: Path) -> dict[str, Any] | None:
                 if not stripped or stripped.startswith("#"):
                     continue
 
+                # Any top-level key closes an open fallback block -- flush the
+                # pending item first, exactly as the EOF path below does.
+                # Without this the final entry is silently dropped whenever the
+                # block is followed by another section instead of EOF (Issue #4).
+                if indent == 0 and in_fallback_block:
+                    if current_fallback_provider == "openrouter" and current_fallback_model:
+                        fallback_models.append(current_fallback_model)
+                    current_fallback_provider = None
+                    current_fallback_model = None
+                    in_fallback_block = False
+
                 # Model section tracking (top-level only)
                 if indent == 0 and (stripped == "model:" or stripped.startswith("model:")):
                     in_model_block = True
@@ -165,25 +246,11 @@ def extract_models_from_file(config_file: Path) -> dict[str, Any] | None:
                     val = stripped.split("fallback_providers:", 1)[1].strip()
                     if val:
                         # Inline JSON or list string
-                        if (val.startswith("'") and val.endswith("'")) or (val.startswith('"') and val.endswith('"')):
-                            val = val[1:-1]
-                        try:
-                            data = json.loads(val)
-                            if isinstance(data, list):
-                                for item in data:
-                                    if isinstance(item, dict):
-                                        prov = item.get("provider", "").lower()
-                                        mod = item.get("model", "").strip()
-                                        if prov == "openrouter" and mod:
-                                            fallback_models.append(mod)
-                        except Exception:
-                            matches = re.findall(
-                                r'\{[^{}]*"provider"\s*:\s*"openrouter"[^{}]*"model"\s*:\s*"([^"]+)"[^{}]*\}',
-                                val
-                            )
-                            if matches:
-                                fallback_models.extend(matches)
-                        
+                        inline_models, recognized = _parse_fallback_value(val)
+                        fallback_models.extend(inline_models)
+                        if not recognized:
+                            detection = DETECTION_INCOMPLETE
+
                         # If both default_model and fallback_models are resolved, early exit
                         if default_model and fallback_models:
                             break
@@ -231,6 +298,7 @@ def extract_models_from_file(config_file: Path) -> dict[str, Any] | None:
         return {
             "source": str(config_file),
             "method": "file_grep",
+            "detection": detection,
             "default_model": default_model,
             "fallback_models": fallback_models,
             "all_models": all_models
@@ -244,24 +312,32 @@ def get_hermes_models(
     prompt_if_missing: bool = False,
     use_cli: bool = True
 ) -> dict[str, Any] | None:
-    """Retrieve Hermes active models using Tier 1 (CLI) or Tier 2 (File Stream Grep)."""
+    """Retrieve Hermes active models using Tier 1 (CLI) or Tier 2 (File Stream Grep).
+
+    Source order is never reversed: the CLI is preferred when it returns a
+    `complete` result. If the CLI result is `incomplete` (a configuration exists
+    but its full model set could not be read) or `unavailable` (`None`), the file
+    tier is tried. A `complete` file result is authoritative and fully clears the
+    incomplete CLI state. If neither tier reaches `complete`, the incomplete
+    result is returned as-is so callers can warn and protect the shortlist (#4).
+    """
     # If custom path explicitly specified, use file extractor directly
     if custom_path:
         p = Path(custom_path).expanduser()
         return extract_models_from_file(p)
 
     # Tier 1: Try Hermes CLI first if enabled
-    if use_cli:
-        cli_result = fetch_models_from_cli()
-        if cli_result:
-            return cli_result
+    cli_result = fetch_models_from_cli() if use_cli else None
+    if cli_result and cli_result.get("detection") == DETECTION_COMPLETE:
+        return cli_result
 
     # Tier 2: Stream-grep configuration file
     cfg_path = resolve_hermes_config_path(custom_path=None, prompt_if_missing=prompt_if_missing)
-    if cfg_path:
-        return extract_models_from_file(cfg_path)
+    file_result = extract_models_from_file(cfg_path) if cfg_path else None
+    if file_result and file_result.get("detection") == DETECTION_COMPLETE:
+        return file_result
 
-    return None
+    return cli_result or file_result
 
 
 def sync_hermes_to_config(
@@ -270,7 +346,11 @@ def sync_hermes_to_config(
     dry_run: bool = False
 ) -> tuple[bool, list[str], Path]:
     """Synchronize Hermes models into Anticharon shortlist.json.
-    
+
+    A `complete` detection is authoritative and may legitimately shrink the
+    shortlist. An `incomplete` one must never overwrite a longer existing
+    shortlist with a shorter/default-only list derived from it (Issue #4).
+
     Returns (changed: bool, shortlist: List[str], config_path: Path).
     """
     target_path = config_path or get_config_path()
@@ -279,6 +359,10 @@ def sync_hermes_to_config(
 
     new_models = hermes_models.get("all_models", [])
     if not new_models:
+        return False, current_shortlist, target_path
+
+    incomplete = hermes_models.get("detection", DETECTION_COMPLETE) != DETECTION_COMPLETE
+    if incomplete and len(new_models) < len(current_shortlist):
         return False, current_shortlist, target_path
 
     changed = (current_shortlist != new_models)
