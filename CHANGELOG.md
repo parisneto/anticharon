@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - When detection is `incomplete`, the existing shortlist is preserved and also used for the current tracking run, and a visible warning is surfaced in human CLI output, `--json` (`hermes_integration.warning`; `detection`/`warning` on `model sync`), and the `import_hermes_models` MCP payload.
   - `anticharon test` now reports `[WARN]` instead of an unqualified `[PASS]` when the detected Hermes model set diverges from the persisted shortlist or detection is incomplete, exposing `detection`, `shortlist_divergence` and `warning` in `--json`.
   - Spec updated: `docs/specs/spec_v1_anticharon.md` §6.2.
+- **`anticharon check --zdr` broke the ASCII price spectrum chart (#3) (`src/anticharon/chart.py`):**
+  - Under `--zdr` the tracker ranks the shortlist by ZDR *policy* price (a confirmed-unroutable model sorts last at rank `∞`), then handed that same list to `render_ascii_price_bar()`, which assumed input sorted by effective `price_1m` and derived its 100%-width scale from `prices[-1].price_1m`. With an unroutable-but-cheap model landing last, every ratio was computed against that tiny price — producing bars up to 8× `max_bar_width` (e.g. 64/128/256 blocks against a 32-block cap), destroying the triangle shape and overflowing the terminal.
+  - The chart now sorts a local working copy by `price_1m` and scales off `max(price_1m)`, so it renders correctly for any input order. Bar widths are monotonically non-decreasing, no bar exceeds `max_bar_width`, and `🏆 [BEST]` badges the true lowest-effective-price model.
+  - `tracker.py`'s ZDR ranking for the main list and `BEST_OPTION_CHANGED` is deliberately unchanged.
+  - Spec updated: `docs/specs/spec_v1_anticharon.md` §3.2.
 
 ## [0.5.4] - 2026-09-20
 

@@ -11,11 +11,18 @@ def render_ascii_price_bar(
 ) -> list[str]:
     """Render a proportional ASCII bar chart illustrating relative model price distribution.
     
+    The chart is always a spectrum of the effective `price_1m`, so it neither
+    trusts nor requires the caller's ordering: callers may legitimately hand it
+    a list sorted by something else (under `--zdr` the tracker ranks by *policy*
+    price, pushing an unroutable model last even when its effective price is the
+    cheapest). It therefore sorts a local working copy by `price_1m` and scales
+    off the true maximum, rather than off whatever landed last (Issue #3).
+
     Args:
-        prices: Sorted list of ModelPrice instances (cheapest to most expensive).
+        prices: List of ModelPrice instances, in any order.
         default_model: The configured default model ID to badge with ★.
         max_bar_width: Maximum width of the block bar.
-        
+
     Returns:
         List of formatted lines representing the chart.
     """
@@ -26,17 +33,17 @@ def render_ascii_price_bar(
     lines.append("📊 RELATIVE PRICE SPECTRUM ($/1M Tokens):")
     lines.append("  ▲ Cheaper")
 
-    min_p = prices[0].price_1m
-    max_p = prices[-1].price_1m
+    ordered = sorted(prices, key=lambda p: p.price_1m)
+    max_p = max(p.price_1m for p in ordered)
 
     # Avoid zero division when all prices are identical
     price_range = max_p if max_p > 0 else 1.0
 
     # Determine maximum length for model names to keep columns cleanly aligned
-    max_name_len = max(len(p.model) for p in prices)
+    max_name_len = max(len(p.model) for p in ordered)
     name_col_width = min(max(max_name_len, 24), 36)
 
-    for idx, p in enumerate(prices):
+    for idx, p in enumerate(ordered):
         # Truncate model name if excessively long
         name = p.model
         if len(name) > name_col_width:
