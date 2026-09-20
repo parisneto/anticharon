@@ -7,7 +7,7 @@ from pathlib import Path
 import requests
 
 from anticharon.config import get_config_path, get_data_dir, load_config
-from anticharon.hermes import get_hermes_models
+from anticharon.hermes import INCOMPLETE_DETECTION_WARNING, get_hermes_models
 from anticharon.pricing import calculate_effective_cost, price_per_1m
 from anticharon.tracker import OPENROUTER_MODELS_URL
 
@@ -68,6 +68,7 @@ def run_self_test(
         all_passed = False
 
     # 2. Config Resolution & Parsing
+    shortlist: list = []
     try:
         cfg_path = get_config_path()
         cfg = load_config(cfg_path)
@@ -98,14 +99,37 @@ def run_self_test(
         try:
             h_info = get_hermes_models(custom_path=hermes_config_path)
             if h_info:
+                # Issue #4: a detected-but-divergent (or incomplete) Hermes state
+                # must be flagged, never reported as an unqualified pass.
+                h_models = h_info.get("all_models", [])
+                detection = h_info.get("detection", "complete")
+                persisted = shortlist
+                divergent = list(h_models) != list(persisted)
+                if detection != "complete":
+                    h_warning = INCOMPLETE_DETECTION_WARNING
+                elif divergent:
+                    h_warning = (
+                        f"Detected Hermes model set ({len(h_models)} models) diverges from the "
+                        f"persisted Anticharon shortlist ({len(persisted)} models). "
+                        f"Run 'anticharon model sync' to reconcile."
+                    )
+                else:
+                    h_warning = None
+
                 diag["hermes_integration"] = {
                     "detected": True,
                     "method": h_info.get("method"),
                     "source": h_info.get("source"),
-                    "models_count": len(h_info.get("all_models", []))
+                    "models_count": len(h_models),
+                    "detection": detection,
+                    "shortlist_divergence": divergent,
+                    "warning": h_warning
                 }
                 if not json_mode:
-                    print(f" [PASS] Hermes Integration: Detected ({len(h_info.get('all_models', []))} models via {h_info.get('method')} from {h_info.get('source')})")
+                    label = "WARN" if h_warning else "PASS"
+                    print(f" [{label}] Hermes Integration: Detected ({len(h_models)} models via {h_info.get('method')} from {h_info.get('source')})")
+                    if h_warning:
+                        print(f"        ↳ {h_warning}")
             else:
                 diag["hermes_integration"] = {"detected": False, "mode": "standalone"}
                 if not json_mode:

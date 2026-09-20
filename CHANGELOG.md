@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Hermes YAML fallback list dropped, destroying the synced shortlist (#4) (`src/anticharon/hermes.py`, `tracker.py`, `cli.py`, `mcp.py`, `tester.py`):**
+  - `fetch_models_from_cli()` parsed `hermes config get fallback_providers` as JSON only, but the Hermes CLI emits a raw YAML list (`- provider: openrouter` / `  model: <slug>`). Every fallback was silently discarded and the function still returned a "successful" default-only result, which `sync_hermes_to_config()` then persisted — destructively shrinking a good multi-model shortlist to a single entry. The CLI tier now parses the YAML list form alongside the existing inline-JSON form.
+  - `extract_models_from_file()` dropped the final fallback entry whenever the `fallback_providers:` YAML block was closed by a following top-level key (e.g. `logging:`) instead of EOF. The pending item is now flushed on any top-level key, exactly as the EOF path already did.
+  - Detection now resolves to one of three named outcomes per source — `complete`, `incomplete`, `unavailable` — carried as a `detection` field on the payload (`unavailable` = no payload). `get_hermes_models()` falls through to the file tier when the CLI result is `incomplete`, not only when it is `unavailable`; a `complete` file result is authoritative, clears the incomplete CLI state and emits no warning. Source order (CLI → file) is never reversed.
+  - `sync_hermes_to_config()` never overwrites a longer existing shortlist from an `incomplete` detection; a `complete` result remains authoritative and may legitimately shrink the shortlist.
+  - When detection is `incomplete`, the existing shortlist is preserved and also used for the current tracking run, and a visible warning is surfaced in human CLI output, `--json` (`hermes_integration.warning`; `detection`/`warning` on `model sync`), and the `import_hermes_models` MCP payload.
+  - `anticharon test` now reports `[WARN]` instead of an unqualified `[PASS]` when the detected Hermes model set diverges from the persisted shortlist or detection is incomplete, exposing `detection`, `shortlist_divergence` and `warning` in `--json`.
+  - Spec updated: `docs/specs/spec_v1_anticharon.md` §6.2.
+
 ## [0.5.4] - 2026-09-20
 
 ### Fixed

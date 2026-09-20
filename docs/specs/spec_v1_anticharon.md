@@ -275,12 +275,39 @@ When deployed in environments alongside **Hermes Agent**, Anticharon automatical
 
 ### Two-Tier Safe Extraction Architecture:
 - **Tier 1 (Hermes CLI):** If `hermes` binary is present on `$PATH`, queries `hermes config get model` and `hermes config get fallback_providers` directly (< 1.5s timeout).
-- **Tier 2 (Stream-Grep File Scanner):** If `hermes` CLI is not on `$PATH`, inspects the file using a line-by-line streaming regex scanner.
+  - `fallback_providers` output is accepted in **both** shapes the Hermes CLI may emit: an inline JSON array, and a raw YAML list (`- provider: openrouter` / `  model: <slug>`).
+- **Tier 2 (Stream-Grep File Scanner):** Inspects the file using a line-by-line streaming regex scanner.
   - Matches `default: <model_slug>` (verified for OpenRouter provider).
   - Matches `fallback_providers: <json_array>` or multi-line YAML fallbacks.
+  - The final fallback entry is retained whether the YAML block ends at EOF **or** is closed by a following top-level key (e.g. a `logging:` section).
   - Zero `pyyaml` dependency.
   - Constant memory footprint: reads line-by-line without buffering the file.
   - Zero secret leaks: API keys, system prompts, and tokens in other YAML sections are never read or stored.
+
+### Detection Outcomes & Source Ordering:
+Each source (Tier 1 CLI, Tier 2 file) resolves to exactly one of three outcomes:
+
+| Outcome | Meaning |
+| --- | --- |
+| `complete` | A parseable default model **and** the complete fallback-model set were read. |
+| `incomplete` | A model configuration demonstrably exists, but the complete set cannot be established (e.g. non-empty `fallback_providers` output that parses to zero entries). |
+| `unavailable` | The source cannot be read or queried at all — missing executable/file, timeout, non-zero exit, or equivalent access failure. |
+
+The outcome is carried on the detection payload as the `detection` field (`"complete"` / `"incomplete"`); `unavailable` is represented by the absence of a payload. Source order is never reversed:
+
+1. The Tier 1 CLI result is used when it is `complete`.
+2. If the CLI result is `incomplete` or `unavailable`, Tier 2 (file) is tried.
+3. A `complete` Tier 2 result is authoritative — it clears the incomplete CLI state entirely and emits **no** incomplete-detection warning (full recovery, not degraded fallback).
+4. If neither tier reaches `complete`, the incomplete result is returned so callers can warn and protect the shortlist.
+
+An `unavailable` source is **not** retried in-process; the next scheduled or manual invocation retries it.
+
+### Sync Protection (applies to the final selected result, not per-tier):
+- A `complete` final result is authoritative and **may** legitimately shrink the shortlist — a genuine reduction in Hermes's configured models must propagate.
+- An `incomplete` final result never overwrites an existing longer shortlist with a shorter/default-only list derived from it. The persisted shortlist is preserved unchanged and also drives the current tracking run.
+- When the shortlist is preserved this way, a visible warning is surfaced in human CLI output, in `--json` (`hermes_integration.warning`, and `detection`/`warning` on `model sync`), and in the `import_hermes_models` MCP tool payload.
+- Both sources `unavailable` is the ordinary no-Hermes case: existing configuration/standalone behavior is preserved, with the pre-existing standalone banner rather than an incomplete-detection warning.
+- `anticharon test` reports `[WARN]` (never an unqualified `[PASS]`) for the Hermes step when detection is `incomplete` or when the detected model set diverges from the persisted shortlist, exposing `detection`, `shortlist_divergence`, and `warning` in `--json`.
 
 ### Model Placement & Synchronization Rules:
 - The Hermes `default` model is always placed at index 0 (`shortlist[0]`), receiving the `★ [DEFAULT]` badge and serving as the baseline for `BEST_OPTION_CHANGED` alerts.
