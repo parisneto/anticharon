@@ -7,7 +7,9 @@
 > document in the same change.
 
 Written by: parisneto (human) + planning agent
-Reviewed by: *pending*
+Reviewed by: independent review agent (2026-09-20 pass — Hermes detection-outcome
+model, source-order/sync-protection rules, lint-baseline gate; see dated entries
+in the relevant sections below)
 Last synchronized: 2026-09-20
 Tracking: [Issue #4](https://github.com/parisneto/anticharon/issues/4) (bug, critical),
 [Issue #3](https://github.com/parisneto/anticharon/issues/3) (bug).
@@ -89,25 +91,69 @@ Root cause, confirmed by direct code inspection matching the issue's own analysi
   list it is handed with no completeness check, so a partial detection result
   overwrites a previously-good multi-model shortlist on disk.
 
-Required end-state behavior (matches the issue's own "Expected behavior" section):
+**Reviewed decision (2026-09-20 — independent review): formal detection-outcome
+model.** The fix is defined in terms of three named outcomes per source (CLI
+tier, file tier), not a binary success/failure:
+
+- **`complete`**: the source provides a parseable default model AND the
+  complete configured fallback-model set.
+- **`incomplete`**: the source demonstrates that a model configuration
+  exists, but Anticharon cannot establish the complete model set. The known
+  example is non-empty CLI `fallback_providers` output from which no
+  fallback model can be parsed.
+- **`unavailable`**: the source cannot be read or queried at all — missing
+  executable/file, timeout, non-zero command exit, or an equivalent access
+  failure.
+- No in-process retry loop is added in this sprint for an `unavailable`
+  source. A later invocation (the next scheduled/manual run) may retry it.
+
+**Source order is preserved, not reversed:**
+
+- The Hermes CLI is preferred when it returns a `complete` result, since it
+  represents the actively resolved configuration (not a static file that may
+  be stale relative to environment overrides).
+- If CLI detection is `incomplete` or `unavailable`, the file tier is tried.
+- A `complete` file-tier result is the authoritative final result: it clears
+  the `incomplete` CLI state entirely and must NOT emit an incomplete-detection
+  warning — this is a full recovery, not a degraded fallback.
+- This file-based recovery pattern may be reusable by a future one-way
+  importer (e.g. a prospective OpenClaw or other orchestrator integration —
+  see `docs/BACKLOG.md`'s "Universal One-Way Shortlist Importers"), but
+  generalizing it for other integrations is explicitly out of scope for this
+  sprint.
+
+Required end-state behavior (matches the issue's own "Expected behavior"
+section, refined against the outcome model above):
 
 - The CLI-tier fallback parser understands the Hermes YAML list format
   (`- provider: openrouter\n  model: <slug>`) in addition to the existing JSON form.
-- If fallback output is present (non-empty) but cannot be parsed into any model,
-  CLI detection is treated as **incomplete**, not as a successful default-only
-  result — `get_hermes_models()` must fall through to Tier 2 file parsing in that
-  case, not just when Tier 1 returns `None`/falsy.
+- Non-empty, unparseable CLI fallback output is an `incomplete` CLI result —
+  `get_hermes_models()` must try the file tier in that case, not just when the
+  CLI call itself is `unavailable` (no executable, timeout, non-zero exit).
 - The file-tier parser retains the final fallback item regardless of whether the
   YAML block ends at EOF or is closed by a subsequent top-level key.
-- `sync_hermes_to_config()` must never overwrite an existing multi-model shortlist
-  with a shorter/default-only list when the detection that produced it was
-  incomplete. A resolution mechanism (e.g. an explicit `incomplete: bool` signal
-  threaded from `fetch_models_from_cli()` / `extract_models_from_file()` through to
-  the sync call) is required — the exact plumbing is an implementation decision,
-  not fixed here, but the outcome ("never downgrade the shortlist off an
-  incomplete read") is a hard acceptance criterion.
-- A warning is surfaced to the user (CLI/stderr, and in `--json` output) when
-  Hermes detection is incomplete.
+- **Sync protection applies to the final selected result, not per-tier:**
+  - If the final selected result (after trying CLI then file) is `complete`,
+    it is authoritative and may legitimately shrink the shortlist — a genuine
+    reduction in Hermes's configured models must propagate.
+  - If the final selected result is `incomplete`, `sync_hermes_to_config()`
+    must never overwrite an existing valid multi-model shortlist with a
+    shorter/default-only list derived from it.
+  - If CLI is `incomplete`/`unavailable` AND the file tier also fails to
+    produce a `complete` result (i.e. the file tier is itself `incomplete` or
+    `unavailable`), the existing shortlist is preserved unchanged and a
+    visible warning is emitted in both human CLI output and `--json`.
+  - If both CLI and file are `unavailable` (no Hermes present at all, or
+    genuinely unreachable), existing configuration/standalone behavior is
+    preserved — this is the ordinary no-Hermes case, not a new warning path.
+  - A `complete` file-tier recovery from an `incomplete` CLI result clears
+    that incomplete state entirely: the file result is used, sync is
+    permitted, and no incomplete-detection warning is emitted (see "Source
+    order is preserved" above).
+  - The exact plumbing for carrying outcome state from `fetch_models_from_cli()`
+    / `extract_models_from_file()` through to the sync call is an
+    implementation decision, not fixed here — the outcomes above are the hard
+    acceptance criteria.
 - `anticharon test` flags a divergence between the currently detected Hermes model
   set and the persisted Anticharon shortlist, rather than reporting an unqualified
   pass.
@@ -151,12 +197,30 @@ Required end-state behavior:
 
 - Run `ruff check --fix` (safe, non-behavioral fixes only — no `--unsafe-fixes`)
   across `src/` and `tests/`.
-- Must not touch or affect the 38 pre-existing behavioral findings already
-  fingerprinted in `docs/standards/lint_baseline_pe2010.txt` (`BLE001`, `B023`,
-  `S110`/`S112`, `PLW1510`) — those remain deferred per the existing human
-  sign-off recorded in `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#pe2-010`,
-  since they require dedicated regression tests to confirm no behavior change.
-  This sprint's autofix is a distinct, narrower action from that deferred item.
+- **Reviewed correction (2026-09-20 — independent review):** the 38
+  pre-existing behavioral findings fingerprinted in
+  `docs/standards/lint_baseline_pe2010.txt` (`BLE001`, `B023`, `S110`/`S112`,
+  `PLW1510`) must remain the same *semantic* findings — same rule code, same
+  underlying code construct — but a safe autofix elsewhere in a file can
+  legitimately shift their line numbers (e.g. removing a blank line or an
+  unused import above them). The baseline's exact `<rule> <file>:<line>`
+  fingerprints are therefore NOT required to stay byte-for-byte identical;
+  what is required is that every one of the 38 findings still maps to the
+  same pre-existing issue, and that no new (39th) finding is hidden behind a
+  shifted/regenerated baseline.
+- If the autofix does shift any of the 38 findings' line numbers, the
+  fingerprint baseline may only be regenerated after an **independent
+  cross-review agent** verifies, finding-by-finding, that each of the 38
+  entries in the new baseline maps to the same pre-existing finding as before
+  (not a coincidentally similar new one) and that the count is still exactly
+  38. That sign-off is recorded in this contract (see "Independent
+  Cross-Review Sign-Off Log" below and Acceptance Criteria → Lint autofix)
+  before the release is cut — it is a strict release gate, not an optional
+  review.
+- These 38 findings remain deferred per the existing human sign-off in
+  `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#pe2-010` — dedicated
+  regression tests are still required before any of them can be fixed, which
+  stays out of scope for this sprint regardless of line-number drift.
 - No behavior change is expected or permitted from the autofix; the full `pytest`
   suite must pass identically before and after.
 
@@ -166,10 +230,15 @@ No new test infrastructure. Extend the existing targeted files:
 
 - `tests/test_hermes.py` (currently covers inline-JSON and multiline-YAML fallback
   parsing, plus `run_tracker` Hermes integration) — add cases for: CLI-tier YAML
-  fallback parsing; CLI-tier non-empty-but-unparseable fallback output falling
-  through to file-tier; file-tier trailing-item retention when a top-level key
-  follows the fallback block; `sync_hermes_to_config` refusing to shrink the
-  shortlist on incomplete detection; `anticharon test` divergence warning.
+  fallback parsing; file-tier trailing-item retention when a top-level key
+  follows the fallback block; `anticharon test` divergence warning; and one
+  deterministic test per detection-outcome combination in the matrix under
+  Acceptance Criteria → Hermes sync below (complete CLI; incomplete CLI +
+  complete file; unavailable CLI + complete file; incomplete CLI +
+  incomplete/unavailable file; unavailable CLI + unavailable file) — each
+  asserting both which result is selected/used AND whether a
+  warning/shortlist-preservation path fires, per the reviewed sync-protection
+  rules above.
 - `tests/test_chart.py` (currently one rendering-sections test) — add a case with
   a ZDR-policy-ordered input list asserting monotonic bar widths and correct scale.
 - No fixture/mocking infrastructure changes needed; existing `tmp_path` /
@@ -192,6 +261,18 @@ The sprint is complete when:
 - A visible warning is surfaced when Hermes detection is incomplete.
 - `anticharon test` reports a divergence between detected Hermes models and the
   persisted shortlist instead of an unqualified pass.
+- **Detection-outcome combination matrix (reviewed decision, 2026-09-20) —
+  each combination has a defined, tested behavior; the CLI → file tier order
+  is never reversed:**
+  1. Complete CLI result → use CLI.
+  2. Incomplete CLI + complete file result → use file, permit sync (the file
+     result may shrink the shortlist), no incomplete-detection warning.
+  3. Unavailable CLI + complete file result → use file, permit sync, no
+     incomplete-detection warning.
+  4. Incomplete CLI + incomplete/unavailable file result → preserve the
+     existing shortlist unchanged and emit a visible warning (CLI + `--json`).
+  5. Unavailable CLI + unavailable file result → preserve existing
+     configuration/standalone behavior (the ordinary no-Hermes case).
 - All six "Suggested regression coverage" cases from Issue #4 are covered by
   tests: YAML multiline fallback; JSON fallback (existing, keep passing);
   unparseable-but-non-empty fallback; trailing-item-retention with a following
@@ -212,10 +293,22 @@ The sprint is complete when:
 ### Lint autofix
 - `ruff check --fix` applied repository-wide produces zero behavioral change:
   full `pytest` suite passes identically before and after.
-- The 38 fingerprinted findings in `docs/standards/lint_baseline_pe2010.txt`
-  remain present and untouched (same rule codes, same file:line fingerprints) —
-  confirming the autofix did not reach into deferred-behavioral territory.
-- No new lint findings are introduced.
+- **Reviewed correction (2026-09-20):** the 38 findings fingerprinted in
+  `docs/standards/lint_baseline_pe2010.txt` remain the same 38 *semantic*
+  findings (same rule code, same underlying construct) — their exact line
+  numbers may shift as a side effect of the safe autofix elsewhere in the
+  same file; this is permitted, and a byte-for-byte fingerprint match is
+  NOT required.
+- No new lint findings are introduced, and no pre-existing finding is
+  concealed by a coincidental fingerprint collision after any line shift.
+- **Release gate:** if any of the 38 findings' line numbers shifted, the
+  regenerated baseline is only valid once an independent cross-review agent
+  has signed off — verifying every entry maps 1:1 to the same pre-existing
+  finding and that the count is still exactly 38. That sign-off (reviewer,
+  date, and the finding-by-finding mapping outcome) MUST be recorded in the
+  "Independent Cross-Review Sign-Off Log" section below before the release
+  is cut. No line-number drift → no cross-review needed; the sign-off
+  requirement applies only when drift actually occurs.
 
 ### Verification
 - The mandatory deterministic `pytest` suite (`uv run pytest`) passes without
@@ -255,6 +348,21 @@ them is out:
   picker — all remain in `docs/BACKLOG.md`, untouched by this sprint.
 - **No test infrastructure changes**: existing `pytest`/`tmp_path`/`monkeypatch`
   patterns are reused as-is.
+- **No in-process retry loop** for an `unavailable` Hermes detection source
+  (a later invocation may retry it), and **no generalization** of the
+  file-based recovery pattern for other prospective integrations (e.g. a
+  future OpenClaw importer) — reviewed decision, 2026-09-20.
+
+## Independent Cross-Review Sign-Off Log
+
+Required only if the lint autofix pass (§2c / Acceptance Criteria → Lint
+autofix) shifts the line number of any of the 38 pre-existing fingerprinted
+findings in `docs/standards/lint_baseline_pe2010.txt`. Until that happens,
+this log stays empty — no cross-review is owed for a no-drift autofix.
+
+- *(none yet — populate with reviewer identity, date, and the
+  finding-by-finding 38-of-38 mapping outcome once/if the fingerprint
+  baseline is regenerated during implementation)*
 
 ## Deferred / Still Open for a Future Planning Round
 
