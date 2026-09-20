@@ -8,8 +8,10 @@
 
 Written by: parisneto (human) + planning agent
 Reviewed by: independent review agent (2026-09-20 pass — Hermes detection-outcome
-model, source-order/sync-protection rules, lint-baseline gate; see dated entries
-in the relevant sections below)
+model, source-order/sync-protection rules, lint-baseline gate); human-directed
+simplification (2026-09-20, second pass — replaced the lint-baseline
+cross-review-agent gate with the existing automated `scripts/lint_gate.py` +
+a count check; see dated entries in the relevant sections below)
 Last synchronized: 2026-09-20
 Tracking: [Issue #4](https://github.com/parisneto/anticharon/issues/4) (bug, critical),
 [Issue #3](https://github.com/parisneto/anticharon/issues/3) (bug).
@@ -208,15 +210,23 @@ Required end-state behavior:
   what is required is that every one of the 38 findings still maps to the
   same pre-existing issue, and that no new (39th) finding is hidden behind a
   shifted/regenerated baseline.
-- If the autofix does shift any of the 38 findings' line numbers, the
-  fingerprint baseline may only be regenerated after an **independent
-  cross-review agent** verifies, finding-by-finding, that each of the 38
-  entries in the new baseline maps to the same pre-existing finding as before
-  (not a coincidentally similar new one) and that the count is still exactly
-  38. That sign-off is recorded in this contract (see "Independent
-  Cross-Review Sign-Off Log" below and Acceptance Criteria → Lint autofix)
-  before the release is cut — it is a strict release gate, not an optional
-  review.
+- **Correction (2026-09-20, second pass — human-directed simplification):**
+  verification that the 38 findings survived the autofix is automated, not a
+  manual/agent review step. `scripts/lint_gate.py` (already in this repo —
+  see `docs/standards/linting.md`'s "Deterministic changed-line/baseline
+  gate") only fails a finding that is BOTH on a line the diff actually
+  added/modified AND not present in the baseline. The safe autofix never
+  touches the 38 findings' own lines (they're all behavioral rules excluded
+  from safe fixes by definition), so a finding whose line number merely
+  shifted because of an unrelated edit nearby was never itself "changed" —
+  the gate already skips it correctly, with no baseline regeneration needed
+  in the normal case. The only thing that needs checking is a plain count:
+  `ruff check src tests --statistics` must still show exactly 38 findings
+  across the same 5 rule codes (`BLE001`, `B023`, `S110`, `S112`, `PLW1510`)
+  before vs. after the autofix — a scripted/test assertion, not a human or
+  agent sign-off. If (and only if) that count check fails — i.e. the
+  autofix somehow touched one of the 38 findings directly — stop and treat
+  it as a real regression to investigate, not a baseline paperwork exercise.
 - These 38 findings remain deferred per the existing human sign-off in
   `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#pe2-010` — dedicated
   regression tests are still required before any of them can be fixed, which
@@ -301,14 +311,13 @@ The sprint is complete when:
   NOT required.
 - No new lint findings are introduced, and no pre-existing finding is
   concealed by a coincidental fingerprint collision after any line shift.
-- **Release gate:** if any of the 38 findings' line numbers shifted, the
-  regenerated baseline is only valid once an independent cross-review agent
-  has signed off — verifying every entry maps 1:1 to the same pre-existing
-  finding and that the count is still exactly 38. That sign-off (reviewer,
-  date, and the finding-by-finding mapping outcome) MUST be recorded in the
-  "Independent Cross-Review Sign-Off Log" section below before the release
-  is cut. No line-number drift → no cross-review needed; the sign-off
-  requirement applies only when drift actually occurs.
+- **Release gate (automated, human-directed simplification 2026-09-20):**
+  `scripts/lint_gate.py` passes (it already tolerates line-number drift on
+  untouched lines by construction — see §2c), AND
+  `ruff check src tests --statistics` shows the same 38-finding count across
+  the same 5 rule codes before and after the autofix. Both are scripted
+  checks run as part of this sprint's verification, not a manual or
+  agent sign-off step.
 
 ### Verification
 - The mandatory deterministic `pytest` suite (`uv run pytest`) passes without
@@ -352,17 +361,6 @@ them is out:
   (a later invocation may retry it), and **no generalization** of the
   file-based recovery pattern for other prospective integrations (e.g. a
   future OpenClaw importer) — reviewed decision, 2026-09-20.
-
-## Independent Cross-Review Sign-Off Log
-
-Required only if the lint autofix pass (§2c / Acceptance Criteria → Lint
-autofix) shifts the line number of any of the 38 pre-existing fingerprinted
-findings in `docs/standards/lint_baseline_pe2010.txt`. Until that happens,
-this log stays empty — no cross-review is owed for a no-drift autofix.
-
-- *(none yet — populate with reviewer identity, date, and the
-  finding-by-finding 38-of-38 mapping outcome once/if the fingerprint
-  baseline is regenerated during implementation)*
 
 ## Deferred / Still Open for a Future Planning Round
 
