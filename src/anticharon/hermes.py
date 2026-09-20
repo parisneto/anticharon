@@ -178,7 +178,15 @@ def fetch_models_from_cli() -> dict[str, Any] | None:
             text=True,
             timeout=2.0
         )
-        if proc_fallback.returncode == 0 and proc_fallback.stdout.strip():
+        if proc_fallback.returncode != 0:
+            # A non-zero exit on the fallback sub-query is not a legitimate
+            # "no fallbacks configured" answer -- the default model query
+            # already succeeded (a configuration demonstrably exists), but
+            # the complete fallback set could not be established. Treat this
+            # the same as unparseable-but-non-empty output: incomplete, never
+            # a silently "complete" default-only result (Issue #4).
+            detection = DETECTION_INCOMPLETE
+        elif proc_fallback.stdout.strip():
             fallback_models, recognized = _parse_fallback_value(proc_fallback.stdout)
             if not recognized:
                 # Non-empty but unreadable output: a model configuration exists,
@@ -347,9 +355,12 @@ def sync_hermes_to_config(
 ) -> tuple[bool, list[str], Path]:
     """Synchronize Hermes models into Anticharon shortlist.json.
 
-    A `complete` detection is authoritative and may legitimately shrink the
-    shortlist. An `incomplete` one must never overwrite a longer existing
-    shortlist with a shorter/default-only list derived from it (Issue #4).
+    A `complete` detection is authoritative and may legitimately shrink or
+    otherwise change the shortlist. An `incomplete` one must never replace an
+    existing non-empty shortlist with the partial/default-only set it
+    detected -- regardless of whether that partial set happens to be shorter,
+    the same length, or even longer (Issue #4). Length is not a reliable
+    completeness signal, so it is never used to decide this.
 
     Returns (changed: bool, shortlist: List[str], config_path: Path).
     """
@@ -362,7 +373,7 @@ def sync_hermes_to_config(
         return False, current_shortlist, target_path
 
     incomplete = hermes_models.get("detection", DETECTION_COMPLETE) != DETECTION_COMPLETE
-    if incomplete and len(new_models) < len(current_shortlist):
+    if incomplete and current_shortlist:
         return False, current_shortlist, target_path
 
     changed = (current_shortlist != new_models)

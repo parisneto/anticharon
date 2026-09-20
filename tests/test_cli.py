@@ -245,3 +245,75 @@ def test_cmd_run_human_output_prints_policy_unroutable_line(monkeypatch, tmp_pat
     assert code == 0
     assert "POLICY" in captured.out
     assert "no ZDR-compliant endpoint" in captured.out
+
+
+# --- GH-4: `model sync` (equal-length-different incomplete detection) must
+# warn and preserve the existing shortlist in both human and JSON output ---
+
+
+def _sync_args(**overrides):
+    base = {
+        "model_action": "sync",
+        "hermes_config": None,
+        "dry_run": False,
+        "config": None,
+        "json": True,
+    }
+    base.update(overrides)
+    return argparse.Namespace(**base)
+
+
+def _mock_incomplete_equal_length_hermes(monkeypatch, partial):
+    monkeypatch.setattr(
+        "anticharon.cli.get_hermes_models",
+        lambda custom_path=None, prompt_if_missing=False: {
+            "source": "cli:hermes",
+            "method": "cli",
+            "detection": "incomplete",
+            "default_model": partial[0],
+            "fallback_models": partial[1:],
+            "all_models": list(partial),
+        },
+    )
+
+
+def test_cmd_model_sync_json_warns_and_preserves_shortlist_on_equal_length_incomplete(monkeypatch, tmp_path):
+    existing = ["openai/gpt-5.6-luna", "qwen/qwen3.7-flash", "openai/gpt-4.1-nano"]
+    partial = ["openai/gpt-5.6-luna", "deepseek/deepseek-v4-flash-0731", "mistralai/mistral-small-3.2"]
+    assert len(partial) == len(existing) and partial != existing
+    _mock_incomplete_equal_length_hermes(monkeypatch, partial)
+
+    cfg_path = tmp_path / "shortlist.json"
+    cfg_path.write_text(json.dumps({"shortlist": list(existing)}), encoding="utf-8")
+
+    args = _sync_args(config=str(cfg_path), json=True)
+    f = io.StringIO()
+    with redirect_stdout(f):
+        code = cmd_model(args)
+
+    assert code == 0
+    payload = json.loads(f.getvalue())
+    assert payload["changed"] is False
+    assert payload["detection"] == "incomplete"
+    assert payload["warning"]
+    assert payload["shortlist"] == existing
+    assert "deepseek/deepseek-v4-flash-0731" not in payload["shortlist"]
+
+
+def test_cmd_model_sync_human_warns_and_preserves_shortlist_on_equal_length_incomplete(monkeypatch, tmp_path, capsys):
+    existing = ["openai/gpt-5.6-luna", "qwen/qwen3.7-flash", "openai/gpt-4.1-nano"]
+    partial = ["openai/gpt-5.6-luna", "deepseek/deepseek-v4-flash-0731", "mistralai/mistral-small-3.2"]
+    _mock_incomplete_equal_length_hermes(monkeypatch, partial)
+
+    cfg_path = tmp_path / "shortlist.json"
+    cfg_path.write_text(json.dumps({"shortlist": list(existing)}), encoding="utf-8")
+
+    args = _sync_args(config=str(cfg_path), json=False)
+    code = cmd_model(args)
+    captured = capsys.readouterr()
+
+    assert code == 0
+    assert "incomplete" in captured.err.lower()
+    for model_id in existing:
+        assert model_id in captured.out
+    assert "deepseek/deepseek-v4-flash-0731" not in captured.out
