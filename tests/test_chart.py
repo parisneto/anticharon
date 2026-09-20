@@ -88,3 +88,137 @@ def test_ascii_chart_correct_under_zdr_policy_sort_order():
     best_line = next(l for l in lines if "🏆 [BEST]" in l)
     assert "qwen/qwen3.7-flash" in best_line
     assert sum("🏆 [BEST]" in l for l in lines) == 1
+
+
+# --- GH-3: defensive safety against non-finite `price_1m` (Infinity/-Infinity/
+# NaN). These should already be rejected upstream by
+# anticharon.pricing.is_valid_listed_price, but the chart itself must never
+# crash or misrender if one still reaches it. ---
+
+
+def test_ascii_chart_positive_infinity_does_not_crash():
+    """The original GH-3 crash: `inf / inf` is NaN, and `int(round(nan))`
+    raised ValueError, taking down the whole chart on one bad entry."""
+    prices = [
+        ModelPrice(model="cheap/model", price_1m=0.5, ma_7d=0.5, change_vs_7d_pct=0.0),
+        ModelPrice(model="broken/inf-model", price_1m=float("inf"), ma_7d=0.0, change_vs_7d_pct=0.0),
+        ModelPrice(model="mid/model", price_1m=2.0, ma_7d=2.0, change_vs_7d_pct=0.0),
+    ]
+    lines = render_ascii_price_bar(prices, max_bar_width=32)
+    widths = _bar_widths(lines)
+    assert len(widths) == 3
+    assert all(w <= 32 for w in widths)
+
+
+def test_ascii_chart_positive_infinity_scales_off_max_finite_price():
+    prices = [
+        ModelPrice(model="cheap/model", price_1m=0.5, ma_7d=0.5, change_vs_7d_pct=0.0),
+        ModelPrice(model="broken/inf-model", price_1m=float("inf"), ma_7d=0.0, change_vs_7d_pct=0.0),
+        ModelPrice(model="mid/model", price_1m=2.0, ma_7d=2.0, change_vs_7d_pct=0.0),
+    ]
+    lines = render_ascii_price_bar(prices, max_bar_width=32)
+
+    def _width_for(model):
+        line = next(l for l in lines if model in l)
+        m = re.search(r"(█+)", line)
+        return len(m.group(1))
+
+    # 0.5/2.0 * 32 = 8; 2.0/2.0 * 32 = 32 -- the infinite entry is excluded
+    # from the scale computation and rendered capped at max_bar_width.
+    assert _width_for("cheap/model") == 8
+    assert _width_for("mid/model") == 32
+    assert _width_for("broken/inf-model") <= 32
+
+    # BEST follows the minimum *finite* effective price, not the sorted
+    # position (an inf never sorts first, but this stays true regardless).
+    best_line = next(l for l in lines if "🏆 [BEST]" in l)
+    assert "cheap/model" in best_line
+    assert sum("🏆 [BEST]" in l for l in lines) == 1
+
+
+def test_ascii_chart_negative_infinity_does_not_crash_or_win_best():
+    """A -inf sorts first (cheapest by naive comparison), but it must never
+    be treated as the real cheapest effective price."""
+    prices = [
+        ModelPrice(model="broken/neg-inf-model", price_1m=float("-inf"), ma_7d=0.0, change_vs_7d_pct=0.0),
+        ModelPrice(model="cheap/model", price_1m=0.5, ma_7d=0.5, change_vs_7d_pct=0.0),
+        ModelPrice(model="mid/model", price_1m=2.0, ma_7d=2.0, change_vs_7d_pct=0.0),
+    ]
+    lines = render_ascii_price_bar(prices, max_bar_width=32)
+    widths = _bar_widths(lines)
+    assert len(widths) == 3
+    assert all(w <= 32 for w in widths)
+
+    best_line = next(l for l in lines if "🏆 [BEST]" in l)
+    assert "cheap/model" in best_line
+    assert sum("🏆 [BEST]" in l for l in lines) == 1
+
+
+def test_ascii_chart_nan_price_does_not_crash():
+    """NaN comparisons never raise, but `int(round(nan))` does -- and NaN's
+    sort position is undefined, so this only asserts non-crash + all other
+    rows staying correct, not NaN's own row content."""
+    prices = [
+        ModelPrice(model="broken/nan-model", price_1m=float("nan"), ma_7d=0.0, change_vs_7d_pct=0.0),
+        ModelPrice(model="cheap/model", price_1m=0.5, ma_7d=0.5, change_vs_7d_pct=0.0),
+        ModelPrice(model="mid/model", price_1m=2.0, ma_7d=2.0, change_vs_7d_pct=0.0),
+    ]
+    lines = render_ascii_price_bar(prices, max_bar_width=32)
+    widths = _bar_widths(lines)
+    assert len(widths) == 3
+    assert all(w <= 32 for w in widths)
+
+    def _width_for(model):
+        line = next(l for l in lines if model in l)
+        m = re.search(r"(█+)", line)
+        return len(m.group(1))
+
+    assert _width_for("cheap/model") == 8
+    assert _width_for("mid/model") == 32
+    # NaN never wins BEST (it can't equal `min()` of the finite set).
+    best_line = next(l for l in lines if "🏆 [BEST]" in l)
+    assert "cheap/model" in best_line
+    assert sum("🏆 [BEST]" in l for l in lines) == 1
+
+
+# --- GH-3: unsorted finite input, ties, and zero ---
+
+
+def test_ascii_chart_unsorted_finite_input_still_monotonic():
+    prices = [
+        ModelPrice(model="mid/model", price_1m=2.0, ma_7d=2.0, change_vs_7d_pct=0.0),
+        ModelPrice(model="cheap/model", price_1m=0.5, ma_7d=0.5, change_vs_7d_pct=0.0),
+        ModelPrice(model="expensive/model", price_1m=4.0, ma_7d=4.0, change_vs_7d_pct=0.0),
+    ]
+    lines = render_ascii_price_bar(prices, max_bar_width=32)
+    widths = _bar_widths(lines)
+    assert widths == sorted(widths)
+    assert max(widths) == 32
+
+
+def test_ascii_chart_tied_prices_single_best_badge():
+    prices = [
+        ModelPrice(model="tied/a", price_1m=1.0, ma_7d=1.0, change_vs_7d_pct=0.0),
+        ModelPrice(model="tied/b", price_1m=1.0, ma_7d=1.0, change_vs_7d_pct=0.0),
+        ModelPrice(model="expensive/model", price_1m=2.0, ma_7d=2.0, change_vs_7d_pct=0.0),
+    ]
+    lines = render_ascii_price_bar(prices, max_bar_width=32)
+    widths = _bar_widths(lines)
+    assert len(widths) == 3
+    assert widths == sorted(widths)
+    # Exactly one BEST badge even with a tie at the minimum price.
+    assert sum("🏆 [BEST]" in l for l in lines) == 1
+
+
+def test_ascii_chart_zero_price_renders_minimum_bar_and_wins_best():
+    prices = [
+        ModelPrice(model="free/model", price_1m=0.0, ma_7d=0.0, change_vs_7d_pct=0.0),
+        ModelPrice(model="paid/model", price_1m=3.0, ma_7d=3.0, change_vs_7d_pct=0.0),
+    ]
+    lines = render_ascii_price_bar(prices, max_bar_width=32)
+    widths = _bar_widths(lines)
+    assert widths[0] == 1  # zero price -> minimal 1-block bar, no crash
+    assert widths[1] == 32
+
+    best_line = next(l for l in lines if "🏆 [BEST]" in l)
+    assert "free/model" in best_line
