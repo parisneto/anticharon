@@ -525,9 +525,9 @@ def cmd_model(args) -> int:
                 print(f"\n⚠️  {INCOMPLETE_DETECTION_WARNING}", file=sys.stderr)
             prefix = "[DRY RUN] Would import" if is_dry_run else "Successfully imported"
             print(f"\n✅ {prefix} {len(new_shortlist)} models from Hermes ({hermes_info['source']})")
-            print(f"🔒 Hermes configuration is untouched (read-only).")
+            print("🔒 Hermes configuration is untouched (read-only).")
             print(f"★ Default Model: {hermes_info['default_model']}")
-            print(f"📋 Imported Shortlist:")
+            print("📋 Imported Shortlist:")
             for idx, m in enumerate(new_shortlist, 1):
                 badge = " ★ [DEFAULT]" if idx == 1 else ""
                 print(f"  {idx}. {m}{badge}")
