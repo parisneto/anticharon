@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-09-20
+
 ### Fixed
 - **`uv.lock` corrupted with a duplicate `dev-dependencies` table (#5):** `uv sync --frozen` failed with a TOML parse error (`duplicate key 'dev-dependencies' in table 'package'`) on every fresh clone, blocking AGENTS.md's own "Setup & Sync" workflow. Introduced in `6bf0ad8` (0.5.3 release) by hand-editing `uv.lock` instead of regenerating it via `uv lock`. Regenerated `uv.lock` from `pyproject.toml`; also corrects the `anticharon` package entry's stale `0.5.2` version stamp inside the lock file to match `0.5.3`.
 
