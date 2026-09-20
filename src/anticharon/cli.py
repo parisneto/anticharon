@@ -19,7 +19,11 @@ from anticharon.discovery import (
     filter_catalog,
     format_discovery_output,
 )
-from anticharon.hermes import get_hermes_models, sync_hermes_to_config
+from anticharon.hermes import (
+    INCOMPLETE_DETECTION_WARNING,
+    get_hermes_models,
+    sync_hermes_to_config,
+)
 from anticharon.log_parser import parse_activity_log
 from anticharon.manager import add_model, list_models, remove_model
 from anticharon.models import TrackerResult
@@ -40,6 +44,8 @@ def format_human_output(result) -> None:
         h = result.hermes_integration
         if h.detected:
             print(f"🤖 Hermes:    Synced ({h.models_count} models via {h.method} from {h.source})")
+            if h.warning:
+                print(f"⚠️  Hermes:    {h.warning}")
         elif h.warning:
             print(f"⚠️  Hermes:    Standalone mode ({h.warning})")
     if result.fallback:
@@ -130,6 +136,8 @@ def format_analytics_human_output(result: TrackerResult) -> None:
         h = result.hermes_integration
         if h.detected:
             print(f"🤖 Hermes:    Synced ({h.models_count} models via {h.method} from {h.source})")
+            if h.warning:
+                print(f"⚠️  Hermes:    {h.warning}")
         elif h.warning:
             print(f"🤖 Hermes:    {h.warning}")
 
@@ -495,6 +503,7 @@ def cmd_model(args) -> int:
         changed, new_shortlist, saved_path = sync_hermes_to_config(
             hermes_info, config_path=cfg_path, dry_run=is_dry_run
         )
+        incomplete = hermes_info.get("detection", "complete") != "complete"
         if getattr(args, "json", False):
             print(json.dumps({
                 "status": "success",
@@ -503,6 +512,8 @@ def cmd_model(args) -> int:
                 "hermes_untouched": True,
                 "dry_run": is_dry_run,
                 "changed": changed,
+                "detection": hermes_info.get("detection", "complete"),
+                "warning": INCOMPLETE_DETECTION_WARNING if incomplete else None,
                 "source": hermes_info["source"],
                 "method": hermes_info["method"],
                 "default_model": hermes_info["default_model"],
@@ -510,11 +521,13 @@ def cmd_model(args) -> int:
                 "config_path": str(saved_path)
             }, indent=2))
         else:
+            if incomplete:
+                print(f"\n⚠️  {INCOMPLETE_DETECTION_WARNING}", file=sys.stderr)
             prefix = "[DRY RUN] Would import" if is_dry_run else "Successfully imported"
             print(f"\n✅ {prefix} {len(new_shortlist)} models from Hermes ({hermes_info['source']})")
-            print(f"🔒 Hermes configuration is untouched (read-only).")
+            print("🔒 Hermes configuration is untouched (read-only).")
             print(f"★ Default Model: {hermes_info['default_model']}")
-            print(f"📋 Imported Shortlist:")
+            print("📋 Imported Shortlist:")
             for idx, m in enumerate(new_shortlist, 1):
                 badge = " ★ [DEFAULT]" if idx == 1 else ""
                 print(f"  {idx}. {m}{badge}")

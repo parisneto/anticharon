@@ -8,6 +8,8 @@ w_uncached) + (P_cache_read × w_cached) + (P_out × w_completion)`. A 2-compone
 regression measurable (see `tests/test_golden_pricing.py`), not as a live path.
 """
 
+import math
+
 
 def parse_required_price_1m(pricing: dict, field: str) -> float | None:
     """Parse a *required* raw per-token price field (`"prompt"`/`"completion"`)
@@ -38,7 +40,7 @@ def parse_required_price_1m(pricing: dict, field: str) -> float | None:
 
 
 def is_valid_listed_price(price_1m: float) -> bool:
-    """False only for a negative sentinel price, true otherwise.
+    """False for a negative sentinel price or a non-finite value, true otherwise.
 
     OpenRouter meta-router models (e.g. `openrouter/auto-beta`) list
     `pricing.prompt`/`pricing.completion` as the raw string `"-1"` to mean
@@ -47,8 +49,15 @@ def is_valid_listed_price(price_1m: float) -> bool:
     turns that into a -1,000,000.0/1M sentinel, which then sorts as the
     globally cheapest model everywhere pricing is compared. Zero is not a
     sentinel here — it's how genuine free/promo-tier models are listed.
+
+    `Infinity`/`-Infinity`/`NaN` are also rejected here (GH-3): `float()`
+    happily parses those strings, so `parse_required_price_1m` can return a
+    non-finite value for a malformed upstream catalog entry. This is the
+    single boundary every tracker/discovery call site already gates on, so
+    rejecting non-finite values here keeps them out of chart rendering and
+    all other downstream pricing math without touching each call site.
     """
-    return price_1m >= 0
+    return math.isfinite(price_1m) and price_1m >= 0
 
 
 def calculate_effective_cost(
