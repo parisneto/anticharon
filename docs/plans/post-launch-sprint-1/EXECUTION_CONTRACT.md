@@ -12,7 +12,8 @@ model, source-order/sync-protection rules, lint-baseline gate); human-directed
 simplification (2026-09-20, second pass — replaced the lint-baseline
 cross-review-agent gate with the existing automated `scripts/lint_gate.py` +
 a count check; see dated entries in the relevant sections below)
-Last synchronized: 2026-09-20
+Last synchronized: 2026-09-20 (Solution A outcome clarification and independent
+re-review closeout, Product Owner approved in chat)
 Tracking: [Issue #4](https://github.com/parisneto/anticharon/issues/4) (bug, critical),
 [Issue #3](https://github.com/parisneto/anticharon/issues/3) (bug).
 [Issue #5](https://github.com/parisneto/anticharon/issues/5) (bug, `uv.lock`
@@ -100,14 +101,29 @@ tier, file tier), not a binary success/failure:
 - **`complete`**: the source provides a parseable default model AND the
   complete configured fallback-model set.
 - **`incomplete`**: the source demonstrates that a model configuration
-  exists, but Anticharon cannot establish the complete model set. The known
-  example is non-empty CLI `fallback_providers` output from which no
-  fallback model can be parsed.
-- **`unavailable`**: the source cannot be read or queried at all — missing
-  executable/file, timeout, non-zero command exit, or an equivalent access
-  failure.
+  exists, but Anticharon cannot establish the complete model set. Examples
+  include non-empty CLI `fallback_providers` output from which no fallback
+  model can be parsed and a non-zero `fallback_providers` sub-query after the
+  `model` sub-query already resolved a default model.
+- **`unavailable`**: the source cannot provide a default model at all — missing
+  executable/file, timeout, a non-zero `model` sub-query, or an equivalent
+  source-level access failure.
 - No in-process retry loop is added in this sprint for an `unavailable`
   source. A later invocation (the next scheduled/manual run) may retry it.
+
+**Tier 1 sub-query granularity (Solution A amendment, Product Owner approved
+2026-09-20):** the CLI tier issues two sub-queries — `hermes config get model`,
+then `hermes config get fallback_providers`. A non-zero exit on the first
+(`model`) sub-query makes the whole CLI source `unavailable`
+(`fetch_models_from_cli()` returns `None`). A non-zero exit on the second
+(`fallback_providers`) sub-query, after the default model already resolved, is
+`incomplete`, not `unavailable`: a model configuration demonstrably exists,
+but the complete fallback set could not be established. This is intentionally
+the same treatment as non-empty-but-unparseable `fallback_providers` output.
+Only a genuinely empty, zero-exit `fallback_providers` query is the
+fallback-less `complete` result. This amendment supersedes the former blanket
+phrase "non-zero command exit" in the `unavailable` definition; it preserves
+shortlist safety while retaining a visible degraded-Hermes diagnostic.
 
 **Source order is preserved, not reversed:**
 
@@ -131,7 +147,9 @@ section, refined against the outcome model above):
   (`- provider: openrouter\n  model: <slug>`) in addition to the existing JSON form.
 - Non-empty, unparseable CLI fallback output is an `incomplete` CLI result —
   `get_hermes_models()` must try the file tier in that case, not just when the
-  CLI call itself is `unavailable` (no executable, timeout, non-zero exit).
+  CLI call itself is `unavailable` (no executable, timeout, or non-zero
+  `model` sub-query exit). A non-zero `fallback_providers` sub-query is also
+  `incomplete` under the approved Tier 1 granularity rule above.
 - The file-tier parser retains the final fallback item regardless of whether the
   YAML block ends at EOF or is closed by a subsequent top-level key.
 - **Sync protection applies to the final selected result, not per-tier:**
@@ -139,8 +157,10 @@ section, refined against the outcome model above):
     it is authoritative and may legitimately shrink the shortlist — a genuine
     reduction in Hermes's configured models must propagate.
   - If the final selected result is `incomplete`, `sync_hermes_to_config()`
-    must never overwrite an existing valid multi-model shortlist with a
-    shorter/default-only list derived from it.
+    must never overwrite an existing non-empty shortlist with a result derived
+    from it, regardless of relative length. Shorter, equal-length-but-different,
+    and longer incomplete results are all rejected; length is not evidence of
+    completeness.
   - If CLI is `incomplete`/`unavailable` AND the file tier also fails to
     produce a `complete` result (i.e. the file tier is itself `incomplete` or
     `unavailable`), the existing shortlist is preserved unchanged and a
@@ -199,35 +219,38 @@ Required end-state behavior:
 
 - Run `ruff check --fix` (safe, non-behavioral fixes only — no `--unsafe-fixes`)
   across `src/` and `tests/`.
-- **Reviewed correction (2026-09-20 — independent review):** the 38
-  pre-existing behavioral findings fingerprinted in
+- **Reviewed correction (2026-09-20 — independent review and Product Owner
+  sign-off):** the original 38 pre-existing behavioral findings fingerprinted in
   `docs/standards/lint_baseline_pe2010.txt` (`BLE001`, `B023`, `S110`/`S112`,
-  `PLW1510`) must remain the same *semantic* findings — same rule code, same
-  underlying code construct — but a safe autofix elsewhere in a file can
-  legitimately shift their line numbers (e.g. removing a blank line or an
+  `PLW1510`) were reduced to 36 when the Product Owner approved replacing two
+  duplicate Hermes `except Exception` JSON-parser blocks with one shared helper
+  using `except (ValueError, TypeError)`. The 36 surviving mappings must remain
+  the same *semantic* findings — same rule code, same underlying code construct —
+  but a safe autofix elsewhere in a file can legitimately shift their line
+  numbers (e.g. removing a blank line or an
   unused import above them). The baseline's exact `<rule> <file>:<line>`
   fingerprints are therefore NOT required to stay byte-for-byte identical;
-  what is required is that every one of the 38 findings still maps to the
-  same pre-existing issue, and that no new (39th) finding is hidden behind a
-  shifted/regenerated baseline.
+  what is required is that every one of the 36 surviving findings still maps
+  to the same pre-existing issue, and that no new (37th) behavioral finding is
+  hidden behind a shifted/regenerated baseline.
 - **Correction (2026-09-20, second pass — human-directed simplification):**
-  verification that the 38 findings survived the autofix is automated, not a
-  manual/agent review step. `scripts/lint_gate.py` (already in this repo —
+  verification that the approved deferred findings survived the autofix is
+  automated, not a manual/agent review step. `scripts/lint_gate.py` (already in this repo —
   see `docs/standards/linting.md`'s "Deterministic changed-line/baseline
   gate") only fails a finding that is BOTH on a line the diff actually
   added/modified AND not present in the baseline. The safe autofix never
-  touches the 38 findings' own lines (they're all behavioral rules excluded
-  from safe fixes by definition), so a finding whose line number merely
+  touches the surviving findings' own lines (they're all behavioral rules
+  excluded from safe fixes by definition), so a finding whose line number merely
   shifted because of an unrelated edit nearby was never itself "changed" —
   the gate already skips it correctly, with no baseline regeneration needed
   in the normal case. The only thing that needs checking is a plain count:
-  `ruff check src tests --statistics` must still show exactly 38 findings
+  `ruff check src tests --statistics` must show exactly 36 approved findings
   across the same 5 rule codes (`BLE001`, `B023`, `S110`, `S112`, `PLW1510`)
-  before vs. after the autofix — a scripted/test assertion, not a human or
-  agent sign-off. If (and only if) that count check fails — i.e. the
-  autofix somehow touched one of the 38 findings directly — stop and treat
-  it as a real regression to investigate, not a baseline paperwork exercise.
-- These 38 findings remain deferred per the existing human sign-off in
+  after the two approved retirements — a scripted/test assertion, not a human
+  or agent sign-off. If (and only if) that count check fails — i.e. the
+  autofix somehow touched one of the surviving findings directly — stop and
+  treat it as a real regression to investigate, not a baseline paperwork exercise.
+- These 36 findings remain deferred per the existing human sign-off in
   `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#pe2-010` — dedicated
   regression tests are still required before any of them can be fixed, which
   stays out of scope for this sprint regardless of line-number drift.
@@ -241,7 +264,9 @@ No new test infrastructure. Extend the existing targeted files:
 - `tests/test_hermes.py` (currently covers inline-JSON and multiline-YAML fallback
   parsing, plus `run_tracker` Hermes integration) — add cases for: CLI-tier YAML
   fallback parsing; file-tier trailing-item retention when a top-level key
-  follows the fallback block; `anticharon test` divergence warning; and one
+  follows the fallback block; non-zero `fallback_providers` sub-query behavior;
+  shorter/equal/longer incomplete overwrite protection; `anticharon test`
+  divergence warning; and one
   deterministic test per detection-outcome combination in the matrix under
   Acceptance Criteria → Hermes sync below (complete CLI; incomplete CLI +
   complete file; unavailable CLI + complete file; incomplete CLI +
@@ -266,8 +291,11 @@ The sprint is complete when:
   "successful" default-only result.
 - File-tier parsing retains the last fallback item when the YAML block is closed
   by a following top-level section, not only at EOF.
-- `sync_hermes_to_config()` never persists a shortlist shorter than/derived from
-  an incomplete detection over an existing valid multi-model shortlist.
+- `sync_hermes_to_config()` never replaces an existing non-empty shortlist with
+  an incomplete result, whether that result is shorter, equal-length with
+  different content, or longer.
+- A non-zero CLI `fallback_providers` sub-query after a successful `model`
+  sub-query is `incomplete`; a non-zero `model` sub-query is `unavailable`.
 - A visible warning is surfaced when Hermes detection is incomplete.
 - `anticharon test` reports a divergence between detected Hermes models and the
   persisted shortlist instead of an unqualified pass.
@@ -283,6 +311,9 @@ The sprint is complete when:
      existing shortlist unchanged and emit a visible warning (CLI + `--json`).
   5. Unavailable CLI + unavailable file result → preserve existing
      configuration/standalone behavior (the ordinary no-Hermes case).
+- Under this matrix, a non-zero `fallback_providers` sub-query belongs to cases
+  2 or 4 (`incomplete` CLI), while a non-zero `model` sub-query belongs to cases
+  3 or 5 (`unavailable` CLI).
 - All six "Suggested regression coverage" cases from Issue #4 are covered by
   tests: YAML multiline fallback; JSON fallback (existing, keep passing);
   unparseable-but-non-empty fallback; trailing-item-retention with a following
@@ -297,14 +328,20 @@ The sprint is complete when:
   price among the rendered models.
 - `🏆 [BEST]` badges the model with the lowest effective price, matching the
   displayed triangle shape.
+- Non-finite listed prices (`Infinity`, `-Infinity`, `NaN`) are rejected at the
+  shared pricing-validation boundary. If one nevertheless reaches the chart,
+  it cannot crash rendering, exceed `max_bar_width`, influence the finite scale,
+  or receive the `🏆 [BEST]` badge.
 - `tracker.py`'s ZDR-policy ranking behavior for the main list and
   `BEST_OPTION_CHANGED` recommendation is unchanged by this fix.
 
 ### Lint autofix
 - `ruff check --fix` applied repository-wide produces zero behavioral change:
   full `pytest` suite passes identically before and after.
-- **Reviewed correction (2026-09-20):** the 38 findings fingerprinted in
-  `docs/standards/lint_baseline_pe2010.txt` remain the same 38 *semantic*
+- **Reviewed correction (2026-09-20):** after the Product Owner-approved
+  retirement of the two duplicate Hermes `BLE001` findings, the 36 surviving
+  findings fingerprinted in `docs/standards/lint_baseline_pe2010.txt` remain
+  the same 36 *semantic*
   findings (same rule code, same underlying construct) — their exact line
   numbers may shift as a side effect of the safe autofix elsewhere in the
   same file; this is permitted, and a byte-for-byte fingerprint match is
@@ -314,10 +351,11 @@ The sprint is complete when:
 - **Release gate (automated, human-directed simplification 2026-09-20):**
   `scripts/lint_gate.py` passes (it already tolerates line-number drift on
   untouched lines by construction — see §2c), AND
-  `ruff check src tests --statistics` shows the same 38-finding count across
-  the same 5 rule codes before and after the autofix. Both are scripted
-  checks run as part of this sprint's verification, not a manual or
-  agent sign-off step.
+  `ruff check src tests --statistics` shows the 36 approved behavioral findings
+  across the same 5 rule codes (`BLE001` ×22, `B023` ×8, `S110` ×3, `S112` ×1,
+  `PLW1510` ×2). The full repository inventory is 40 because four unrelated,
+  unbaselined legacy findings use other rule codes. Both checks are scripted
+  verification, not a blanket-clean-repository requirement.
 
 ### Verification
 - The mandatory deterministic `pytest` suite (`uv run pytest`) passes without
@@ -326,14 +364,31 @@ The sprint is complete when:
 - `ruff check` after autofix shows no unexpected diff against the pre-existing
   baseline beyond the intended autofix.
 
+**Independent re-review closeout (2026-09-20):** feature tip
+`b5080678e6bf3be714dd44ad5463f4e35bde97b2` was tested from a fresh isolated
+checkout with Python 3.12.14, pytest 9.1.1, and Ruff 0.16.8. The targeted Hermes
+and chart suite passed 38 tests; the full offline suite passed 203 tests with 3
+live-only tests deselected; `anticharon test --no-hermes` and the CI-equivalent
+`anticharon test` exited successfully (the restricted environment produced the
+expected network-warning fallback); `scripts/lint_gate.py
+9afcf8ac32402510e2e7581444b5f2faf901fc35` passed; and `git diff --check` passed.
+Live tests were not authorized and were not run. Targeted mutations proved the
+non-zero fallback classification, all-length incomplete overwrite guard,
+non-finite price rejection, and defensive chart behavior load-bearing. With
+the Product Owner's explicit Solution A approval recorded above, GH-4, GH-3,
+and LINT-1 are closed for this candidate and the review result is **READY FOR
+INTEGRATION**. Final validation must be rerun on the actual integrated `main`
+commit before creating any tag.
+
 ### Documentation & release governance
 - `docs/BACKLOG.md`: remove/complete the items this sprint resolves; nothing else
   in it is touched.
 - `CHANGELOG.md` updated under `[Unreleased]` per Rule 6, then rolled into a new
   version entry per the Rule 11 checklist.
 - Per Rule 11 (Autonomous SemVer), this sprint is a **PATCH** release (bug fixes
-  only, no CLI/schema changes) — expected `0.5.3` → `0.5.4`, executed as the
-  final step of implementation, not during planning.
+  only, no CLI/schema changes) — actual transition `0.5.4` → `0.5.5` because
+  the unrelated Issue #5 hotfix had already advanced `main` to `0.5.4` before
+  this sprint's release commit.
 - This `EXECUTION_CONTRACT.md` stays synchronized with whatever is actually
   shipped; any resolved ambiguity (e.g. the exact "incomplete detection" signal
   mechanism) gets recorded here once implemented.
@@ -349,7 +404,9 @@ them is out:
 - **No XDG path-resolution redesign**: the config/data directory first-run
   inconsistency noted in Issue #4 is explicitly deferred (see below) — it is not
   the destructive defect and reporter-confirmed as non-causal.
-- **No behavioral lint fixes**: the 38 findings needing dedicated regression tests
+- **No behavioral lint fixes beyond the separately Product Owner-approved Hermes
+  parser exception narrowing**: the 36 surviving findings needing dedicated
+  regression tests
   (`BLE001`, `B023`, `S110`/`S112`, `PLW1510`) stay out of scope; only safe,
   non-behavioral `ruff --fix` autofixes are in scope.
 - **No other backlog items**: eval harness, cache-hit-rate update, Pareto cutoff,
@@ -374,7 +431,7 @@ them is out:
   captured.
 - **Negative-token-count validation hardening (PE2-006)** — already tracked in
   `docs/BACKLOG.md`; explicitly not pulled into this sprint.
-- **Repository-wide behavioral Ruff cleanup (38 fingerprinted findings)** —
+- **Repository-wide behavioral Ruff cleanup (36 fingerprinted findings)** —
   already tracked in `docs/BACKLOG.md` and `docs/standards/lint_baseline_pe2010.txt`;
   explicitly not pulled into this sprint (only the safe-autofix subset is).
 - **All other `docs/BACKLOG.md` "Current Sprint" items** (eval harness,
