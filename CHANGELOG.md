@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-09-20
+
 ### Fixed
 - **Hermes YAML fallback list dropped, destroying the synced shortlist (#4) (`src/anticharon/hermes.py`, `tracker.py`, `cli.py`, `mcp.py`, `tester.py`):**
   - `fetch_models_from_cli()` parsed `hermes config get fallback_providers` as JSON only, but the Hermes CLI emits a raw YAML list (`- provider: openrouter` / `  model: <slug>`). Every fallback was silently discarded and the function still returned a "successful" default-only result, which `sync_hermes_to_config()` then persisted — destructively shrinking a good multi-model shortlist to a single entry. The CLI tier now parses the YAML list form alongside the existing inline-JSON form.
@@ -21,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The chart now sorts a local working copy by `price_1m` and scales off `max(price_1m)`, so it renders correctly for any input order. Bar widths are monotonically non-decreasing, no bar exceeds `max_bar_width`, and `🏆 [BEST]` badges the true lowest-effective-price model.
   - `tracker.py`'s ZDR ranking for the main list and `BEST_OPTION_CHANGED` is deliberately unchanged.
   - Spec updated: `docs/specs/spec_v1_anticharon.md` §3.2.
+
+### Changed
+- **Safe Ruff autofixes applied repository-wide** (`ruff check src tests --fix`, no `--unsafe-fixes`): two `F541` f-strings without placeholders in `src/anticharon/cli.py`'s `model sync` output. No behavioral change and no line-number drift, so `docs/standards/lint_baseline_pe2010.txt` was not regenerated.
 
 ## [0.5.4] - 2026-09-20
 
