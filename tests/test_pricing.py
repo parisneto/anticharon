@@ -6,6 +6,8 @@ as the raw string "-1", which becomes a -1,000,000.0/1M sentinel once multiplied
 1,000,000 like every real price -- see tracker.py/discovery.py call sites.
 """
 
+import math
+
 import pytest
 
 from anticharon.pricing import (
@@ -24,10 +26,38 @@ from anticharon.pricing import (
         (0.0, True),  # genuine free/promo-tier model, not a sentinel
         (0.20, True),
         (30.0, True),
+        (float("inf"), False),  # GH-3: non-finite must never be a "valid" price
+        (float("-inf"), False),
+        (float("nan"), False),
     ],
 )
 def test_is_valid_listed_price(price_1m, expected):
     assert is_valid_listed_price(price_1m) is expected
+
+
+# --- GH-3: non-finite prices must be rejected at this boundary, since every
+# tracker.py/discovery.py call site gates model/endpoint acceptance on it ---
+
+
+def test_parse_required_price_1m_infinity_string_parses_but_is_rejected_downstream():
+    """`float()` happily parses "Infinity" -- the boundary that must catch this
+    is `is_valid_listed_price`, not `parse_required_price_1m` itself (which
+    stays a pure numeric parse; None only means missing/blank/malformed)."""
+    parsed = parse_required_price_1m({"prompt": "Infinity"}, "prompt")
+    assert parsed == float("inf")
+    assert is_valid_listed_price(parsed) is False
+
+
+def test_parse_required_price_1m_negative_infinity_string_is_rejected_downstream():
+    parsed = parse_required_price_1m({"prompt": "-Infinity"}, "prompt")
+    assert parsed == float("-inf")
+    assert is_valid_listed_price(parsed) is False
+
+
+def test_parse_required_price_1m_nan_string_is_rejected_downstream():
+    parsed = parse_required_price_1m({"prompt": "NaN"}, "prompt")
+    assert math.isnan(parsed)
+    assert is_valid_listed_price(parsed) is False
 
 
 def test_price_per_1m_zero_tokens_does_not_divide_by_zero():

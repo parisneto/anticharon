@@ -60,6 +60,56 @@ def test_run_tracker_skips_sentinel_priced_model(monkeypatch, tmp_path, no_backf
     assert all(p.price_1m >= 0 for p in result.prices_shortlist)
 
 
+def test_run_tracker_skips_non_finite_priced_model(monkeypatch, tmp_path, no_backfill):
+    """GH-3: a malformed upstream catalog entry listing "Infinity"/"-Infinity"/
+    "NaN" pricing must never reach `prices_shortlist` -- `parse_required_price_1m`
+    parses these strings to a real float, so the rejection has to happen at
+    `is_valid_listed_price` (the shared boundary every call site already
+    gates on), not by relying on each call site to special-case non-finite
+    values itself."""
+
+    def fake_fetch_openrouter_models(timeout: float = 10.0):
+        return {
+            "broken/infinity-prompt": {
+                "id": "broken/infinity-prompt",
+                "canonical_slug": "broken/infinity-prompt",
+                "pricing": {"prompt": "Infinity", "completion": "0.000001"},
+            },
+            "broken/neg-infinity-completion": {
+                "id": "broken/neg-infinity-completion",
+                "canonical_slug": "broken/neg-infinity-completion",
+                "pricing": {"prompt": "0.000001", "completion": "-Infinity"},
+            },
+            "broken/nan-prompt": {
+                "id": "broken/nan-prompt",
+                "canonical_slug": "broken/nan-prompt",
+                "pricing": {"prompt": "NaN", "completion": "0.000001"},
+            },
+            "openai/gpt-5.6-luna": {
+                "id": "openai/gpt-5.6-luna",
+                "canonical_slug": "openai/gpt-5.6-luna-20260709",
+                "pricing": {"prompt": "0.0000002", "completion": "0.0000012"},
+            },
+        }
+
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", fake_fetch_openrouter_models)
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **kw: [])
+
+    cfg_path = _write_shortlist(tmp_path, [
+        "broken/infinity-prompt", "broken/neg-infinity-completion", "broken/nan-prompt", "openai/gpt-5.6-luna",
+    ])
+    result = run_tracker(dry_run=True, config_path=cfg_path, history_path=tmp_path / "history.csv", no_hermes=True)
+
+    model_ids = [p.model for p in result.prices_shortlist]
+    assert model_ids == ["openai/gpt-5.6-luna"]
+    assert all(p.price_1m == p.price_1m and p.price_1m not in (float("inf"), float("-inf")) for p in result.prices_shortlist)
+
+    # End-to-end: rendering the (now non-finite-free) shortlist never crashes.
+    from anticharon.chart import render_ascii_price_bar
+    lines = render_ascii_price_bar(result.prices_shortlist)
+    assert any("openai/gpt-5.6-luna" in line for line in lines)
+
+
 def test_run_tracker_effective_price_uses_cheapest_endpoint(monkeypatch, tmp_path, no_backfill):
     """effective_price_1m must reflect the cheapest real endpoint's own pricing,
     not just the bulk catalog headline -- the whole point of provider-routable pricing."""

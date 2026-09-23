@@ -102,6 +102,47 @@ def _run_async(coro):
         loop.close()
 
 
+# --- GH-4: import_hermes_models MCP tool payload must warn and preserve the
+# shortlist on an equal-length-different incomplete detection (deterministic,
+# calls the plain function directly -- no live network, no event loop needed
+# since it isn't async). ---
+
+
+def test_import_hermes_models_warns_and_preserves_shortlist_on_equal_length_incomplete(monkeypatch, tmp_path):
+    from anticharon.mcp import import_hermes_models
+
+    existing = ["openai/gpt-5.6-luna", "qwen/qwen3.7-flash", "openai/gpt-4.1-nano"]
+    partial = ["openai/gpt-5.6-luna", "deepseek/deepseek-v4-flash-0731", "mistralai/mistral-small-3.2"]
+    assert len(partial) == len(existing) and partial != existing
+
+    cfg_path = tmp_path / "shortlist.json"
+    cfg_path.write_text(json.dumps({"shortlist": list(existing)}), encoding="utf-8")
+    monkeypatch.setenv("ANTICHARON_CONFIG", str(cfg_path))
+
+    monkeypatch.setattr(
+        "anticharon.mcp.get_hermes_models",
+        lambda custom_path=None, prompt_if_missing=False: {
+            "source": "cli:hermes",
+            "method": "cli",
+            "detection": "incomplete",
+            "default_model": partial[0],
+            "fallback_models": partial[1:],
+            "all_models": list(partial),
+        },
+    )
+
+    result = import_hermes_models(dry_run=False)
+
+    assert result["status"] == "warning"
+    assert result["detection"] == "incomplete"
+    assert result["warning"]
+    assert result["changed"] is False
+    assert result["shortlist"] == existing
+    assert "deepseek/deepseek-v4-flash-0731" not in result["shortlist"]
+    from anticharon.config import load_config
+    assert load_config(cfg_path)["shortlist"] == existing
+
+
 def test_check_prices_zdr_preserves_three_price_distinction_deterministic(monkeypatch, tmp_path):
     """Deterministic (mocked, no network) coverage of PE2-001/PE2-003's fix
     surviving through the actual MCP tool boundary, not just run_tracker
