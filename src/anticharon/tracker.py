@@ -18,7 +18,11 @@ import requests
 
 from anticharon.analytics import calculate_model_analytics
 from anticharon.config import get_config_path, get_history_path, load_config
-from anticharon.hermes import get_hermes_models, sync_hermes_to_config
+from anticharon.hermes import (
+    INCOMPLETE_DETECTION_WARNING,
+    get_hermes_models,
+    sync_hermes_to_config,
+)
 from anticharon.models import (
     HermesIntegrationStatus,
     ModelPrice,
@@ -317,19 +321,25 @@ def run_tracker(
     if not no_hermes:
         hermes_info = get_hermes_models(custom_path=hermes_config_path)
         if hermes_info:
+            # An incomplete detection is never allowed to shrink the shortlist
+            # or to drive this run's tracking set (Issue #4).
+            incomplete = hermes_info.get("detection", "complete") != "complete"
             hermes_status = HermesIntegrationStatus(
                 detected=True,
                 source=hermes_info.get("source"),
                 method=hermes_info.get("method", "file_grep"),
                 models_count=len(hermes_info.get("all_models", [])),
-                warning=None
+                warning=INCOMPLETE_DETECTION_WARNING if incomplete else None
             )
             # Sync to shortlist config unless dry_run
             if not dry_run:
                 sync_hermes_to_config(hermes_info, config_path=cfg_path, dry_run=False)
                 cfg = load_config(cfg_path)
             # Use hermes models for current tracking session
-            shortlist = hermes_info.get("all_models", [])
+            if incomplete:
+                shortlist = cfg.get("shortlist", []) or hermes_info.get("all_models", [])
+            else:
+                shortlist = hermes_info.get("all_models", [])
         else:
             hermes_status = HermesIntegrationStatus(
                 detected=False,

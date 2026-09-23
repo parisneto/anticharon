@@ -19,7 +19,11 @@ except ImportError:
 from anticharon import __version__
 from anticharon.config import get_config_path, get_history_path, load_config
 from anticharon.discovery import fetch_catalog, filter_catalog
-from anticharon.hermes import get_hermes_models, sync_hermes_to_config
+from anticharon.hermes import (
+    INCOMPLETE_DETECTION_WARNING,
+    get_hermes_models,
+    sync_hermes_to_config,
+)
 from anticharon.storage import CSV_HEADER
 from anticharon.tracker import run_tracker
 
@@ -184,7 +188,10 @@ def import_hermes_models(
         hermes_info, dry_run=dry_run
     )
 
-    if dry_run:
+    incomplete = hermes_info.get("detection", "complete") != "complete"
+    if incomplete:
+        notice = f"⚠️ {INCOMPLETE_DETECTION_WARNING}"
+    elif dry_run:
         notice = "ℹ️ PREVIEW ONLY: Hermes models detected but Anticharon shortlist was not modified. Pass dry_run=False to persist."
     elif changed:
         notice = "💾 SHORTLIST UPDATED: Hermes models successfully written to Anticharon shortlist."
@@ -192,10 +199,12 @@ def import_hermes_models(
         notice = "✅ SHORTLIST UP TO DATE: Anticharon shortlist already matches Hermes models."
 
     return {
-        "status": "success",
+        "status": "warning" if incomplete else "success",
         "direction": "hermes→anticharon",
         "hermes_untouched": True,
         "detected": True,
+        "detection": hermes_info.get("detection", "complete"),
+        "warning": INCOMPLETE_DETECTION_WARNING if incomplete else None,
         "source": hermes_info.get("source"),
         "method": hermes_info.get("method"),
         "default_model": hermes_info.get("default_model"),

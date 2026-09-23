@@ -40,3 +40,6 @@ anticharon.code-workspace
 # local temp folder
 .local/
 gitleaks-report.json
+
+# Claude Code local session/worktree scaffolding
+.claude/
