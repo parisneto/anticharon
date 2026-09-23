@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Spec updated: `docs/specs/spec_v1_anticharon.md` §3.1a, §3.2.
 
 ### Changed
+- **Repository provenance safeguards:** Corrected repository metadata that incorrectly attributed automated assistance as co-authorship; verified that release contents remained unchanged and added explicit approval, recovery, signature-impact, ref-scope, and tree-equivalence checks for any future published-history operation.
 - **Safe Ruff autofixes applied repository-wide** (`ruff check src tests --fix`, no `--unsafe-fixes`): two `F541` f-strings without placeholders in `src/anticharon/cli.py`'s `model sync` output. No behavioral change and no line-number drift, so `docs/standards/lint_baseline_pe2010.txt` was not regenerated.
 
 ## [0.5.4] - 2026-09-20
