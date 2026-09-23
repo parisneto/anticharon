@@ -106,7 +106,7 @@ The Code Agent MUST update the following files in a single atomic commit:
 
 ### Rule 13: Linting, Remediation & Code Quality (Linting Skill)
 - Agents MUST NOT autonomously investigate or fix legacy lint debt. General Code Quality improvements are encouraged, but targeting out-of-scope debt burns tokens and creates scope creep.
-- **Skill Required:** Agents MUST load the Linting Skill (`docs/standards/linting.md` - pending migration to `.agents/skills/linting/SKILL.md`) for explicit instructions on Debt Containment and Auto-Ratcheting baseline rules.
+- **Skill Required:** Agents MUST load the Linting Skill (`.agents/skills/linting/SKILL.md`) for explicit instructions on Debt Containment and Auto-Ratcheting baseline rules.
 ---
 
 ## 3. Project Architecture & Directory Layout
