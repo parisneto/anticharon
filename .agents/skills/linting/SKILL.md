@@ -47,9 +47,7 @@ policy mechanically:
 2. Runs `ruff check src tests --output-format=json`.
 3. A finding fails the gate only if **both** (a) its line falls inside that
    changed-line set, and **(b)** its exact `<rule> <file>:<line>` fingerprint
-   is not present in an approved-baseline file
-   (e.g. `docs/standards/lint_baseline_pe2010.txt` for the pricing-engine-v2
-   initiative's PE2-010 approval).
+   is not present in an approved-baseline file.
 4. Findings on untouched lines never fail the gate, regardless of rule code
    (pre-existing/out-of-scope legacy debt, point 3 above).
 5. Findings on touched lines whose fingerprint is not baselined always fail
@@ -57,12 +55,11 @@ policy mechanically:
    different location — this is what makes the exemption per-location rather
    than per-rule-code.
 
-Each initiative that gets an explicit human-approved deferral creates its own
-baseline file under `docs/standards/lint_baseline_<initiative>.txt` and passes
-it via `scripts/lint_gate.py`'s baseline lookup; the current one in use is
-`docs/standards/lint_baseline_pe2010.txt` (pricing-engine-v2's 36
-human-approved `BLE001`/`B023`/`S110`/`S112`/`PLW1510` findings — see
-`docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#pe2-010`).
+### Auto-Ratcheting & The SSOT Ledger
+**The current active exemptions and their counts are dynamically tracked in the Single Source of Truth ledger: `docs/standards/lint_baseline_legacy.txt`**. 
+- **Auto-Ratcheting:** If a CI run fails because a legacy finding was organically fixed (count reduced) or a structurally edited line caused a legacy finding to shift line numbers, the **Test/QA Agent** must intervene.
+- If the Test Agent proves via Git Diff that no *new* violations were introduced, it is authorized to auto-regenerate (ratchet) `lint_baseline_legacy.txt` to match the new line numbers and reduced debt count without human sign-off.
+- Human sign-off is only required when *adding* new exemptions.
 
 `base_ref` defaults to `main` for ordinary future PR usage (a small diff
 against the merge base). For verifying one remediation pass within an
