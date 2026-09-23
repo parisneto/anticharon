@@ -81,32 +81,32 @@ To maintain a clean public repository while preserving exploratory thought, adhe
 ### Rule 11: Autonomous Semantic Versioning (SemVer) & Release Governance
 Anticharon follows strict [Semantic Versioning (`MAJOR.MINOR.PATCH`)](https://semver.org/):
 - **PATCH Bump (`0.1.0` → `0.1.1`):** Backwards-compatible bug fixes, packaging corrections, model alias updates, and internal refactoring without CLI or schema changes.
-- **MINOR Bump (`0.1.0` → `0.2.0`):** Adding backwards-compatible new features, subcommands, or flags (e.g. analytical engine, discovery filters, history export).
-- **MAJOR Bump (`0.x.x` → `1.0.0`):** Production-proven release after automated runtime validation with stable, breaking-change protected public interfaces.
+- **MINOR Bump (`0.1.0` → `0.2.0`):** Adding backwards-compatible new features, subcommands, or flags.
+- **MAJOR Bump (`0.x.x` → `1.0.0`):** Production-proven release with stable public interfaces.
 
-#### Mandatory Autonomous Release Trigger (Definition of Done):
-- **Zero-Prompt Versioning:** The human user must **NEVER** have to remind the agent to manage versions or cut releases. Managing versions is a mandatory requirement for task completion.
-- Upon passing all tests (Rule 6) and verifying the functional unit, the agent MUST autonomously execute the **Mandatory Version Bump Checklist** as the final step of the task (`PATCH` for fixes, `MINOR` for features).
-- **Never Overwrite Existing Tags:** Never overwrite an existing release tag (`git tag -f`). Any subsequent change—even a single-line bugfix or packaging correction—is a new, immutable `PATCH` release.
+#### Separation of Versioning Concerns (Code vs. Release)
+- **The Code Agent** is authorized to bump SemVer version strings locally within its feature branch. It MUST NOT create Git Tags (`git tag`) or push to main.
+- **The Code Reviewer / Independent Test Agent** audits the strict adherence to Semantic Versioning during its review.
+- **Integration & Tagging:** Actual GitHub tagging (`git tag vX.Y.Z`) and pushing to origin is strictly reserved for the final Integration step, executed ONLY after the Test Agent approves the release and the Product Owner provides final sign-off.
 
-#### Mandatory Version Bump Checklist:
-The agent MUST update all 4 files in a single atomic commit:
+#### Mandatory Version Bump Checklist (Code Agent):
+The Code Agent MUST update the following files in a single atomic commit:
 1. `pyproject.toml`: `version = "X.Y.Z"`
 2. `src/anticharon/__init__.py`: `__version__ = "X.Y.Z"`
 3. `README.md`: Version in title and badges (`(vX.Y.Z)`)
 4. `CHANGELOG.md`: Move items from `[Unreleased]` into `## [X.Y.Z] - YYYY-MM-DD` and restore an empty `## [Unreleased]` section on top.
-5. Create release tag: `git tag vX.Y.Z && git push origin main --tags` (or local git tag).
+
+#### Agent-to-Human Handoff (Release Notes Draft)
+- Upon finalizing a sprint, the agents MUST generate a marketing-enhanced Release Notes draft (separate from the strict technical `CHANGELOG.md` update) and save it to a `.local/` temporary folder. The Product Owner will use this draft to speed up GitHub Releases site population.
 
 ### Rule 12: Strict Repository-Relative Path Standard (No Local Path Leaks)
 - **Strict Rule:** Never use absolute host filesystem paths (e.g. `/Users/...`, `C:\...`, or `file:///...`) in Markdown files, code comments, docstrings, or specifications.
 - Always use clean, repo-relative paths (e.g. `docs/specs/spec_v1_anticharon.md`, `[README.md](README.md)`, or `src/anticharon/models.py`).
 - This ensures all links work portably on GitHub/GitLab, prevent personal OS username leaks, and work seamlessly across different machines.
 
-### Rule 13: Linting, Remediation & Code Quality
-- All agents must strictly adhere to the deterministic linting policies and release gates defined in `docs/standards/linting.md`.
-- Unsafe fixes, or any attempt to autonomously fix out-of-scope legacy lint findings, are strictly prohibited to prevent token burn and scope creep.
-- Agents MUST park out-of-scope lint debt in `docs/BACKLOG.md` without investigating it.
-- A human-approved deferral of specific pre-existing findings MUST be recorded as an exact `<rule> <file>:<line>` fingerprint baseline (e.g. `docs/standards/lint_baseline_pe2010.txt`), never as a blanket exemption by rule code — see `docs/standards/linting.md`'s "Deterministic changed-line/baseline gate" section and `scripts/lint_gate.py`.
+### Rule 13: Linting, Remediation & Code Quality (Linting Skill)
+- Agents MUST NOT autonomously investigate or fix legacy lint debt. General Code Quality improvements are encouraged, but targeting out-of-scope debt burns tokens and creates scope creep.
+- **Skill Required:** Agents MUST load the Linting Skill (`docs/standards/linting.md` - pending migration to `.agents/skills/linting/SKILL.md`) for explicit instructions on Debt Containment and Auto-Ratcheting baseline rules.
 ---
 
 ## 3. Project Architecture & Directory Layout
