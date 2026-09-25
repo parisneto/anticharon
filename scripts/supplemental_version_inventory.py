@@ -11,11 +11,12 @@ classifies each match into one of four categories:
 * **historical** – version strings that appear as Git tags (retrieved via `git tag`).
 * **third‑party** – versions that belong to dependencies (found in lock files such as
   `uv.lock`).
-* **removable** – any other version occurrences that are not covered by the
-  three categories; these are candidates for cleanup.
+* **review** – any other version occurrences not covered by the three
+  categories; a human must decide whether they are relevant or need changes.
 
-The output is a Markdown report saved as
-`docs/plans/ecosystem-ergonomics/version_inventory_report.md`.
+The output is an advisory Markdown report. `--save` writes it under
+`.local/docs/plans/ecosystem-ergonomics/` so generated audit output stays
+private and does not become an accidental repository artifact.
 """
 
 import re
@@ -32,7 +33,8 @@ RE_VERSION = re.compile(r"\bv?\d+\.\d+\.\d+\b")
 USER_FACING_EXTS = {".md", ".txt"}
 PYTHON_EXT = ".py"
 LOCK_FILES = {"uv.lock", "poetry.lock", "requirements.txt"}
-PROJECT_ROOT = Path(__file__).resolve().parents[2]  # two levels up from this script
+SKIP_DIRS = {".git", ".local", ".venv", "__pycache__", "build", "dist"}
+PROJECT_ROOT = Path(__file__).resolve().parents[1]  # repository root
 
 # ---------------------------------------------------------------------------
 # Helper utilities
@@ -96,7 +98,7 @@ def classify(version: str, canonical: str, historical: set, third_party_files: s
         return "historical"
     if version in third_party_files:
         return "third‑party"
-    return "removable"
+    return "review"
 
 # ---------------------------------------------------------------------------
 # Main logic
@@ -116,7 +118,7 @@ def main():
 
     # Walk the repo and inspect user‑facing files plus Python sources.
     for path in PROJECT_ROOT.rglob("*"):
-        if path.is_dir():
+        if path.is_dir() or SKIP_DIRS.intersection(path.relative_to(PROJECT_ROOT).parts):
             continue
         if path.suffix in USER_FACING_EXTS or path.suffix == PYTHON_EXT:
             versions = scan_file(path)
@@ -143,7 +145,7 @@ def main():
     report_lines.append("|------|---------|-------|----------------|")
     for file, versions in sorted(inventory.items()):
         for ver, cnt in sorted(versions.items()):
-            cls = classification.get(ver, "removable")
+            cls = classification.get(ver, "review")
             report_lines.append(f"| `{file}` | `{ver}` | {cnt} | {cls} |")
     report = "\n".join(report_lines)
 
@@ -158,7 +160,14 @@ def main():
     args = parser.parse_args()
 
     if args.save:
-        output_path = PROJECT_ROOT / "docs" / "plans" / "ecosystem-ergonomics" / "version_inventory_report.md"
+        output_path = (
+            PROJECT_ROOT
+            / ".local"
+            / "docs"
+            / "plans"
+            / "ecosystem-ergonomics"
+            / "version_inventory_report.md"
+        )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(report, encoding="utf-8")
         print(f"Report written to {output_path}")
