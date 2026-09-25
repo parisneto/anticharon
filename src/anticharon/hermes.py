@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from anticharon.config import get_config_path, load_config, update_config_shortlist
+from anticharon.models import AgentMessage
 
 # Detection outcomes for a single source (CLI tier / file tier), per Issue #4:
 #   "complete"    -- parseable default model AND the complete fallback set.
@@ -25,6 +26,16 @@ INCOMPLETE_DETECTION_WARNING = (
     "Hermes model detection is incomplete: its fallback model list could not be fully "
     "read. The existing Anticharon shortlist was preserved unchanged (no overwrite)."
 )
+
+HERMES_NOT_DETECTED_TEXT = (
+    "Hermes configuration not found at ~/.hermes/config.yaml or via $HERMES_HOME/$HERMES_CONFIG; "
+    "operating in standalone mode with the Anticharon shortlist."
+)
+HERMES_CONFIG_ACTION = {
+    "mcp": "import_hermes_models(hermes_config_path=\"<path to Hermes config.yaml>\")",
+    "cli": "anticharon model sync --hermes-config <path> (or set $HERMES_CONFIG; use --no-hermes to silence)",
+}
+HERMES_SYNC_ACTION = {"mcp": "import_hermes_models(dry_run=false)", "cli": "anticharon model sync"}
 
 # Literal scalars Hermes may emit for an unset fallback_providers key. These are
 # a definite "no fallbacks configured" answer, not an unreadable one.
@@ -383,3 +394,87 @@ def sync_hermes_to_config(
         return True, new_models, saved_path
 
     return changed, new_models, target_path
+
+
+def hermes_shortlist_divergent(hermes_models: list[str], shortlist: list[str]) -> bool:
+    """True when the Hermes model sequence differs from the persisted shortlist.
+
+    Order-sensitive on purpose: Hermes resolves `fallback_providers` strictly
+    top to bottom (D-5). Shared by `run`/`check`/`check_prices` and
+    `anticharon test` (A2A-6). Compares the whole persisted shortlist until
+    source-tagged entries exist (MCP-7), which narrow it to Hermes-sourced ones.
+    """
+    return list(hermes_models) != list(shortlist)
+
+
+def hermes_detection_messages(hermes_info: dict[str, Any] | None, shortlist: list[str]) -> list[AgentMessage]:
+    """Detection-quality messages for a Hermes result against the persisted shortlist.
+
+    `None` (no Hermes found) -> HERMES_NOT_DETECTED; incomplete ->
+    HERMES_INCOMPLETE; complete but divergent -> HERMES_DIVERGENT.
+    """
+    if not hermes_info:
+        return [AgentMessage("warning", "HERMES_NOT_DETECTED", HERMES_NOT_DETECTED_TEXT, action=HERMES_CONFIG_ACTION)]
+    if hermes_info.get("detection", DETECTION_COMPLETE) != DETECTION_COMPLETE:
+        return [AgentMessage("warning", "HERMES_INCOMPLETE", INCOMPLETE_DETECTION_WARNING)]
+    h_models = hermes_info.get("all_models", [])
+    if hermes_shortlist_divergent(h_models, shortlist):
+        return [AgentMessage(
+            "warning",
+            "HERMES_DIVERGENT",
+            f"Detected Hermes model sequence ({len(h_models)} models) differs from the persisted "
+            f"Anticharon shortlist ({len(shortlist)} models); order matters for fallbacks.",
+            action=HERMES_SYNC_ACTION,
+        )]
+    return []
+
+
+def shortlist_write_message(changed: bool, dry_run: bool, what: str) -> AgentMessage:
+    """PREVIEW_ONLY / SHORTLIST_UPDATED / SHORTLIST_UNCHANGED for a shortlist write (A2A-7)."""
+    if dry_run:
+        return AgentMessage(
+            "info", "PREVIEW_ONLY",
+            f"Dry run: {what} computed for preview only; shortlist.json was not modified.",
+            action={"mcp": "repeat the call with dry_run=false", "cli": "repeat the command without --dry-run"},
+        )
+    if changed:
+        return AgentMessage("info", "SHORTLIST_UPDATED", f"{what[0].upper()}{what[1:]} persisted to shortlist.json.")
+    return AgentMessage("info", "SHORTLIST_UNCHANGED", f"Shortlist unchanged: {what} did not modify shortlist.json.")
+
+
+def build_hermes_import_payload(
+    hermes_info: dict[str, Any] | None,
+    config_path: Path | None = None,
+    dry_run: bool = False,
+) -> tuple[dict[str, Any], list[AgentMessage]]:
+    """Payload and messages for a one-way Hermes -> Anticharon import.
+
+    Shared by MCP `import_hermes_models` and CLI `model sync`, so both
+    surfaces return the same JSON. Hermes absence is a `warning`, never an
+    error (D-1e); an incomplete detection is a `warning` that preserves the
+    existing shortlist (spec §6.2).
+    """
+    base = {"direction": "hermes→anticharon", "hermes_untouched": True}
+    if not hermes_info:
+        return {"status": "warning", **base, "detected": False}, hermes_detection_messages(None, [])
+
+    changed, new_shortlist, saved_path = sync_hermes_to_config(hermes_info, config_path=config_path, dry_run=dry_run)
+    detection = hermes_info.get("detection", DETECTION_COMPLETE)
+    incomplete = detection != DETECTION_COMPLETE
+    messages = [AgentMessage("warning", "HERMES_INCOMPLETE", INCOMPLETE_DETECTION_WARNING)] if incomplete else []
+    messages.append(shortlist_write_message(changed, dry_run, f"Hermes import of {len(new_shortlist)} models"))
+    payload = {
+        "status": "warning" if incomplete else "success",
+        **base,
+        "detected": True,
+        "detection": detection,
+        "source": hermes_info.get("source"),
+        "method": hermes_info.get("method"),
+        "default_model": hermes_info.get("default_model"),
+        "models_count": len(hermes_info.get("all_models", [])),
+        "changed": changed,
+        "dry_run": dry_run,
+        "shortlist": new_shortlist,
+        "config_path": str(saved_path),
+    }
+    return payload, messages

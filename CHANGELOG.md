@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Unified agent-message contract (#12, W1) (`src/anticharon/models.py`, `hermes.py`, `tracker.py`, `manager.py`, `tester.py`, `discovery.py`, `cli.py`, `mcp.py`):**
+  - `AgentMessage` (`level`, `code`, `text`, optional `action` `{mcp, cli}`, optional `model`) and `build_envelope()`: every CLI `--json` output and every MCP tool result now starts with `status`, `messages` (never empty; always ends with a timed `COMPLETED`) and `elapsed_ms`.
+  - `status` `error` / `refused` → MCP tool execution error (`isError: true`, same JSON body, per MCP specification `2026-07-28`) and CLI exit code 1.
+  - One human renderer (`render_messages`) prints the same messages as the JSON (`<icon> [CODE] text` + `↳ <cli action>`).
+  - Codes emitted: `COMPLETED`, `PREVIEW_ONLY`, `SHORTLIST_UPDATED`, `SHORTLIST_UNCHANGED`, `NO_EXACT_MATCH`, `API_FALLBACK`, `HERMES_NOT_DETECTED`, `HERMES_INCOMPLETE`, `HERMES_DIVERGENT`, `SELF_TEST_FAILED`, `CALIBRATION_INPUT_INVALID`, `ZDR_LIVE_LIMITED` (the last three new, PO decision D-1e).
+  - `HERMES_DIVERGENT` is now reported by `run`, `check`, `history` and the MCP price tools, not only by `anticharon test` (one shared, order-sensitive check).
+- **Governance (#22, W1):** `AGENTS.md` Rule 4 now requires every sprint ledger to pin the MCP specification baseline and record a protocol-update check; spec §10.1 pins MCP specification `2026-07-28`.
+
+### Changed
+- **Breaking (JSON):** `priceWarnings` is renamed `price_warnings`.
+- CLI `model sync` without a detectable Hermes config now returns `status: "warning"` with `HERMES_NOT_DETECTED` and exits 0 (was an error, exit 1); with an incomplete detection it returns `status: "warning"` (was `success`). CLI `model sync` and MCP `import_hermes_models` now build the same payload.
+- `calibrate --json` now prints only JSON (a non-JSON "saved" line used to follow it); an unreadable or missing CSV returns the JSON envelope with `CALIBRATION_INPUT_INVALID` (exit 1) instead of stderr-only text. Non-input exceptions are no longer reported as bad input.
+- `anticharon test --json` reports failure as `status: "error"` (was `"failure"`) with `SELF_TEST_FAILED`.
+- Human output: dry runs no longer say Hermes was "Synced" (now "Detected"; `PREVIEW_ONLY` / `SHORTLIST_UPDATED` state what was persisted), and the standalone-mode banner is replaced by the `HERMES_NOT_DETECTED` message.
+
+### Removed
+- **Breaking (JSON):** legacy communication keys `notice`, `hint`, top-level `message`, `hermes_integration.warning`, `model sync` `warning`, top-level `error`, and `model discover --json` `zdr_warning`. Their content is now carried by `messages`.
+- `docs/specs/pre-work/` (the eval-harness draft moved to the private `.local/` scratchpad; BACKLOG reference reworded).
+
 ## [0.5.5] - 2026-09-20
 
 ### Fixed

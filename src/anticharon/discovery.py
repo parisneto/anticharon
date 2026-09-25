@@ -2,11 +2,13 @@
 
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
 import requests
 
+from anticharon.models import AgentMessage, build_envelope, render_messages
 from anticharon.pricing import (
     blended_rate_1m,
     is_valid_listed_price,
@@ -294,43 +296,38 @@ def apply_zdr_filter(
 def format_discovery_output(
     models: list[CatalogModel],
     json_mode: bool = False,
-    zdr_warning: str | None = None,
+    messages: list[AgentMessage] | None = None,
+    started: float | None = None,
 ) -> None:
-    """Format and print discovered catalog models."""
+    """Format and print discovered catalog models in the shared response envelope."""
+    envelope = build_envelope(
+        {"status": "success", "count": len(models), "models": [m.to_dict() for m in models]},
+        messages or [],
+        started if started is not None else time.perf_counter(),
+    )
     if json_mode:
-        payload = {
-            "status": "success",
-            "count": len(models),
-            "models": [m.to_dict() for m in models]
-        }
-        if zdr_warning:
-            payload["zdr_warning"] = zdr_warning
-        print(json.dumps(payload, indent=2))
+        print(json.dumps(envelope, indent=2))
         return
 
     print("\n" + "=" * 90)
     print(f"🔍 ANTICHARON — OpenRouter Model Discovery (Found: {len(models)} models)")
     print("=" * 90)
 
-    if zdr_warning:
-        print(f"⚠️  {zdr_warning}")
-        print("-" * 90)
-
     if not models:
         print("  No models matched your search or filter criteria.")
-        print("=" * 90 + "\n")
-        return
+    else:
+        print(f"{'MODEL ID':<42} {'CONTEXT':<12} {'INPUT/1M':<10} {'OUTPUT/1M':<11} {'BLENDED/1M':<11} {'PROMO'}")
+        print("-" * 90)
 
-    print(f"{'MODEL ID':<42} {'CONTEXT':<12} {'INPUT/1M':<10} {'OUTPUT/1M':<11} {'BLENDED/1M':<11} {'PROMO'}")
+        for m in models:
+            ctx_str = f"{m.context_length:,}" if m.context_length > 0 else "-"
+            promo_badge = "🎁 [FREE/PROMO]" if m.is_promo else "-"
+            print(
+                f"{m.id:<42} {ctx_str:<12} ${m.prompt_price_1m:<9.5f} ${m.completion_price_1m:<10.5f} ${m.blended_price_1m:<10.5f} {promo_badge}"
+            )
+
+        print("-" * 90)
+        print(f"Total matching models: {len(models)} (Sorted by lowest blended cost/1M tokens)")
     print("-" * 90)
-
-    for m in models:
-        ctx_str = f"{m.context_length:,}" if m.context_length > 0 else "-"
-        promo_badge = "🎁 [FREE/PROMO]" if m.is_promo else "-"
-        print(
-            f"{m.id:<42} {ctx_str:<12} ${m.prompt_price_1m:<9.5f} ${m.completion_price_1m:<10.5f} ${m.blended_price_1m:<10.5f} {promo_badge}"
-        )
-
-    print("-" * 90)
-    print(f"Total matching models: {len(models)} (Sorted by lowest blended cost/1M tokens)")
+    render_messages(envelope["messages"])
     print("=" * 90 + "\n")

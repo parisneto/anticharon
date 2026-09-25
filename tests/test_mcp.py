@@ -57,8 +57,8 @@ def test_mcp_server_suite():
         assert data_import["hermes_untouched"] is True
         if data_import.get("detected"):
             assert data_import["dry_run"] is True
-            assert "notice" in data_import
-            assert "PREVIEW ONLY" in data_import["notice"]
+            assert "notice" not in data_import
+            assert "PREVIEW_ONLY" in [m["code"] for m in data_import["messages"]]
 
         # 5. Resources registration and reading
         resources = loop.run_until_complete(server.list_resources())
@@ -135,7 +135,8 @@ def test_import_hermes_models_warns_and_preserves_shortlist_on_equal_length_inco
 
     assert result["status"] == "warning"
     assert result["detection"] == "incomplete"
-    assert result["warning"]
+    assert "warning" not in result
+    assert "HERMES_INCOMPLETE" in [m["code"] for m in result["messages"]]
     assert result["changed"] is False
     assert result["shortlist"] == existing
     assert "deepseek/deepseek-v4-flash-0731" not in result["shortlist"]
@@ -224,8 +225,8 @@ def test_check_prices_zdr_unroutable_never_recommended_deterministic(monkeypatch
     assert model_ids_in_order[0] == "provider/expensive-default"  # the only confirmed-routable model
 
     warning_types_by_model = {
-        w["model"]: w["type"] for w in payload["priceWarnings"] if w.get("model") == "provider/cheap-unroutable"
+        w["model"]: w["type"] for w in payload["price_warnings"] if w.get("model") == "provider/cheap-unroutable"
     }
     assert warning_types_by_model.get("provider/cheap-unroutable") == "POLICY_UNROUTABLE"
-    best_option_warnings = [w for w in payload["priceWarnings"] if w["type"] == "BEST_OPTION_CHANGED"]
+    best_option_warnings = [w for w in payload["price_warnings"] if w["type"] == "BEST_OPTION_CHANGED"]
     assert all(w.get("suggested_cheapest") != "provider/cheap-unroutable" for w in best_option_warnings)

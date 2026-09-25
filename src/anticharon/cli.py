@@ -1,8 +1,10 @@
 """Command-line interface (CLI) for Anticharon."""
 
 import argparse
+import csv
 import json
 import sys
+import time
 from pathlib import Path
 
 from anticharon import __version__
@@ -19,20 +21,30 @@ from anticharon.discovery import (
     filter_catalog,
     format_discovery_output,
 )
-from anticharon.hermes import (
-    INCOMPLETE_DETECTION_WARNING,
-    get_hermes_models,
-    sync_hermes_to_config,
-)
+from anticharon.hermes import build_hermes_import_payload, get_hermes_models, shortlist_write_message
 from anticharon.log_parser import parse_activity_log
 from anticharon.manager import add_model, list_models, remove_model
-from anticharon.models import TrackerResult
+from anticharon.models import ERROR_STATUSES, AgentMessage, TrackerResult, build_envelope, render_messages
 from anticharon.tester import run_self_test
 from anticharon.tracker import run_tracker
 
 
-def format_human_output(result) -> None:
-    """Format and print human-readable CLI summary."""
+def _exit_code(status: str) -> int:
+    """CLI exit code for an envelope status: 1 iff the operation was not performed (A2A-3)."""
+    return 1 if status in ERROR_STATUSES else 0
+
+
+def _print_hermes_line(result: TrackerResult) -> None:
+    """Hermes detection line; whether anything was persisted is stated by messages (A2A-7)."""
+    h = result.hermes_integration
+    if h and h.detected:
+        print(f"🤖 Hermes:    Detected ({h.models_count} models via {h.method} from {h.source})")
+    elif h and h.method == "standalone":
+        print("🤖 Hermes:    Standalone mode (Anticharon shortlist.json)")
+
+
+def format_human_output(result: TrackerResult, messages: list[dict]) -> None:
+    """Format and print human-readable CLI summary; `messages` are the envelope's."""
     print("\n" + "=" * 74)
     print(f"🪙  ANTICHARON — OpenRouter Price Monitor (v{__version__})")
     print(f"📅 Timestamp: {result.timestamp}")
@@ -40,30 +52,12 @@ def format_human_output(result) -> None:
         print(f"💾 Storage:   {result.storage_path}")
     if result.config_path:
         print(f"⚙️  Config:    {result.config_path}")
-    if getattr(result, "hermes_integration", None):
-        h = result.hermes_integration
-        if h.detected:
-            print(f"🤖 Hermes:    Synced ({h.models_count} models via {h.method} from {h.source})")
-            if h.warning:
-                print(f"⚠️  Hermes:    {h.warning}")
-        elif h.warning:
-            print(f"⚠️  Hermes:    Standalone mode ({h.warning})")
+    _print_hermes_line(result)
     if result.fallback:
         print("⚠️  [STATUS: OFFLINE FALLBACK] Using cached history prices.")
     else:
-        print("🟢 [STATUS: LIVE API] Updated with latest OpenRouter prices.")
+        print("🟢 [STATUS: LIVE API] Latest OpenRouter prices fetched.")
     print("=" * 74)
-
-    # Big bold warning banner if Hermes not detected
-    if getattr(result, "hermes_integration", None):
-        h = result.hermes_integration
-        if not h.detected and h.warning:
-            print("\n" + "!" * 74)
-            print("⚠️  [HERMES CONFIG NOT DETECTED]")
-            print("   Could not detect Hermes configuration at ~/.hermes/config.yaml or via $HERMES_HOME.")
-            print("   Operating in STANDALONE mode using Anticharon shortlist.json.")
-            print("   To link Hermes: provide --hermes-config <path>, set $HERMES_CONFIG, or suppress with --no-hermes.")
-            print("!" * 74 + "\n")
 
     # Determine default model from config
     default_model = None
@@ -118,10 +112,12 @@ def format_human_output(result) -> None:
                 print(f"  ❓ [POLICY] {w.message}")
     else:
         print("\n✅ All monitored models are within normal price fluctuation boundaries.")
+    print("-" * 74)
+    render_messages(messages)
     print("=" * 74 + "\n")
 
 
-def format_analytics_human_output(result: TrackerResult) -> None:
+def format_analytics_human_output(result: TrackerResult, messages: list[dict]) -> None:
     """Format TrackerResult with deep 30-day analytical intelligence and profiles."""
     print("\n" + "=" * 104)
     print(f"🪙  ANTICHARON — Analytical Price Intelligence & History (v{__version__})")
@@ -131,15 +127,7 @@ def format_analytics_human_output(result: TrackerResult) -> None:
     if result.config_path:
         print(f"⚙️  Config:    {result.config_path}")
 
-    # Hermes banner
-    if result.hermes_integration:
-        h = result.hermes_integration
-        if h.detected:
-            print(f"🤖 Hermes:    Synced ({h.models_count} models via {h.method} from {h.source})")
-            if h.warning:
-                print(f"⚠️  Hermes:    {h.warning}")
-        elif h.warning:
-            print(f"🤖 Hermes:    {h.warning}")
+    _print_hermes_line(result)
 
     status_str = "CACHED HISTORY (Offline Fallback)" if result.fallback else "LIVE API"
     status_icon = "🟠" if result.fallback else "🟢"
@@ -220,11 +208,26 @@ def format_analytics_human_output(result: TrackerResult) -> None:
             elif w.type == "POLICY_UNKNOWN":
                 print(f"  ❓ [POLICY] {w.message}")
 
+    print("-" * 104)
+    render_messages(messages)
     print("=" * 104 + "\n")
+
+
+def _emit_tracker_result(res: TrackerResult, started: float, as_json: bool, is_analytics: bool) -> int:
+    """Print a tracker result as the JSON envelope or human report; return the exit code."""
+    envelope = build_envelope(res.to_dict(), res.messages, started)
+    if as_json:
+        print(json.dumps(envelope, indent=2))
+    elif is_analytics:
+        format_analytics_human_output(res, envelope["messages"])
+    else:
+        format_human_output(res, envelope["messages"])
+    return _exit_code(envelope["status"])
 
 
 def cmd_run(args) -> int:
     """Handle `run` and `check` commands."""
+    started = time.perf_counter()
     hist_path = Path(args.data_dir) / "history.csv" if getattr(args, "data_dir", None) else get_history_path()
     if getattr(args, "history_csv", False):
         if not hist_path.exists():
@@ -245,18 +248,12 @@ def cmd_run(args) -> int:
         hints_enabled=getattr(args, "hints", False),
         zdr_only=getattr(args, "zdr", False)
     )
-
-    if args.json:
-        print(json.dumps(res.to_dict(), indent=2))
-    elif is_analytics:
-        format_analytics_human_output(res)
-    else:
-        format_human_output(res)
-    return 0
+    return _emit_tracker_result(res, started, args.json, is_analytics)
 
 
 def cmd_history(args) -> int:
     """Handle `history` analytical command."""
+    started = time.perf_counter()
     hist_path = Path(args.data_dir) / "history.csv" if getattr(args, "data_dir", None) else get_history_path()
     if getattr(args, "csv", False) or getattr(args, "history_csv", False):
         if not hist_path.exists():
@@ -275,16 +272,12 @@ def cmd_history(args) -> int:
         enable_analytics=True,
         hints_enabled=getattr(args, "hints", False)
     )
-
-    if getattr(args, "json", False):
-        print(json.dumps(res.to_dict(), indent=2))
-    else:
-        format_analytics_human_output(res)
-    return 0
+    return _emit_tracker_result(res, started, getattr(args, "json", False), True)
 
 
 def cmd_info(args) -> int:
     """Handle `info` command to output llms.txt A2A discovery briefing."""
+    started = time.perf_counter()
     content = None
 
     # Tier 1: Try package resource (works when installed via uv tool / pip)
@@ -330,7 +323,7 @@ def cmd_info(args) -> int:
         pass
 
     if getattr(args, "json", False):
-        print(json.dumps({"status": "success", "content": content}, indent=2))
+        print(json.dumps(build_envelope({"status": "success", "content": content}, [], started), indent=2))
     else:
         print(content)
     return 0
@@ -356,100 +349,111 @@ def cmd_test(args) -> int:
 
 def cmd_calibrate(args) -> int:
     """Handle `calibrate` log ingestion command."""
+    started = time.perf_counter()
+    as_json = getattr(args, "json", False)
     try:
         mix = parse_activity_log(args.csv_file)
-        is_dry_run = getattr(args, "dry_run", False)
-        
-        if args.json:
-            print(json.dumps(mix.to_dict(), indent=2))
+    except (OSError, UnicodeError, ValueError, csv.Error) as e:
+        # Only invalid/unreadable input maps to CALIBRATION_INPUT_INVALID (D-1e);
+        # any other exception is an internal failure and is not reported as bad input.
+        envelope = build_envelope({"status": "error", "csv_file": Path(args.csv_file).name}, [AgentMessage(
+            "error", "CALIBRATION_INPUT_INVALID",
+            f"Could not read activity log '{Path(args.csv_file).name}' ({type(e).__name__}); "
+            f"weights were not changed.",
+            action={"cli": "export the CSV from https://openrouter.ai/logs (⋯ → Export) and run anticharon calibrate <csv>"},
+        )], started)
+        if as_json:
+            print(json.dumps(envelope, indent=2))
         else:
-            print("\n" + "=" * 60)
-            print("📊 OpenRouter Token Mix & Calibration Analysis")
-            print("=" * 60)
-            print(f" Records processed:       {mix.records_count:,}")
-            print(f" Total Prompt Tokens:     {mix.total_prompt_tokens:,}")
-            print(f"   Uncached: {mix.total_uncached_tokens:,} ({mix.weight_uncached_prompt*100:.2f}%)")
-            print(f"   Cached:   {mix.total_cached_tokens:,} ({mix.weight_cached_prompt*100:.2f}%, cache-hit-rate {mix.cache_hit_rate*100:.2f}%)")
-            print(f" Total Completion Tokens: {mix.total_completion_tokens:,} ({mix.weight_completion*100:.2f}%)")
-            print(f" Total Tokens:            {mix.total_tokens:,}")
-            print("-" * 60)
-            print(f" Calculated Weight Uncached Prompt: {mix.weight_uncached_prompt:.6f}")
-            print(f" Calculated Weight Cached Prompt:    {mix.weight_cached_prompt:.6f}")
-            print(f" Calculated Weight Completion:       {mix.weight_completion:.6f}")
-            print("-" * 60)
-            print(" 💡 TraceLab Real-World Context (UW TraceLab Dataset):")
-            print("    Claude Code / Codex traces report 99.63% in / 0.37% out.")
-            print("    Accurate blended weighting reduces token cost anxiety")
-            print("    and empowers running premium models responsibly.")
-            print("=" * 60)
+            render_messages(envelope["messages"], file=sys.stderr)
+        return _exit_code(envelope["status"])
 
-        if not is_dry_run:
-            cfg_path = Path(args.config) if args.config else get_config_path()
-            updated_path = update_config_weights(
-                mix.weight_uncached_prompt, mix.weight_cached_prompt, mix.weight_completion, cfg_path
-            )
-            print(f"✅ Configuration calibrated & saved at: {updated_path}\n")
-        else:
-            print("ℹ️ [DRY RUN] Configuration was not modified.\n")
-        return 0
-    except Exception as e:
-        print(f"Error parsing activity log: {e}", file=sys.stderr)
-        return 1
+    is_dry_run = getattr(args, "dry_run", False)
+    cfg_path = Path(args.config) if args.config else get_config_path()
+    if not is_dry_run:
+        cfg_path = update_config_weights(
+            mix.weight_uncached_prompt, mix.weight_cached_prompt, mix.weight_completion, cfg_path
+        )
+    envelope = build_envelope(
+        {"status": "success", **mix.to_dict(), "dry_run": is_dry_run, "config_path": str(cfg_path)},
+        [shortlist_write_message(True, is_dry_run, "calibrated token weights")],
+        started,
+    )
+
+    if as_json:
+        print(json.dumps(envelope, indent=2))
+        return _exit_code(envelope["status"])
+
+    print("\n" + "=" * 60)
+    print("📊 OpenRouter Token Mix & Calibration Analysis")
+    print("=" * 60)
+    print(f" Records processed:       {mix.records_count:,}")
+    print(f" Total Prompt Tokens:     {mix.total_prompt_tokens:,}")
+    print(f"   Uncached: {mix.total_uncached_tokens:,} ({mix.weight_uncached_prompt*100:.2f}%)")
+    print(f"   Cached:   {mix.total_cached_tokens:,} ({mix.weight_cached_prompt*100:.2f}%, cache-hit-rate {mix.cache_hit_rate*100:.2f}%)")
+    print(f" Total Completion Tokens: {mix.total_completion_tokens:,} ({mix.weight_completion*100:.2f}%)")
+    print(f" Total Tokens:            {mix.total_tokens:,}")
+    print("-" * 60)
+    print(f" Calculated Weight Uncached Prompt: {mix.weight_uncached_prompt:.6f}")
+    print(f" Calculated Weight Cached Prompt:    {mix.weight_cached_prompt:.6f}")
+    print(f" Calculated Weight Completion:       {mix.weight_completion:.6f}")
+    print("-" * 60)
+    print(" 💡 TraceLab Real-World Context (UW TraceLab Dataset):")
+    print("    Claude Code / Codex traces report 99.63% in / 0.37% out.")
+    print("    Accurate blended weighting reduces token cost anxiety")
+    print("    and empowers running premium models responsibly.")
+    print("=" * 60)
+    print(f"⚙️ Config: {cfg_path}")
+    render_messages(envelope["messages"])
+    print()
+    return _exit_code(envelope["status"])
+
+
+def _print_management_result(res, envelope: dict) -> None:
+    """Human output for `model add` / `remove`: messages, then the resulting shortlist."""
+    print()
+    render_messages(envelope["messages"])
+    print(f"📋 Current Shortlist ({len(res.shortlist)} models):")
+    for m in res.shortlist:
+        print(f"  • {m}")
+    print(f"⚙️ Config: {res.config_path}\n")
 
 
 def cmd_model(args) -> int:
     """Handle `model` subcommands (add, remove, list, discover)."""
+    started = time.perf_counter()
     action = getattr(args, "model_action", None)
     cfg_path = Path(args.config) if getattr(args, "config", None) else None
+    as_json = getattr(args, "json", False)
 
-    if action == "add":
-        res = add_model(
-            model_id=args.model_id,
-            dry_run=args.dry_run,
-            config_path=cfg_path,
-            validate_catalog=not args.no_validate
-        )
-        if getattr(args, "json", False):
-            print(json.dumps(res.to_dict(), indent=2))
+    if action in ("add", "remove", "list"):
+        if action == "add":
+            res = add_model(
+                model_id=args.model_id,
+                dry_run=args.dry_run,
+                config_path=cfg_path,
+                validate_catalog=not args.no_validate
+            )
+        elif action == "remove":
+            res = remove_model(model_id=args.model_id, dry_run=args.dry_run, config_path=cfg_path)
         else:
-            icon = "✅" if res.status == "success" else "⚠️"
-            print(f"\n{icon} {res.message}")
-            print(f"📋 Current Shortlist ({len(res.shortlist)} models):")
-            for m in res.shortlist:
-                print(f"  • {m}")
-            print(f"⚙️ Config: {res.config_path}\n")
-        return 0 if res.status in ("success", "warning") else 1
-
-    elif action == "remove":
-        res = remove_model(
-            model_id=args.model_id,
-            dry_run=args.dry_run,
-            config_path=cfg_path
-        )
-        if getattr(args, "json", False):
-            print(json.dumps(res.to_dict(), indent=2))
-        else:
-            icon = "✅" if res.status == "success" else "❌"
-            print(f"\n{icon} {res.message}")
-            print(f"📋 Current Shortlist ({len(res.shortlist)} models):")
-            for m in res.shortlist:
-                print(f"  • {m}")
-            print(f"⚙️ Config: {res.config_path}\n")
-        return 0 if res.status == "success" else 1
-
-    elif action == "list":
-        res = list_models(config_path=cfg_path)
-        if getattr(args, "json", False):
-            print(json.dumps(res.to_dict(), indent=2))
-        else:
+            res = list_models(config_path=cfg_path)
+        envelope = build_envelope(res.to_dict(), res.messages, started)
+        if as_json:
+            print(json.dumps(envelope, indent=2))
+        elif action == "list":
             print(f"\n📋 Shortlisted Models ({len(res.shortlist)}):")
             print(f"⚙️ Config: {res.config_path}")
             print("-" * 50)
             for idx, m in enumerate(res.shortlist, 1):
                 badge = " (Default Model)" if idx == 1 else ""
                 print(f" {idx}. {m}{badge}")
-            print("-" * 50 + "\n")
-        return 0
+            print("-" * 50)
+            render_messages(envelope["messages"])
+            print()
+        else:
+            _print_management_result(res, envelope)
+        return _exit_code(envelope["status"])
 
     elif action == "discover":
         cfg = load_config(cfg_path)
@@ -473,66 +477,41 @@ def cmd_model(args) -> int:
             filter_expressions=args.filter
         )
 
-        zdr_warning = None
+        messages: list[AgentMessage] = []
         if getattr(args, "zdr", False):
             # Live ZDR check runs only against the already-narrowed local-filter
             # result, not the full catalog -- and is itself capped (see apply_zdr_filter).
             max_zdr_check_count = cfg.get("max_zdr_check_count", 10)
-            filtered, zdr_warning = apply_zdr_filter(filtered, max_check_count=max_zdr_check_count)
+            filtered, zdr_limit = apply_zdr_filter(filtered, max_check_count=max_zdr_check_count)
+            if zdr_limit:
+                messages.append(AgentMessage("warning", "ZDR_LIVE_LIMITED", f"Live ZDR results are limited: {zdr_limit}"))
 
-        format_discovery_output(filtered, json_mode=args.json, zdr_warning=zdr_warning)
+        format_discovery_output(filtered, json_mode=as_json, messages=messages, started=started)
         return 0
 
     elif action in ("sync", "import-hermes"):
         hermes_custom = getattr(args, "hermes_config", None)
         hermes_info = get_hermes_models(custom_path=hermes_custom, prompt_if_missing=True)
-        if not hermes_info:
-            err_msg = "Could not find or extract Hermes configuration. Specify --hermes-config <path> or set $HERMES_HOME."
-            if getattr(args, "json", False):
-                print(json.dumps({
-                    "status": "error",
-                    "direction": "hermes→anticharon",
-                    "hermes_untouched": True,
-                    "message": err_msg
-                }, indent=2))
-            else:
-                print(f"\n❌ {err_msg}\n", file=sys.stderr)
-            return 1
-
         is_dry_run = getattr(args, "dry_run", False)
-        changed, new_shortlist, saved_path = sync_hermes_to_config(
-            hermes_info, config_path=cfg_path, dry_run=is_dry_run
-        )
-        incomplete = hermes_info.get("detection", "complete") != "complete"
-        if getattr(args, "json", False):
-            print(json.dumps({
-                "status": "success",
-                "action": "import-hermes",
-                "direction": "hermes→anticharon",
-                "hermes_untouched": True,
-                "dry_run": is_dry_run,
-                "changed": changed,
-                "detection": hermes_info.get("detection", "complete"),
-                "warning": INCOMPLETE_DETECTION_WARNING if incomplete else None,
-                "source": hermes_info["source"],
-                "method": hermes_info["method"],
-                "default_model": hermes_info["default_model"],
-                "shortlist": new_shortlist,
-                "config_path": str(saved_path)
-            }, indent=2))
-        else:
-            if incomplete:
-                print(f"\n⚠️  {INCOMPLETE_DETECTION_WARNING}", file=sys.stderr)
-            prefix = "[DRY RUN] Would import" if is_dry_run else "Successfully imported"
-            print(f"\n✅ {prefix} {len(new_shortlist)} models from Hermes ({hermes_info['source']})")
+        payload, messages = build_hermes_import_payload(hermes_info, config_path=cfg_path, dry_run=is_dry_run)
+        envelope = build_envelope(payload, messages, started)
+        if as_json:
+            print(json.dumps(envelope, indent=2))
+            return _exit_code(envelope["status"])
+
+        if payload["detected"]:
+            prefix = "[DRY RUN] Would import" if is_dry_run else "Imported"
+            print(f"\n✅ {prefix} {len(payload['shortlist'])} models from Hermes ({payload['source']})")
             print("🔒 Hermes configuration is untouched (read-only).")
-            print(f"★ Default Model: {hermes_info['default_model']}")
-            print("📋 Imported Shortlist:")
-            for idx, m in enumerate(new_shortlist, 1):
+            print(f"★ Default Model: {payload['default_model']}")
+            print("📋 Shortlist:")
+            for idx, m in enumerate(payload["shortlist"], 1):
                 badge = " ★ [DEFAULT]" if idx == 1 else ""
                 print(f"  {idx}. {m}{badge}")
-            print(f"⚙️ Anticharon Config: {saved_path}\n")
-        return 0
+            print(f"⚙️ Anticharon Config: {payload['config_path']}")
+        render_messages(envelope["messages"])
+        print()
+        return _exit_code(envelope["status"])
 
     return 0
 
@@ -768,6 +747,7 @@ def main() -> None:
             print(hist_path.read_text(encoding="utf-8").strip())
             sys.exit(0)
 
+        started = time.perf_counter()
         is_analytics = getattr(args, "profile", False) or getattr(args, "analytics", False)
         res = run_tracker(
             dry_run=False,
@@ -776,13 +756,7 @@ def main() -> None:
             no_hermes=getattr(args, "no_hermes", False),
             enable_analytics=is_analytics
         )
-        if getattr(args, "json", False):
-            print(json.dumps(res.to_dict(), indent=2))
-        elif is_analytics:
-            format_analytics_human_output(res)
-        else:
-            format_human_output(res)
-        sys.exit(0)
+        sys.exit(_emit_tracker_result(res, started, getattr(args, "json", False), is_analytics))
 
 
 if __name__ == "__main__":

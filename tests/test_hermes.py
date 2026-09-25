@@ -14,6 +14,12 @@ from anticharon.hermes import (
 )
 from anticharon.tracker import run_tracker
 
+
+def _codes(result):
+    """Message codes on a tracker result (legacy `hermes_integration.warning` is gone, D-1c)."""
+    return [m.code for m in result.messages]
+
+
 # --- Issue #4 helpers: deterministic Hermes CLI stubs (no real subprocess) ---
 
 # The exact 8-fallback YAML list shape the real Hermes CLI emits for
@@ -163,11 +169,11 @@ fallback_providers: '[{"provider":"openrouter","model":"deepseek/deepseek-v4-fla
     res = run_tracker(dry_run=True, hermes_config_path=tf_path, history_path=tmp_path / "history.csv")
     assert res.hermes_integration is not None
     assert res.hermes_integration.detected is True
-    assert res.hermes_integration.warning is None
+    assert "HERMES_INCOMPLETE" not in _codes(res)
     res_dict = res.to_dict()
     assert "hermes_integration" in res_dict
     assert res_dict["hermes_integration"]["detected"] is True
-    assert res_dict["hermes_integration"]["warning"] is None
+    assert "warning" not in res_dict["hermes_integration"]
 
 
 def test_run_tracker_no_hermes_standalone(tmp_path, monkeypatch):
@@ -302,7 +308,7 @@ def test_matrix_2c_nonzero_fallback_exit_then_complete_file(monkeypatch, tmp_pat
 
     monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {})
     tracked = run_tracker(dry_run=True, config_path=cf, history_path=tmp_path / "history.csv")
-    assert tracked.hermes_integration.warning is None
+    assert "HERMES_INCOMPLETE" not in _codes(tracked)
 
 
 def test_matrix_4c_nonzero_fallback_exit_and_unavailable_file_preserves_shortlist(monkeypatch, tmp_path):
@@ -332,7 +338,7 @@ def test_matrix_4c_nonzero_fallback_exit_and_unavailable_file_preserves_shortlis
     monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {})
     tracked = run_tracker(dry_run=True, config_path=cf, history_path=tmp_path / "history.csv")
     assert tracked.hermes_integration.detected is True
-    assert tracked.hermes_integration.warning is not None
+    assert "HERMES_INCOMPLETE" in _codes(tracked)
     assert load_config(cf)["shortlist"] == existing
 
 
@@ -409,8 +415,8 @@ def test_matrix_2_incomplete_cli_then_complete_file(monkeypatch, tmp_path):
     monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {})
     tracked = run_tracker(dry_run=True, config_path=cf, history_path=tmp_path / "history.csv")
     assert tracked.hermes_integration.detected is True
-    assert tracked.hermes_integration.warning is None
-    assert tracked.to_dict()["hermes_integration"]["warning"] is None
+    assert not [c for c in _codes(tracked) if c.startswith("HERMES_")]
+    assert "warning" not in tracked.to_dict()["hermes_integration"]
 
 
 def test_matrix_3_unavailable_cli_then_complete_file(monkeypatch, tmp_path):
@@ -431,7 +437,7 @@ def test_matrix_3_unavailable_cli_then_complete_file(monkeypatch, tmp_path):
 
     monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {})
     tracked = run_tracker(dry_run=True, config_path=cf, history_path=tmp_path / "history.csv")
-    assert tracked.hermes_integration.warning is None
+    assert "HERMES_INCOMPLETE" not in _codes(tracked)
 
 
 def test_matrix_4_incomplete_cli_and_unavailable_file_preserves_shortlist(monkeypatch, tmp_path):
@@ -457,9 +463,9 @@ def test_matrix_4_incomplete_cli_and_unavailable_file_preserves_shortlist(monkey
     monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {})
     tracked = run_tracker(dry_run=True, config_path=cf, history_path=tmp_path / "history.csv")
     assert tracked.hermes_integration.detected is True
-    assert tracked.hermes_integration.warning is not None
-    assert "incomplete" in tracked.hermes_integration.warning.lower()
-    assert tracked.to_dict()["hermes_integration"]["warning"] is not None
+    incomplete = [m for m in tracked.messages if m.code == "HERMES_INCOMPLETE"]
+    assert len(incomplete) == 1 and incomplete[0].level == "warning"
+    assert "incomplete" in incomplete[0].text.lower()
 
 
 def test_matrix_4b_incomplete_cli_and_incomplete_file_preserves_shortlist(monkeypatch, tmp_path):
@@ -500,7 +506,10 @@ def test_matrix_5_unavailable_cli_and_unavailable_file_is_standalone(monkeypatch
     tracked = run_tracker(dry_run=True, config_path=cf, history_path=tmp_path / "history.csv")
     assert tracked.hermes_integration.detected is False
     assert tracked.hermes_integration.method == "standalone"
-    assert "standalone" in tracked.hermes_integration.warning.lower()
+    not_detected = [m for m in tracked.messages if m.code == "HERMES_NOT_DETECTED"]
+    assert len(not_detected) == 1 and not_detected[0].level == "warning"
+    assert "standalone" in not_detected[0].text.lower()
+    assert tracked.status == "success"  # standalone stays successful (D-1e)
     assert load_config(cf)["shortlist"] == existing
 
 
@@ -617,7 +626,7 @@ def test_tracking_uses_persisted_shortlist_not_partial_detected_set_on_equal_len
     monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda slug, timeout=10.0: [])
 
     tracked = run_tracker(dry_run=False, config_path=cf, history_path=tmp_path / "history.csv")
-    assert tracked.hermes_integration.warning is not None
+    assert "HERMES_INCOMPLETE" in _codes(tracked)
     tracked_models = {p.model for p in tracked.prices_shortlist}
     assert tracked_models == set(existing)
     assert "deepseek/deepseek-v4-flash-0731" not in tracked_models
@@ -659,7 +668,8 @@ def test_self_test_flags_hermes_shortlist_divergence(monkeypatch, tmp_path, caps
     run_self_test(json_mode=True)
     diag = json.loads(capsys.readouterr().out)
     assert diag["hermes_integration"]["shortlist_divergence"] is True
-    assert diag["hermes_integration"]["warning"]
+    assert "warning" not in diag["hermes_integration"]
+    assert "HERMES_DIVERGENT" in [m["code"] for m in diag["messages"]]
 
 
 def test_self_test_reports_no_divergence_when_shortlist_matches(monkeypatch, tmp_path, capsys):
@@ -686,4 +696,4 @@ def test_self_test_reports_no_divergence_when_shortlist_matches(monkeypatch, tmp
     run_self_test(json_mode=True)
     diag = json.loads(capsys.readouterr().out)
     assert diag["hermes_integration"]["shortlist_divergence"] is False
-    assert diag["hermes_integration"]["warning"] is None
+    assert not [m for m in diag["messages"] if m["code"].startswith("HERMES_")]

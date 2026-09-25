@@ -8,6 +8,7 @@ import importlib.resources as pkg_resources
 import json
 import logging
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -16,19 +17,37 @@ try:
 except ImportError:
     from mcp.server.fastmcp import FastMCP as MCPServer
 
+from mcp.types import CallToolResult, TextContent
+
 from anticharon import __version__
 from anticharon.config import get_config_path, get_history_path, load_config
 from anticharon.discovery import fetch_catalog, filter_catalog
-from anticharon.hermes import (
-    INCOMPLETE_DETECTION_WARNING,
-    get_hermes_models,
-    sync_hermes_to_config,
-)
+from anticharon.hermes import build_hermes_import_payload, get_hermes_models
+from anticharon.models import ERROR_STATUSES, build_envelope
 from anticharon.storage import CSV_HEADER
 from anticharon.tracker import run_tracker
 
 # Initialize MCP Server instance
 server = MCPServer("anticharon")
+
+
+def tool_result(envelope: dict[str, Any]) -> dict[str, Any] | CallToolResult:
+    """Return an enveloped payload as an MCP tool result (spec §10.1a, A2A-3).
+
+    `status` in ERROR_STATUSES becomes a tool execution error (`isError: true`)
+    carrying the same JSON body, so hosts hand it to the model for
+    self-correction (MCP spec 2026-07-28, Tools -> Error Handling). Anything
+    else is an ordinary result. Tools keep their `dict[str, Any]` annotation:
+    the SDK rejects `CallToolResult` inside a Union and passes a returned
+    `CallToolResult` through unchanged.
+    """
+    if envelope["status"] not in ERROR_STATUSES:
+        return envelope
+    return CallToolResult(
+        content=[TextContent(type="text", text=json.dumps(envelope, indent=2, ensure_ascii=False))],
+        structured_content=envelope,
+        is_error=True,
+    )
 
 
 # ==============================================================================
@@ -53,6 +72,7 @@ def check_prices(
     zdr_only: bool = False
 ) -> dict[str, Any]:
     """Execute price monitoring check and return structured intelligence."""
+    started = time.perf_counter()
     res = run_tracker(
         dry_run=dry_run,
         enable_analytics=include_analytics,
@@ -60,7 +80,7 @@ def check_prices(
         timeout=10.0 if not force_refresh else 15.0,
         zdr_only=zdr_only
     )
-    return res.to_dict()
+    return tool_result(build_envelope(res.to_dict(), res.messages, started))
 
 
 @server.tool(
@@ -77,16 +97,17 @@ def get_model_history(
     format: str = "json"
 ) -> dict[str, Any]:
     """Return historical intelligence in JSON format or raw CSV table."""
+    started = time.perf_counter()
     hist_path = get_history_path()
 
     if format.lower() == "csv":
         content = hist_path.read_text(encoding="utf-8").strip() if hist_path.exists() else CSV_HEADER
-        return {
+        return tool_result(build_envelope({
             "status": "success",
             "format": "csv",
             "path": str(hist_path),
             "data": content
-        }
+        }, [], started))
 
     res = run_tracker(
         dry_run=True,
@@ -104,7 +125,7 @@ def get_model_history(
         payload["prices_shortlist"] = filtered_shortlist
         payload["target_model"] = model_id
 
-    return payload
+    return tool_result(build_envelope(payload, res.messages, started))
 
 
 @server.tool(
@@ -123,6 +144,7 @@ def discover_models(
     limit: int = 15
 ) -> dict[str, Any]:
     """Query live catalog and return matching models with blended pricing."""
+    started = time.perf_counter()
     cfg = load_config()
     w_uncached = cfg.get("weight_uncached_prompt", 0.232622)
     w_cached = cfg.get("weight_cached_prompt", 0.764478)
@@ -142,7 +164,7 @@ def discover_models(
     )
 
     matches = [m.to_dict() for m in filtered[:limit]]
-    return {
+    return tool_result(build_envelope({
         "status": "success",
         "total_matches": len(filtered),
         "returned_count": len(matches),
@@ -156,7 +178,7 @@ def discover_models(
             "prompt_price_1m": "Input cost per 1M tokens",
             "completion_price_1m": "Output cost per 1M tokens"
         }
-    }
+    }, [], started))
 
 
 @server.tool(
@@ -173,48 +195,10 @@ def import_hermes_models(
     dry_run: bool = True
 ) -> dict[str, Any]:
     """Import Hermes active models into Anticharon shortlist.json."""
+    started = time.perf_counter()
     hermes_info = get_hermes_models(custom_path=hermes_config_path, prompt_if_missing=False)
-    if not hermes_info:
-        return {
-            "status": "warning",
-            "detected": False,
-            "direction": "hermes→anticharon",
-            "hermes_untouched": True,
-            "message": "Hermes configuration not found at ~/.hermes/config.yaml or via $HERMES_HOME.",
-            "hint": "Specify hermes_config_path parameter or ensure ~/.hermes/config.yaml is present."
-        }
-
-    changed, new_shortlist, saved_path = sync_hermes_to_config(
-        hermes_info, dry_run=dry_run
-    )
-
-    incomplete = hermes_info.get("detection", "complete") != "complete"
-    if incomplete:
-        notice = f"⚠️ {INCOMPLETE_DETECTION_WARNING}"
-    elif dry_run:
-        notice = "ℹ️ PREVIEW ONLY: Hermes models detected but Anticharon shortlist was not modified. Pass dry_run=False to persist."
-    elif changed:
-        notice = "💾 SHORTLIST UPDATED: Hermes models successfully written to Anticharon shortlist."
-    else:
-        notice = "✅ SHORTLIST UP TO DATE: Anticharon shortlist already matches Hermes models."
-
-    return {
-        "status": "warning" if incomplete else "success",
-        "direction": "hermes→anticharon",
-        "hermes_untouched": True,
-        "detected": True,
-        "detection": hermes_info.get("detection", "complete"),
-        "warning": INCOMPLETE_DETECTION_WARNING if incomplete else None,
-        "source": hermes_info.get("source"),
-        "method": hermes_info.get("method"),
-        "default_model": hermes_info.get("default_model"),
-        "models_count": len(hermes_info.get("all_models", [])),
-        "changed": changed,
-        "dry_run": dry_run,
-        "notice": notice,
-        "shortlist": new_shortlist,
-        "config_path": str(saved_path)
-    }
+    payload, messages = build_hermes_import_payload(hermes_info, dry_run=dry_run)
+    return tool_result(build_envelope(payload, messages, started))
 
 
 # ==============================================================================

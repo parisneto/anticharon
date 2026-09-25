@@ -122,11 +122,13 @@ def test_discover_zdr_only_live_checks_models_matching_local_filters(monkeypatch
     ids = [m["id"] for m in payload["models"]]
     assert ids == ["azure/model-a"]
     assert "zdr_warning" not in payload
+    assert [m["code"] for m in payload["messages"]] == ["COMPLETED"]
 
 
 def test_discover_zdr_caps_live_checks_and_surfaces_warning(monkeypatch, tmp_path):
     """Exceeding max_zdr_check_count must not silently check only some models --
-    a zdr_warning must be present in the JSON payload naming N of M."""
+    a ZDR_LIVE_LIMITED message must be present in the JSON payload naming N of M
+    (D-1e; replaces the removed `zdr_warning` key)."""
     fake_catalog = [
         {"id": f"provider/model-{i}", "name": f"Model {i}", "canonical_slug": f"provider/model-{i}",
          "pricing": {"prompt": f"0.00000{i + 1}", "completion": f"0.00000{i + 1}"}}
@@ -157,8 +159,12 @@ def test_discover_zdr_caps_live_checks_and_surfaces_warning(monkeypatch, tmp_pat
     assert len(checked_slugs) == 2  # capped, not all 5
 
     payload = json.loads(f.getvalue())
-    assert "zdr_warning" in payload
-    assert "2 of 5" in payload["zdr_warning"]
+    assert "zdr_warning" not in payload
+    limited = [m for m in payload["messages"] if m["code"] == "ZDR_LIVE_LIMITED"]
+    assert len(limited) == 1
+    assert limited[0]["level"] == "warning"
+    assert "2 of 5" in limited[0]["text"]
+    assert payload["status"] == "success"
 
 
 # --- PE2-006: deterministic CLI JSON/human-output coverage for run/check --zdr ---
@@ -222,7 +228,7 @@ def test_cmd_run_json_output_preserves_three_price_distinction(monkeypatch, tmp_
     assert model.get("policy_price_1m") is None  # fully unroutable -- no policy price
     assert model["is_policy_routable"] is False
 
-    policy_warnings = [w for w in payload["priceWarnings"] if w["type"] == "POLICY_UNROUTABLE"]
+    policy_warnings = [w for w in payload["price_warnings"] if w["type"] == "POLICY_UNROUTABLE"]
     assert len(policy_warnings) == 1
 
 
@@ -295,7 +301,11 @@ def test_cmd_model_sync_json_warns_and_preserves_shortlist_on_equal_length_incom
     payload = json.loads(f.getvalue())
     assert payload["changed"] is False
     assert payload["detection"] == "incomplete"
-    assert payload["warning"]
+    assert payload["status"] == "warning"
+    assert "warning" not in payload
+    codes = [m["code"] for m in payload["messages"]]
+    assert "HERMES_INCOMPLETE" in codes
+    assert "SHORTLIST_UNCHANGED" in codes
     assert payload["shortlist"] == existing
     assert "deepseek/deepseek-v4-flash-0731" not in payload["shortlist"]
 
@@ -313,7 +323,8 @@ def test_cmd_model_sync_human_warns_and_preserves_shortlist_on_equal_length_inco
     captured = capsys.readouterr()
 
     assert code == 0
-    assert "incomplete" in captured.err.lower()
+    assert "[HERMES_INCOMPLETE]" in captured.out
+    assert "incomplete" in captured.out.lower()
     for model_id in existing:
         assert model_id in captured.out
     assert "deepseek/deepseek-v4-flash-0731" not in captured.out

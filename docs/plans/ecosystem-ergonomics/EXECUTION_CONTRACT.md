@@ -11,7 +11,7 @@
 
 Written by: parisneto (Product Owner) + planning agent
 Status: **SCOPE CLOSED — issues registered; execution governed by §10** (PO refinement complete, 2026-09-24; issue register and D-14 clarified 2026-09-25)
-Last synchronized: 2026-09-25 (GitHub issues #12–#23 registered; D-14/D-18c clarified; version inventory helper recorded)
+Last synchronized: 2026-09-25 (GitHub issues #12–#23 registered; D-14/D-18c clarified; version inventory helper recorded; W1 started, D-1e decided)
 Base commit: `main` @ `1a64782` (includes the `ci.yml` read-only-token change; no effect on scope)
 Target version: `0.6.0` — **Beta** (D-10, D-20); breaking interface changes are allowed until real users/feedback exist
 Tracking: GitHub issues #12–#23 are created and registered in §10. Formal blocker relationships are set on GitHub. Wave handoffs are routing notes; this ledger is authoritative.
@@ -484,6 +484,9 @@ prices for that target.
 | `SOURCE_MANAGED` | error (`refused`) | `remove_model`, `add_model(default=true)` | entry/default owned by Hermes → change it there (D-13, D-25) |
 | `HERMES_INCOMPLETE` | warning | `run`, `check`, `test`, sync/import | partial detection; shortlist protected (spec §6.2) |
 | `HERMES_DIVERGENT` | warning | `run`, `check`, `test` | Hermes sequence ≠ Hermes-sourced entries (D-5) → `import_hermes_models` |
+| `HERMES_NOT_DETECTED` | warning | `run`, `check`, `history`, sync/import | no Hermes configuration found; standalone operation stays successful (never an error) → pass a Hermes config path / `$HERMES_CONFIG`, or `--no-hermes` (D-1e) |
+| `CALIBRATION_INPUT_INVALID` | error | `calibrate` | activity CSV missing, unreadable or not parseable; `status: "error"`, CLI exit 1 / MCP `isError: true`, full JSON envelope under `--json`; nothing persisted → re-export the log (D-1e) |
+| `ZDR_LIVE_LIMITED` | warning | `model discover --zdr` | live ZDR results are limited: the check was capped at `max_zdr_check_count` (states how many of how many candidates were checked) and/or compliance is unknown for named models (kept routable-by-default); replaces the ad-hoc `zdr_warning` key (D-1e) |
 | `CALIBRATION_BACKUP` | info | `calibrate` | previous weights saved; path given (D-17) |
 | `SELF_TEST_FAILED` | error | `test` / `self_test` | one or more checks failed; per-check `error` in payload |
 | `UP_TO_DATE` / `UPDATE_AVAILABLE` | info | `check_updates` | installed vs latest; → `run_update` |
@@ -554,6 +557,7 @@ local paths stripped (Rule 4 / Rule 12). Screenshots are not required.
 | D-1 | `AgentMessage` schema, `status` values, `isError` mapping, code catalog | **DECIDED (PO, 2026-09-24)** | As §3d |
 | D-1b | `messages` presence | **DECIDED (PO, 2026-09-24)** | Always present and **never empty**: every response carries at least a completion message (e.g. `COMPLETED`, `info`: "Anticharon processed your request successfully in 0.4s", with elapsed time measured per command/tool call). Errors and warnings are added alongside it. |
 | D-1c | Legacy communication keys | **DECIDED (PO, 2026-09-24)** — clean break, no mirroring (zero known external users) | (1) `notice`, `hint`, top-level `message`, `hermes_integration.warning` / `model sync` `warning`, and top-level `error` are folded into `messages` (`hint` → `action`) and removed; (2) `status` stays as the single machine outcome word; (3) `priceWarnings[].message` stays (alert data), and `priceWarnings` is renamed `price_warnings` (A2A-8, ex-CAND-3); (4) per-check `error` fields in `anticharon test` stay as diagnostic data, with overall failure also emitted as a message. Tests asserting on removed keys migrate to asserting message `code`s (disclosed per Rule 8). |
+| D-1e | Codes for conditions the §3d catalog did not cover (W1 design gap) | **DECIDED (PO, 2026-09-25)** — additive catalog entries | (1) Hermes configuration not found → `HERMES_NOT_DETECTED`, `warning`, short explanation plus action; standalone operation stays successful and the absence of the optional Hermes config is never an error (CLI `model sync` therefore returns `status: "warning"`, exit 0, like MCP `import_hermes_models`). (2) `calibrate` activity-CSV parse/read failure → `CALIBRATION_INPUT_INVALID`, `error`, safe actionable text, `status: "error"`, CLI nonzero / MCP `isError: true`, full JSON envelope under `--json` (never stderr-only). Only invalid/unreadable input maps to this code; the existing error model has no internal-failure code, so any other exception is not reported as invalid input. (3) `model discover --zdr` cap notice → `ZDR_LIVE_LIMITED`, `warning`, keeping the "live ZDR results are limited" explanation; the parallel `zdr_warning` key is removed. |
 | D-1d | `_hints` field glossary in payloads | **DECIDED (PO, 2026-09-24)** — kept as-is | Not a communication key (it is an in-band field glossary). Verified it is **not** the MCP spec's tool-annotation "hints" (`readOnlyHint` etc., declared on tool *definitions*, not in results) — those are adopted separately as MCP-9. `_hints` is an Anticharon convention, neither required nor discouraged by the spec. |
 | D-2 | Shortlist authority across writers | **DECIDED (PO, 2026-09-23)** | Models added by an agent/user are persisted independently of Hermes sync and any future integration, survive every sync conflict, and stay until explicitly removed. Entries are type-identifiable in JSON (`source` key) and distinguishable in the TUI. Implemented by MCP-7. |
 | D-3 | `force_refresh` | **RESOLVED by D-19** (agent proposal, PO may override) | Removed. Its only effect was a longer timeout; with `run` respecting the same-day cache rule, the meaningful switch is `force` (refresh even if already updated today) on both CLI (`run --force`) and MCP. |
@@ -834,6 +838,16 @@ Reactive to the two input documents only.
   If proven, apply the D-16 policy: key history by `canonical_slug`, refresh
   and backfill the new canonical as its own series, no warning, no mixed
   history. Moved to `docs/BACKLOG.md` at sprint close.
+- **PARKED — W1 out-of-scope findings (implementation agent, 2026-09-25;
+  not implemented, awaiting PO triage):** (1) `model discover` /
+  `discover_models` return an empty list with `status: "success"` and no
+  message when the catalog fetch fails (`fetch_catalog` returns `[]`);
+  (2) `run`/`check` with OpenRouter unreachable **and** no `history.csv`
+  return an empty `prices_shortlist` with no message (the fallback branch,
+  and so `API_FALLBACK`, needs existing history) — relevant to MCP-6 (W2);
+  (3) `calibrate` on a zero-token log silently keeps default weights —
+  relevant to §3f (W4); (4) `anticharon test` reports an unreachable
+  OpenRouter only as per-check data, with no message code.
 - Everything in §8 and the OUT rows of §1 remain in `docs/BACKLOG.md`,
   untouched by this sprint.
 
@@ -930,7 +944,7 @@ recorded.
 
 | Wave | GitHub issues | Ledger IDs traced | Start commit | Atomic implementation commit(s) | Green verification (command/result) | Audit/review findings and disposition | Decisions / PO sign-off | Open questions / parked findings | Sidecar state transferred | Closeout commit | Next-wave handoff |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| W1 Foundation | #12, #22 | A2A-1…8, DOC-6, DOC-8 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
+| W1 Foundation | #12, #22 | A2A-1…8, DOC-6, DOC-8 — traceability passed 2026-09-25 (all IDs in WAVE-1 scope, mapped to #12/#22) | `8fcbeeb` | OPEN (build in progress) | OPEN | OPEN | D-1e (PO, 2026-09-25) | 4 W1 findings parked (see Deferred) | OPEN | OPEN | OPEN |
 | W2 Model identity | #14, #15 | MCP-2/6/7/8, D-2/5/13/14/15/24/25 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
 | W3 Command split | #13 | MCP-10/11, D-3/4/18/18b/18c/19/22/28 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
 | W4 Tool surface | #16, #17, #18 | MCP-1/3/4/5/9/12/13, §3f, §3b | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |

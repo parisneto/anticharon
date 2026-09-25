@@ -7,7 +7,8 @@ from pathlib import Path
 import requests
 
 from anticharon.config import get_config_path, get_data_dir, load_config
-from anticharon.hermes import INCOMPLETE_DETECTION_WARNING, get_hermes_models
+from anticharon.hermes import get_hermes_models, hermes_detection_messages, hermes_shortlist_divergent
+from anticharon.models import AgentMessage, build_envelope, render_messages
 from anticharon.pricing import calculate_effective_cost, price_per_1m
 from anticharon.tracker import OPENROUTER_MODELS_URL
 
@@ -20,8 +21,10 @@ def run_self_test(
     """Run comprehensive self-checks on runtime, config, formulas, permissions, network, and Hermes."""
     import json
     import platform
+    started = time.perf_counter()
     all_passed = True
     diag: dict = {}
+    messages: list[AgentMessage] = []
 
     # Environment & Host Resolution
     os_name = platform.system()
@@ -100,36 +103,23 @@ def run_self_test(
             h_info = get_hermes_models(custom_path=hermes_config_path)
             if h_info:
                 # Issue #4: a detected-but-divergent (or incomplete) Hermes state
-                # must be flagged, never reported as an unqualified pass.
+                # must be flagged, never reported as an unqualified pass. Same
+                # check and messages as run/check (A2A-6).
                 h_models = h_info.get("all_models", [])
-                detection = h_info.get("detection", "complete")
-                persisted = shortlist
-                divergent = list(h_models) != list(persisted)
-                if detection != "complete":
-                    h_warning = INCOMPLETE_DETECTION_WARNING
-                elif divergent:
-                    h_warning = (
-                        f"Detected Hermes model set ({len(h_models)} models) diverges from the "
-                        f"persisted Anticharon shortlist ({len(persisted)} models). "
-                        f"Run 'anticharon model sync' to reconcile."
-                    )
-                else:
-                    h_warning = None
+                h_messages = hermes_detection_messages(h_info, shortlist)
+                messages.extend(h_messages)
 
                 diag["hermes_integration"] = {
                     "detected": True,
                     "method": h_info.get("method"),
                     "source": h_info.get("source"),
                     "models_count": len(h_models),
-                    "detection": detection,
-                    "shortlist_divergence": divergent,
-                    "warning": h_warning
+                    "detection": h_info.get("detection", "complete"),
+                    "shortlist_divergence": hermes_shortlist_divergent(h_models, shortlist),
                 }
                 if not json_mode:
-                    label = "WARN" if h_warning else "PASS"
+                    label = "WARN" if h_messages else "PASS"
                     print(f" [{label}] Hermes Integration: Detected ({len(h_models)} models via {h_info.get('method')} from {h_info.get('source')})")
-                    if h_warning:
-                        print(f"        ↳ {h_warning}")
             else:
                 diag["hermes_integration"] = {"detected": False, "mode": "standalone"}
                 if not json_mode:
@@ -243,13 +233,19 @@ def run_self_test(
             print(f" [FAIL] MCP Server Error: {e}")
         all_passed = False
 
-    diag["status"] = "success" if all_passed else "failure"
+    if not all_passed:
+        messages.append(AgentMessage(
+            "error", "SELF_TEST_FAILED",
+            "One or more self-test checks failed; see each check's `error` field for the cause.",
+        ))
     diag["all_passed"] = all_passed
+    envelope = build_envelope({"status": "success" if all_passed else "error", **diag}, messages, started)
 
     if json_mode:
-        print(json.dumps(diag, indent=2))
+        print(json.dumps(envelope, indent=2))
     else:
         print("=" * 60)
+        render_messages(envelope["messages"])
         if all_passed:
             print("🎉 All core diagnostics passed successfully!\n")
         else:

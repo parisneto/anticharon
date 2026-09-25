@@ -12,9 +12,10 @@ Anticharon monitors OpenRouter pricing for models configured in `~/.hermes/confi
    # Or with in-band field glossary:
    anticharon check --json --hints
    ```
+   - `.status` / `.messages` / `.elapsed_ms`: Response envelope on every JSON output (see "Response Envelope & Agent Messages" below). Read `.messages` first.
    - `.data_source`: `"live_api"` (fresh OpenRouter prices) or `"cached_history"` (network failure fallback).
    - `.prices_shortlist`: Sorted cheapest to most expensive with `price_1m` and `ma_7d`.
-   - `.priceWarnings`: Volatility alerts (`PRICE_SPIKE`, `PRICE_DROP`) and `BEST_OPTION_CHANGED`.
+   - `.price_warnings`: Volatility alerts (`PRICE_SPIKE`, `PRICE_DROP`) and `BEST_OPTION_CHANGED`.
    - `.hermes_integration`: Sync status with your active configuration.
 
 2. **To Get Pre-Processed 30-Day Analytical Profiles & Trajectory Intelligence:**
@@ -74,6 +75,13 @@ Anticharon monitors OpenRouter pricing for models configured in `~/.hermes/confi
    - `anticharon://llms.txt`: Machine-readable briefing and glossary.
    - `anticharon://history.csv`: Raw 30-day sliding history data.
    - `anticharon://shortlist.json`: Active configuration and weights.
+
+#### Response Envelope & Agent Messages (every CLI `--json` output and every MCP tool result):
+- Top-level keys, in order: `status`, `messages`, `elapsed_ms`, then the payload.
+- `status`: `success` | `warning` | `error` | `refused` | `not_monitored`. `error` / `refused` mean the operation was NOT performed: MCP returns them with `isError: true` (same JSON body); the CLI exits with code 1. Everything else is a normal result (exit 0).
+- `messages`: never empty; each entry has `level` (`info` | `warning` | `error`), `code`, `text`, optional `action` (`{"mcp": ..., "cli": ...}`) and optional `model`. The last entry is always `COMPLETED` with the elapsed time.
+- Codes: `COMPLETED` (always last) · `PREVIEW_ONLY` (dry run; nothing persisted) · `SHORTLIST_UPDATED` / `SHORTLIST_UNCHANGED` (what was written to shortlist.json) · `NO_EXACT_MATCH` (`model add`: slug not in the live catalog; use `discover_models`) · `API_FALLBACK` (OpenRouter unreachable; cached prices) · `HERMES_NOT_DETECTED` (no Hermes config; standalone mode, not an error) · `HERMES_INCOMPLETE` (partial Hermes detection; shortlist protected) · `HERMES_DIVERGENT` (Hermes default/fallback order differs from the shortlist; run `import_hermes_models(dry_run=false)`) · `SELF_TEST_FAILED` (`anticharon test` failed) · `CALIBRATION_INPUT_INVALID` (`calibrate` CSV missing/unreadable) · `ZDR_LIVE_LIMITED` (`model discover --zdr` live check capped or partly unknown).
+- Legacy keys `notice`, `hint`, `message`, `warning`, `error`, `zdr_warning` no longer exist; `priceWarnings` is now `price_warnings`.
 
 #### A2A JSON Schema & Field Glossary:
 - `data_source` (`"live_api"` | `"cached_history"`): Whether pricing was retrieved live from OpenRouter or loaded from local cache during API downtime.

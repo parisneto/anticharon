@@ -19,11 +19,13 @@ import requests
 from anticharon.analytics import calculate_model_analytics
 from anticharon.config import get_config_path, get_history_path, load_config
 from anticharon.hermes import (
-    INCOMPLETE_DETECTION_WARNING,
     get_hermes_models,
+    hermes_detection_messages,
+    shortlist_write_message,
     sync_hermes_to_config,
 )
 from anticharon.models import (
+    AgentMessage,
     HermesIntegrationStatus,
     ModelPrice,
     PricePoint,
@@ -53,6 +55,18 @@ OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 # pricing data source" and "28-Day Backfill").
 OPENROUTER_ENDPOINT_STATS_URL = "https://openrouter.ai/api/frontend/v1/stats/endpoint"
 OPENROUTER_EFFECTIVE_PRICING_URL = "https://openrouter.ai/api/frontend/v1/stats/effective-pricing"
+
+PREVIEW_ONLY_RUN_MESSAGE = AgentMessage(
+    "info", "PREVIEW_ONLY",
+    "Dry run: prices were fetched and computed for this response only; nothing was persisted "
+    "(history.csv, effective_prices.json and shortlist.json are unchanged).",
+    action={"mcp": "check_prices(dry_run=false)", "cli": "anticharon run"},
+)
+API_FALLBACK_MESSAGE = AgentMessage(
+    "warning", "API_FALLBACK",
+    "OpenRouter API was unreachable; showing the last cached prices from history.csv.",
+    action={"mcp": "retry check_prices later", "cli": "retry anticharon run later"},
+)
 
 
 def fetch_openrouter_models(timeout: float = 10.0) -> dict[str, Any]:
@@ -318,6 +332,7 @@ def run_tracker(
 
     # Hermes auto-detection & synchronization
     hermes_status: HermesIntegrationStatus | None = None
+    messages: list[AgentMessage] = []
     if not no_hermes:
         hermes_info = get_hermes_models(custom_path=hermes_config_path)
         if hermes_info:
@@ -329,12 +344,19 @@ def run_tracker(
                 source=hermes_info.get("source"),
                 method=hermes_info.get("method", "file_grep"),
                 models_count=len(hermes_info.get("all_models", [])),
-                warning=INCOMPLETE_DETECTION_WARNING if incomplete else None
             )
             # Sync to shortlist config unless dry_run
+            sync_message = None
             if not dry_run:
-                sync_hermes_to_config(hermes_info, config_path=cfg_path, dry_run=False)
+                changed, _, _ = sync_hermes_to_config(hermes_info, config_path=cfg_path, dry_run=False)
                 cfg = load_config(cfg_path)
+                sync_message = shortlist_write_message(
+                    changed, False, f"Hermes sync of {hermes_status.models_count} models"
+                )
+            # Divergence is judged against the shortlist as persisted after any sync (A2A-6).
+            messages.extend(hermes_detection_messages(hermes_info, cfg.get("shortlist", [])))
+            if sync_message:
+                messages.append(sync_message)
             # Use hermes models for current tracking session
             if incomplete:
                 shortlist = cfg.get("shortlist", []) or hermes_info.get("all_models", [])
@@ -346,8 +368,8 @@ def run_tracker(
                 source=None,
                 method="standalone",
                 models_count=0,
-                warning="Hermes configuration not detected. Operating in standalone mode."
             )
+            messages.extend(hermes_detection_messages(None, []))
             shortlist = cfg.get("shortlist", [])
     else:
         hermes_status = HermesIntegrationStatus(
@@ -355,9 +377,10 @@ def run_tracker(
             source=None,
             method="standalone",
             models_count=0,
-            warning=None
         )
         shortlist = cfg.get("shortlist", [])
+    if dry_run:
+        messages.append(PREVIEW_ONLY_RUN_MESSAGE)
 
     models_api = fetch_openrouter_models(timeout=timeout)
 
@@ -419,7 +442,8 @@ def run_tracker(
             config_path=str(cfg_path),
             hermes_integration=hermes_status,
             analytics_mode=enable_analytics,
-            hints_enabled=hints_enabled
+            hints_enabled=hints_enabled,
+            messages=[API_FALLBACK_MESSAGE, *messages],
         )
 
     updated_records = []
@@ -646,5 +670,6 @@ def run_tracker(
         config_path=str(cfg_path),
         hermes_integration=hermes_status,
         analytics_mode=enable_analytics,
-        hints_enabled=hints_enabled
+        hints_enabled=hints_enabled,
+        messages=messages,
     )

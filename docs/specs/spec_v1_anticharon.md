@@ -251,7 +251,7 @@ Same data directory as `history.csv`, same path-resolution hierarchy (§6.1). Th
 
 `min_tracking_days_for_profile` (default `14`, half the 28-day backfill window): elapsed calendar days since a model was first tracked before analytics classification ("Historical Analytical Intelligence & Pricing Profiles" below) moves past `NEWLY_TRACKED`. Configurable per shortlist, same as `spike_threshold_pct`.
 
-`max_zdr_check_count` (default `10`): caps how many candidate models `anticharon model discover --zdr` will live-check for ZDR routability in a single command (§7 CLI Command Interface). Applied only after local filters (`query`, `--filter`, `--promo`, price/modality bounds) narrow the candidate list — never before — and only to the cheapest N candidates by blended price. If the filtered list still exceeds the cap, Anticharon never silently checks a subset and presents it as complete: it prints an explicit warning naming how many of how many were checked (`zdr_warning` in `--json` output) and proceeds with the cheapest N. `run`/`check --zdr` are unaffected by this cap — shortlists are inherently small (7–9 models typically), so the cap only matters for `discover`'s full-catalog case.
+`max_zdr_check_count` (default `10`): caps how many candidate models `anticharon model discover --zdr` will live-check for ZDR routability in a single command (§7 CLI Command Interface). Applied only after local filters (`query`, `--filter`, `--promo`, price/modality bounds) narrow the candidate list — never before — and only to the cheapest N candidates by blended price. If the filtered list still exceeds the cap, Anticharon never silently checks a subset and presents it as complete: it emits an explicit `ZDR_LIVE_LIMITED` warning message (§10.1a) naming how many of how many were checked, in both human and `--json` output, and proceeds with the cheapest N. `run`/`check --zdr` are unaffected by this cap — shortlists are inherently small (7–9 models typically), so the cap only matters for `discover`'s full-catalog case.
 
 ### 6.1 Path Resolution Hierarchy:
 1. **CLI Arguments:** `--config <path>` and `--data-dir <path>` (highest priority).
@@ -275,7 +275,7 @@ When deployed in environments alongside **Hermes Agent**, Anticharon automatical
 3. Environment directory: `$HERMES_HOME/config.yaml`
 4. Standard user home path: `~/.hermes/config.yaml`
 5. Interactive prompt (TTY only): If missing and interactive, prompt user for path.
-6. Standalone fallback: If not found in non-interactive/cron mode, log a prominent warning banner and fall back cleanly to `shortlist.json`.
+6. Standalone fallback: If not found in non-interactive/cron mode, emit a `HERMES_NOT_DETECTED` warning message (§10.1a) and fall back cleanly to `shortlist.json`. Standalone operation stays successful (`status: "success"` for `run`/`check`/`history`); the absence of the optional Hermes config is never an error, including for `model sync` / `import_hermes_models` (`status: "warning"`, exit 0).
 
 ### Two-Tier Safe Extraction Architecture:
 - **Tier 1 (Hermes CLI):** If `hermes` binary is present on `$PATH`, queries `hermes config get model` and `hermes config get fallback_providers` directly (< 1.5s timeout).
@@ -311,9 +311,10 @@ An `unavailable` source is **not** retried in-process; the next scheduled or man
 ### Sync Protection (applies to the final selected result, not per-tier):
 - A `complete` final result is authoritative and **may** legitimately shrink, grow, or otherwise change the shortlist — a genuine change in Hermes's configured models must propagate, regardless of how its length compares to the persisted shortlist.
 - An `incomplete` final result never overwrites an existing non-empty shortlist with the partial/default-only set it detected — **regardless of length**: shorter, the same length with different content, and even longer incomplete results are all rejected the same way. Length is not a reliable completeness signal for an `incomplete` detection (a corrected defect: an earlier revision of this guard only compared lengths, `len(new) < len(current)`, which let a same-length-but-different `incomplete` result silently overwrite a good shortlist — GH-4). The persisted shortlist is preserved unchanged and also drives the current tracking run.
-- When the shortlist is preserved this way, a visible warning is surfaced in human CLI output, in `--json` (`hermes_integration.warning`, and `detection`/`warning` on `model sync`), and in the `import_hermes_models` MCP tool payload.
-- Both sources `unavailable` is the ordinary no-Hermes case: existing configuration/standalone behavior is preserved, with the pre-existing standalone banner rather than an incomplete-detection warning.
-- `anticharon test` reports `[WARN]` (never an unqualified `[PASS]`) for the Hermes step when detection is `incomplete` or when the detected model set diverges from the persisted shortlist, exposing `detection`, `shortlist_divergence`, and `warning` in `--json`.
+- When the shortlist is preserved this way, a `HERMES_INCOMPLETE` warning message (§10.1a) is surfaced in human CLI output, in `--json` `messages` (`run`/`check`/`history`, and `model sync` alongside its `detection` field), and in the `import_hermes_models` MCP tool payload.
+- Both sources `unavailable` is the ordinary no-Hermes case: existing configuration/standalone behavior is preserved, with a `HERMES_NOT_DETECTED` message rather than an incomplete-detection warning.
+- `anticharon test` reports `[WARN]` (never an unqualified `[PASS]`) for the Hermes step when detection is `incomplete` or when the detected model set diverges from the persisted shortlist, exposing `detection` and `shortlist_divergence` in `--json` and a `HERMES_INCOMPLETE` / `HERMES_DIVERGENT` message.
+- **Divergence (A2A-6, D-5):** one shared, order-sensitive check (`hermes_shortlist_divergent`) compares the detected Hermes sequence (default, then fallbacks) with the persisted shortlist. `run`, `check`, `history`, `check_prices`, `get_model_history` and `anticharon test` emit `HERMES_DIVERGENT` (action: `import_hermes_models(dry_run=false)` / `anticharon model sync`) when they differ. A persisting `run` compares after its sync, so it reports `SHORTLIST_UPDATED` instead. Until source-tagged shortlist entries exist (MCP-7), the whole persisted shortlist is compared; MCP-7 narrows this to Hermes-sourced entries.
 
 ### Model Placement & Synchronization Rules:
 - The Hermes `default` model is always placed at index 0 (`shortlist[0]`), receiving the `★ [DEFAULT]` badge and serving as the baseline for `BEST_OPTION_CHANGED` alerts.
@@ -434,6 +435,9 @@ anticharon help model
 anticharon help model discover
 ```
 
+### JSON Output & Exit Codes
+Every `--json` output uses the §10.1a envelope (`status`, `messages`, `elapsed_ms`, then the payload), and human output renders the same `messages`. The exit code is `1` iff `status` is `error` or `refused` (the operation was not performed), otherwise `0`. `model sync` without a detectable Hermes config is `status: "warning"` with `HERMES_NOT_DETECTED` and exits `0`.
+
 ---
 
 ## 8. Safety, Resilience & Network Fallback
@@ -444,6 +448,7 @@ anticharon help model discover
    - `api_offline_fallback`: `true` if OpenRouter API failed and local cache was used; `false` otherwise.
    - `fallback`: Legacy boolean alias for `api_offline_fallback` maintained for backward compatibility.
    - `_hints`: In-band field definitions dictionary included when `--hints` is passed.
+   - `messages`: an `API_FALLBACK` warning message (§10.1a) states that cached prices are shown.
 3. **No Unhandled Crashes:** Agents relying on Anticharon via cron or automated pipelines receive valid structured data even during network disruptions.
 
 ---
@@ -464,7 +469,37 @@ Anticharon natively exposes a standard Model Context Protocol (MCP) server over 
 ### 10.1 Protocol & Transport Specifications
 - **Transport:** Standard input/output (`stdio`) using JSON-RPC 2.0.
 - **Stdio Isolation Rule:** `stdout` is reserved strictly for valid JSON-RPC frames. All logging, status banners, non-fatal cache fallback notices, and error logs are directed to `stderr`.
-- **SDK Implementation:** Python standard `mcp>=1.3.0` (`FastMCP`).
+- **Protocol baseline:** MCP specification `2026-07-28` (https://modelcontextprotocol.io/specification/2026-07-28; schema `schema/2026-07-28/schema.ts` in `modelcontextprotocol/modelcontextprotocol`). Every protocol-shaped behavior (error signaling, annotations, `_meta`, tool naming) cites this revision; later revisions are adopted only through a sprint ledger's protocol-update check (`AGENTS.md` Rule 4).
+- **SDK Implementation:** official Python SDK `mcp` (`pyproject.toml`: `mcp>=1.3.0`; resolves to `mcp` 2.x `MCPServer`, with `FastMCP` only as an import fallback).
+
+### 10.1a Response Envelope & Agent Messages (CLI `--json` and MCP)
+
+One contract for every JSON payload: every MCP tool result and every CLI `--json` output (`run`, `check`, `history`, `info`, `test`, `calibrate`, `model add|remove|list|discover|sync`). Raw CSV outputs (`--history-csv`, `history --csv`) are not JSON and are unchanged.
+
+- **Top-level keys, in this order:** `status`, `messages`, `elapsed_ms`, then the payload.
+- **`status`:** `success` · `warning` (done, with problems worth flagging) · `error` · `refused` · `not_monitored` (local reads only). `status` is set by the operation, not derived from message levels: a `warning`-level message can accompany `status: "success"` (e.g. standalone mode).
+- **Error signaling (MCP spec 2026-07-28, Tools → Error Handling):** `status` ∈ {`error`, `refused`} means the requested operation was not performed. MCP returns it as a tool execution error (`isError: true`) whose text content and `structuredContent` are the same JSON envelope, so hosts pass it to the model for self-correction; the CLI exits with code `1`. Every other status is a normal result (exit `0`).
+- **`messages`:** never empty. Each entry is an `AgentMessage` (`models.py`): `level` (`info` | `warning` | `error`), `code` (stable string), `text` (one human sentence), optional `action` (`{"mcp": "<tool call>", "cli": "<command>"}`), optional `model` (slug, per-model messages only). Problem and outcome messages come first; the last entry is always `COMPLETED` (`info`), timed from the start of the command/tool call ("Anticharon processed your request successfully in 0.4s."; for `error`/`refused` it says the request was not performed).
+- **`elapsed_ms`:** integer wall-clock milliseconds for the command/tool call.
+- **Human CLI output** renders the same serialized `messages` through one renderer (`render_messages`): `<icon> [CODE] text`, followed by `↳ <cli action>` when present. In MCP mode nothing is rendered to `stdout` (stdio isolation, ADR 0001).
+- **Removed legacy keys (clean break, 0.6.0):** `notice`, `hint`, top-level `message`, `hermes_integration.warning`, `model sync` `warning`, top-level `error`, and discover's `zdr_warning`. `priceWarnings` is renamed `price_warnings`. Kept as data: `status`, `_hints`, `price_warnings[].message`, and per-check `error` fields in `anticharon test`.
+- **`_meta`** is never the agent channel; messages are not mirrored into `_meta`.
+
+Codes emitted in 0.6.0 so far (the full catalog, including codes introduced by later work, is ledger `docs/plans/ecosystem-ergonomics/EXECUTION_CONTRACT.md` §3d):
+
+| Code | Level | Emitted by | Meaning / action |
+|---|---|---|---|
+| `COMPLETED` | info | every command/tool | always last; elapsed time |
+| `PREVIEW_ONLY` | info | any dry run (`check`, `history`, `run --dry-run`, `check_prices`, `get_model_history`, `model add/remove/sync --dry-run`, `calibrate --dry-run`, `import_hermes_models`) | work done for this response only; nothing persisted → repeat without dry run |
+| `SHORTLIST_UPDATED` / `SHORTLIST_UNCHANGED` | info (`SHORTLIST_UNCHANGED` is `warning` for a duplicate `model add`, `error` for `model remove` of an absent slug) | persisting `run`/default command (Hermes sync), `model sync`/`import_hermes_models`, `model add/remove`, `calibrate` | what was persisted to `shortlist.json` |
+| `NO_EXACT_MATCH` | warning (per model) | `model add` with catalog validation | the typed slug has no exact catalog entry (text names the closest prefix alias if any); it is still added as typed → `discover_models` |
+| `API_FALLBACK` | warning | `run`, `check`, `history`, `check_prices`, `get_model_history` | OpenRouter unreachable; cached `history.csv` prices shown |
+| `HERMES_NOT_DETECTED` | warning | `run`, `check`, `history`, `check_prices`, `get_model_history`, `model sync`, `import_hermes_models` | no Hermes config found; standalone operation stays successful → pass a Hermes config path / `$HERMES_CONFIG`, or `--no-hermes` |
+| `HERMES_INCOMPLETE` | warning | same as above, and `test` | partial detection; shortlist protected (§6.2) |
+| `HERMES_DIVERGENT` | warning | `run`, `check`, `history`, `check_prices`, `get_model_history`, `test` | Hermes sequence ≠ persisted shortlist, order-sensitive (§6.2) → `import_hermes_models(dry_run=false)` / `anticharon model sync` |
+| `SELF_TEST_FAILED` | error | `test` | one or more checks failed (`status: "error"`, exit 1); per-check `error` fields carry causes |
+| `CALIBRATION_INPUT_INVALID` | error | `calibrate` | activity CSV missing, unreadable or unparseable; weights unchanged (`status: "error"`, exit 1). Only invalid/unreadable input uses this code; other exceptions are internal failures and are not reported as invalid input |
+| `ZDR_LIVE_LIMITED` | warning | `model discover --zdr` | live ZDR results are limited: check capped at `max_zdr_check_count` (how many of how many) and/or compliance unknown for named models |
 
 ### 10.2 Exposed MCP Tools
 
@@ -475,7 +510,7 @@ Anticharon natively exposes a standard Model Context Protocol (MCP) server over 
   - `dry_run` (boolean, optional, default: `true`): Calculate prices without updating `history.csv`/`effective_prices.json`.
   - `include_analytics` (boolean, optional, default: `true`): Attach 30-day statistical profiles, badges, and sibling alternatives.
   - `zdr_only` (boolean, optional, default: `false`): Restrict `policy_price_1m` to Zero Data Retention-compliant endpoints (§3.2) and surface `POLICY_UNROUTABLE`/`POLICY_UNKNOWN` warnings.
-- **Return Payload:** Self-describing JSON dictionary containing `timestamp`, `data_source` (`live_api` or `cached_history`), `api_offline_fallback` (boolean), `prices_shortlist` (each entry carrying `effective_price_1m`, `advertised_prompt_1m`/`advertised_completion_1m`, and `policy_price_1m`/`is_policy_routable` when a policy filter is active), `priceWarnings`, `hermes_integration`, and in-band `_hints`.
+- **Return Payload:** The §10.1a envelope (`status`, `messages`, `elapsed_ms`) followed by `timestamp`, `data_source` (`live_api` or `cached_history`), `api_offline_fallback` (boolean), `prices_shortlist` (each entry carrying `effective_price_1m`, `advertised_prompt_1m`/`advertised_completion_1m`, and `policy_price_1m`/`is_policy_routable` when a policy filter is active), `price_warnings`, `hermes_integration` (`detected`, `source`, `method`, `models_count`), and in-band `_hints`.
 
 #### v0.6.0 exact shortlist selection contract (D-14, D-18c)
 
@@ -516,7 +551,8 @@ slug, returns `NO_EXACT_MATCH` for an invalid or nonexistent slug, and reports
 - **Response Safety Fields:**
   - `direction` (`"hermes→anticharon"`): Confirms one-way data flow.
   - `hermes_untouched` (`true`): Confirms Hermes configuration was not mutated.
-  - `notice`: Explicit notification on preview vs persistence status.
+  - `messages` (§10.1a): `PREVIEW_ONLY` / `SHORTLIST_UPDATED` / `SHORTLIST_UNCHANGED` state preview vs persistence; `HERMES_INCOMPLETE` flags a protected shortlist; `HERMES_NOT_DETECTED` (with `status: "warning"`, never an error) when no Hermes config is found.
+  - CLI `model sync` / `model import-hermes --json` returns the same payload and messages (one shared builder).
 
 ### 10.3 Exposed MCP Resources
 - `anticharon://llms.txt`: Machine-readable Agent-to-Agent operational briefing and schema definitions.

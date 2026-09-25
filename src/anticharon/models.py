@@ -1,7 +1,78 @@
 """Data models and type definitions for Anticharon."""
 
+import time
 from dataclasses import dataclass, field
 from typing import Any
+
+# Response statuses meaning "the requested operation was not performed" --
+# MCP `isError: true` / CLI exit code 1 (spec §10.1a, MCP spec 2026-07-28
+# Tools -> Error Handling). Every other status is a normal result.
+ERROR_STATUSES = frozenset({"error", "refused"})
+
+
+@dataclass
+class AgentMessage:
+    """One agent-readable notice in the universal `messages` channel (spec §10.1a).
+
+    `level` is `info` | `warning` | `error`; `code` is a stable catalog string;
+    `action` optionally names the follow-up as `{"mcp": ..., "cli": ...}`;
+    `model` is set only on per-model messages.
+    """
+    level: str
+    code: str
+    text: str
+    action: dict[str, str] | None = None
+    model: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {"level": self.level, "code": self.code, "text": self.text}
+        if self.action:
+            data["action"] = self.action
+        if self.model:
+            data["model"] = self.model
+        return data
+
+
+def build_envelope(payload: dict[str, Any], messages: list[AgentMessage], started: float) -> dict[str, Any]:
+    """Wrap a JSON payload in the response envelope shared by CLI `--json` and MCP.
+
+    Top-level keys come first in the fixed order `status`, `messages`,
+    `elapsed_ms`, then the payload. `payload["status"]` is required. A
+    `COMPLETED` message timed from `started` (a `time.perf_counter()` value
+    taken when the command/tool call began) is always appended, so
+    `messages` is never empty.
+    """
+    status = payload["status"]
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    if status in ERROR_STATUSES:
+        done_text = f"Anticharon finished your request in {elapsed_ms / 1000:.1f}s without performing it; see the other messages."
+    else:
+        done_text = f"Anticharon processed your request successfully in {elapsed_ms / 1000:.1f}s."
+    completed = AgentMessage(level="info", code="COMPLETED", text=done_text)
+    body = {k: v for k, v in payload.items() if k != "status"}
+    return {
+        "status": status,
+        "messages": [m.to_dict() for m in [*messages, completed]],
+        "elapsed_ms": elapsed_ms,
+        **body,
+    }
+
+
+_LEVEL_ICONS = {"info": "ℹ️ ", "warning": "⚠️ ", "error": "❌"}
+
+
+def render_messages(messages: list[dict[str, Any]], file: Any = None) -> None:
+    """Print envelope `messages` for human CLI output (A2A-4).
+
+    Takes the serialized `messages` from `build_envelope`, so human and JSON
+    output show the same notices. `file` defaults to stdout; never used in
+    MCP mode, where stdout carries JSON-RPC frames only (ADR 0001).
+    """
+    for m in messages:
+        print(f"{_LEVEL_ICONS.get(m['level'], '•')} [{m['code']}] {m['text']}", file=file)
+        cli_action = (m.get("action") or {}).get("cli")
+        if cli_action:
+            print(f"     ↳ {cli_action}", file=file)
 
 
 @dataclass
@@ -188,12 +259,15 @@ class PriceWarning:
 
 @dataclass
 class HermesIntegrationStatus:
-    """Status of Hermes agent configuration detection and synchronization."""
+    """Status of Hermes agent configuration detection and synchronization.
+
+    Detection problems (incomplete, divergent, not detected) are reported as
+    `AgentMessage`s on the result, never as a field here (spec §10.1a).
+    """
     detected: bool
     source: str | None = None
     method: str = "standalone"  # 'cli', 'file_grep', or 'standalone'
     models_count: int = 0
-    warning: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -201,7 +275,6 @@ class HermesIntegrationStatus:
             "source": self.source,
             "method": self.method,
             "models_count": self.models_count,
-            "warning": self.warning
         }
 
 
@@ -213,14 +286,15 @@ class TrackerResult:
     prices_shortlist: list[ModelPrice] = field(default_factory=list)
     price_warnings: list[PriceWarning] = field(default_factory=list)
     fallback: bool = False
-    error: str | None = None
     storage_path: str | None = None
     config_path: str | None = None
     hermes_integration: HermesIntegrationStatus | None = None
     analytics_mode: bool = False
     hints_enabled: bool = False
+    messages: list[AgentMessage] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
+        """Payload only; callers wrap it with `build_envelope(payload, self.messages, started)`."""
         data: dict[str, Any] = {
             "status": self.status,
             "timestamp": self.timestamp,
@@ -228,7 +302,7 @@ class TrackerResult:
             "api_offline_fallback": self.fallback,
             "fallback": self.fallback,
             "prices_shortlist": [p.to_dict() for p in self.prices_shortlist],
-            "priceWarnings": [w.to_dict() for w in self.price_warnings],
+            "price_warnings": [w.to_dict() for w in self.price_warnings],
         }
         if self.analytics_mode:
             data["analytics_mode"] = True
@@ -243,11 +317,10 @@ class TrackerResult:
                 "data_source": "'live_api' (fresh prices from OpenRouter) or 'cached_history' (offline fallback if API fails)",
                 "api_offline_fallback": "True only if OpenRouter API failed and local CSV cache was used. Has NO relation to Hermes model fallback_providers.",
                 "prices_shortlist": "Active models sorted cheapest to most expensive by blended price/1M tokens",
-                "priceWarnings": "Alerts for price spikes, price drops, or when a model is cheaper than configured default",
+                "price_warnings": "Alerts for price spikes, price drops, or when a model is cheaper than configured default",
+                "messages": "Agent-readable notices (level, code, text, optional action {mcp, cli}, optional model); never empty, always ends with COMPLETED",
                 "hermes_integration": "Auto-sync status with ~/.hermes/config.yaml (models_count includes default + fallback_providers)"
             }
-        if self.error:
-            data["error"] = self.error
         return data
 
 
