@@ -169,6 +169,8 @@ Cache_Hit_Rate         = Total_Cached_Tokens   / Total_Prompt_Tokens
 
 `anticharon calibrate` persists `weight_uncached_prompt`/`weight_cached_prompt`/`weight_completion` to `shortlist.json` (§6). Logs exported before `tokens_cached` existed (or missing the column) still parse correctly: the cached bucket defaults to 0, i.e. 100% uncached.
 
+The three finite numeric weights must each be in `[0, 1]` and sum to `1.0` within `0.000001`. A total inside that tolerance is normalized by its sum and rounded to six decimal places before persistence. Totals outside that tolerance and booleans, strings, NaN, infinity, or out-of-range values are rejected.
+
 **Per-row clamp:** since `tokens_cached` is logically a subset of `tokens_prompt`, a row reporting more cached tokens than prompt tokens (corrupt/garbled export data) has its cached count clamped to that row's own `tokens_prompt` value before aggregation, so one bad row cannot drive the whole log's `Total_Uncached_Tokens` negative. **Known gap (deferred, tracked in `docs/BACKLOG.md`):** this clamp does not yet reject or floor a raw *negative* token count in any of the three columns — a row with, e.g., `tokens_cached=-50` still contributes a negative value to that column's total. Deferral status recorded in `docs/plans/pricing-engine-v2/RELEASE_VALIDATION.md#PE2-006`; a future pass should floor each parsed field at zero.
 
 ---
@@ -604,7 +606,7 @@ slug, returns `NO_EXACT_MATCH` for an invalid or nonexistent slug, and reports
 - **Description:** Imports active default and fallback models from Hermes Agent configuration (`~/.hermes/config.yaml` or `$HERMES_HOME`) into Anticharon's shortlist. **Strictly read-only on Hermes**: never modifies Hermes configuration.
 - **Parameters:**
   - `hermes_config_path` (string, optional): Explicit custom path to Hermes `config.yaml`.
-  - `dry_run` (boolean, optional, default: `true`): Safe-by-default preview mode. When `true`, detects and returns Hermes models without modifying disk; set `dry_run=false` to persist into Anticharon's `shortlist.json`.
+  - `dry_run` (boolean, optional, default: `false`): Saves the import to Anticharon's `shortlist.json` by default. When `true`, detects and returns Hermes models without modifying disk.
 - **Response Safety Fields:**
   - `direction` (`"hermes→anticharon"`): Confirms one-way data flow.
   - `hermes_untouched` (`true`): Confirms Hermes configuration was not mutated.
@@ -615,6 +617,7 @@ slug, returns `NO_EXACT_MATCH` for an invalid or nonexistent slug, and reports
 - `anticharon://llms.txt`: Machine-readable Agent-to-Agent operational briefing and schema definitions.
 - `anticharon://history.csv`: Raw 30-day sliding history table (`model,last_updated,effective_price_1m,advertised_prompt_1m,advertised_completion_1m,ma_3d,ma_7d,d1..d7,d15,d30`).
 - `anticharon://shortlist.json`: Active model shortlist and token weight configuration.
+- `anticharon://calibration-details`: Definitions and derivation guidance for the three token weights, sample values, the server-local CSV workflow, and the local CLI fallback.
 
 ### 10.4 Exposed MCP Prompts
 - `cost_spike_triage`: Prompt template guiding an agent to analyze a detected `PRICE_SPIKE` or `PROMO_ENDED` alert and formulate model switching recommendations.
@@ -622,6 +625,16 @@ slug, returns `NO_EXACT_MATCH` for an invalid or nonexistent slug, and reports
 - `family_upgrade_discover`: Discovers newer generation models in the same provider family (e.g. Gemini, DeepSeek, Qwen) and evaluates cost-benefit migration.
 - `daily_cost_briefing`: Generates an executive daily cost briefing of model prices, moving averages, and volatility alerts across the active shortlist.
 - `budget_optimization_audit`: Audits the active shortlist to identify cost outliers, SUNSETTING legacy versions, and opportunities to reorder fallback providers.
+
+The five prompt templates are single-sourced in `anticharon.prompts` and are exposed by MCP and `anticharon prompt`. Running `anticharon prompt` lists names and descriptions; `anticharon prompt <name> --arg KEY=VALUE` renders one prompt.
+
+### 10.6 W4 MCP tools and calibration
+
+- `add_model(model_id, dry_run=false, default=false)` and `remove_model(model_id, dry_run=false)` use the same shortlist manager as the CLI and save by default. `dry_run=true` performs validation/calculation without saving. `add_model` requires an exact live catalog match; when the catalog is unavailable it returns `CATALOG_UNAVAILABLE` and does not persist. `list_models()` is a local read. `self_test()` wraps the built-in diagnostic and reports `SELF_TEST_FAILED` on failure.
+- `calibrate_token_weights(csv_path, dry_run=false)` reads a server-local activity CSV; CSV bytes are not transported over MCP. `calibrate_fast(weight_uncached_prompt, weight_cached_prompt, weight_completion, dry_run=false)` accepts host-derived values. Both write by default and copy the prior configuration to the sibling `.bak` file before mutation, reporting `CALIBRATION_BACKUP`; dry runs do not write.
+- `calibrate_fast` validates finite numeric values in `[0, 1]`, requires a sum within `0.000001` of 1, normalizes by that sum, and rounds each normalized value to six decimals.
+- `anticharon://calibration-details` documents weight meanings, a sample derivation, and the CLI fallback for CSV files unavailable to the MCP server.
+- Every registered MCP tool declares all five `ToolAnnotations` fields (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) according to its worst-case behavior in §3b and the MCP-9 table. Server initialization sets `version` to the package version and provides operational instructions.
 
 ### 10.5 Host Configuration Integration
 

@@ -203,15 +203,20 @@ Anticharon natively exposes an MCP server over `stdio` for **Hermes Agent**, **C
 - `check_prices`: Fetches live OpenRouter prices for your shortlist, calculates weighted blended rates, 7-day moving averages, alerts (`PRICE_SPIKE`, `PRICE_DROP`, `BEST_OPTION_CHANGED`), and attaches 30-day intelligence profiles. Automatically maintains a compact local `shortlist.json` and `history.csv` of your favorite models, empowering agents to switch smoothly, eliminate cost anxiety, and dodge the ferryman's toll!
 - `get_model_history`: Audits 30-day historical trajectories, CV% volatility, and trend sparklines from your local storage (JSON or raw CSV).
 - `discover_models`: Live multi-criteria catalog search across ~417+ models with real-world blended pricing.
-- `import_hermes_models`: Imports active default and fallback models from Hermes `config.yaml` into Anticharon's shortlist. Strictly read-only on Hermes. Default is `dry_run=True` (preview only); set `dry_run=False` to save to shortlist.
+- `add_model`, `remove_model`, `list_models`, `self_test`: Manage the local shortlist or run diagnostics through MCP.
+- `calibrate_token_weights`, `calibrate_fast`: Calibrate from a server-local CSV or host-derived weights; writes save by default and preserve the previous configuration in `.bak`.
+- `import_hermes_models`: Imports active default and fallback models from Hermes `config.yaml` into Anticharon's shortlist. Strictly read-only on Hermes. Saves to the Anticharon shortlist by default; pass `dry_run=true` to preview without writing.
+
+The five MCP prompts are also available on the CLI: `anticharon prompt` lists them, and `anticharon prompt <name> --arg KEY=VALUE` renders one.
 
 > [!TIP]
-> **🔒 Safe-by-Default Hermes Ingestion:** `import_hermes_models` is strictly **one-way and read-only** on Hermes Agent (`~/.hermes/config.yaml`). It never touches or mutates your Hermes configuration. In MCP tool calls, `dry_run=true` is the default to prevent unexpected disk writes.
+> **🔒 Hermes Ingestion:** `import_hermes_models` is strictly **one-way and read-only** on Hermes Agent (`~/.hermes/config.yaml`). It never touches or mutates your Hermes configuration. The write applies only to Anticharon's shortlist; use `dry_run=true` to preview.
 
 ### MCP Resources:
 - `anticharon://llms.txt`: Machine-readable Agent-to-Agent briefing.
 - `anticharon://history.csv`: Raw 30-day sliding history data table.
 - `anticharon://shortlist.json`: Active configuration and calibrated weights.
+- `anticharon://calibration-details`: Token weight definitions, derivation guidance, and local CSV fallback.
 
 ### MCP Prompts:
 - `cost_spike_triage`: Guided triage when a price hike or expired promotional window occurs.

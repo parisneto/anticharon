@@ -526,8 +526,9 @@ within that tolerance, normalize by the sum and round to six decimals before
 persisting. Reject booleans, strings, NaN, infinity, out-of-range values, or
 a total outside tolerance with a useful message. For log-derived calibration,
 token counts must be non-negative integers and total tokens must be greater
-than zero; zero completion tokens are valid. **OPEN for PO confirmation:**
-the proposed sum tolerance and normalize-within-tolerance behavior.
+than zero; zero completion tokens are valid. **Resolved for W4 (2026-09-25):**
+the W4 task directive confirms the `0.000001` tolerance and requires
+normalization within that tolerance, rounded to six decimals before saving.
 
 The MCP calibration-details resource explains the three components, includes
 sample OpenRouter log lines and derivation guidance for an agent to provide

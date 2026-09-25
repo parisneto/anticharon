@@ -35,6 +35,7 @@ from anticharon.models import (
     build_envelope,
     render_messages,
 )
+from anticharon.prompts import PROMPTS, render_prompt
 from anticharon.tester import run_self_test
 from anticharon.tracker import read_check_result, read_history_result, run_tracker
 
@@ -744,6 +745,10 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse._SubParsersAction,
     )
     help_parser.add_argument("target", nargs="*", help="Subcommand to display help for (e.g. 'run', 'model', 'model discover')")
 
+    prompt_parser = subparsers.add_parser("prompt", help="List or render a shared Anticharon prompt")
+    prompt_parser.add_argument("name", nargs="?", choices=sorted(PROMPTS), help="Prompt name; omit to list available prompts")
+    prompt_parser.add_argument("--arg", action="append", default=[], metavar="KEY=VALUE", help="Prompt argument (repeat as needed)")
+
     return parser, subparsers, model_subparsers
 
 
@@ -769,6 +774,23 @@ def main() -> None:
 
     if args.command == "info":
         sys.exit(cmd_info(args))
+
+    if args.command == "prompt":
+        if args.name is None:
+            for prompt in PROMPTS.values():
+                print(f"{prompt.name}\t{prompt.description}")
+            sys.exit(0)
+        arguments = {}
+        for item in args.arg:
+            if "=" not in item:
+                parser.error("--arg must be KEY=VALUE")
+            key, value = item.split("=", 1)
+            arguments[key] = value
+        try:
+            print(render_prompt(args.name, arguments))
+        except ValueError as exc:
+            parser.error(str(exc))
+        sys.exit(0)
 
     if args.command == "mcp":
         sys.exit(cmd_mcp(args))

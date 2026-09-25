@@ -58,8 +58,8 @@ def test_mcp_server_suite():
         assert hist_data["format"] == "csv"
         assert "model,last_updated" in hist_data["data"]
 
-        # 4. Tool execution: import_hermes_models (default dry_run=True verification)
-        res_import = loop.run_until_complete(server.call_tool("import_hermes_models", {}))
+        # 4. Tool execution: explicit preview opt-out for save-by-default import
+        res_import = loop.run_until_complete(server.call_tool("import_hermes_models", {"dry_run": True}))
         assert not res_import.is_error
         data_import = json.loads(res_import.content[0].text)
         assert data_import["direction"] == "hermes→anticharon"

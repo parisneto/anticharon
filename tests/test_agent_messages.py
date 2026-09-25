@@ -160,11 +160,19 @@ MCP_CALLS = {
     "get_model_history": {"format": "json"},
     "discover_models": {"query": "gpt"},
     "import_hermes_models": {},
+    "add_model": {"model_id": MODELS[0]},
+    "remove_model": {"model_id": MODELS[1]},
+    "list_models": {},
+    "self_test": {},
+    "calibrate_token_weights": {"csv_path": "docs/sample/openrouter_activity_2026-08-24.csv"},
+    "calibrate_fast": {"weight_uncached_prompt": 0.5, "weight_cached_prompt": 0.4, "weight_completion": 0.1, "dry_run": True},
 }
 
 
 def test_every_registered_mcp_tool_returns_the_envelope(sandbox, monkeypatch, capsys):
     monkeypatch.setattr("anticharon.mcp.fetch_catalog", lambda **kw: [])
+    monkeypatch.setattr("anticharon.tester.run_self_test", lambda **kw: True)
+    monkeypatch.setattr("anticharon.manager.fetch_openrouter_models", lambda timeout=10.0: CATALOG)
     tools = {t.name for t in _run_async(server.list_tools())}
     assert tools == set(MCP_CALLS), "new MCP tool: add it to MCP_CALLS so its envelope is tested"
     for name, args in MCP_CALLS.items():

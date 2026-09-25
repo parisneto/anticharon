@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -167,8 +168,9 @@ def update_config_weights(
     weight_completion: float,
     config_path: Path | None = None
 ) -> Path:
-    """Update the cache-aware 3-way token weights in the configuration file."""
+    """Back up and update the cache-aware 3-way token weights."""
     path = config_path or get_config_path()
+    backup_config(path)
     config = load_config(path)
     config["weight_uncached_prompt"] = round(weight_uncached_prompt, 6)
     config["weight_cached_prompt"] = round(weight_cached_prompt, 6)
@@ -179,6 +181,19 @@ def update_config_weights(
     with open(path, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2)
     return path
+
+
+def backup_config(config_path: Path | None = None) -> Path:
+    """Copy the existing configuration to its sibling `.bak` before mutation."""
+    path = config_path or get_config_path()
+    backup_path = path.with_name(path.name + ".bak")
+    if path.exists():
+        shutil.copy2(path, backup_path)
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(backup_path, "w", encoding="utf-8") as backup:
+            json.dump(DEFAULT_CONFIG, backup, indent=2)
+    return backup_path
 
 
 def update_config_shortlist(
