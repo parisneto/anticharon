@@ -21,10 +21,20 @@ from anticharon.discovery import (
     filter_catalog,
     format_discovery_output,
 )
-from anticharon.hermes import build_hermes_import_payload, get_hermes_models, shortlist_write_message
+from anticharon.hermes import (
+    build_hermes_import_payload,
+    get_hermes_models,
+    shortlist_write_message,
+)
 from anticharon.log_parser import parse_activity_log
 from anticharon.manager import add_model, list_models, remove_model
-from anticharon.models import ERROR_STATUSES, AgentMessage, TrackerResult, build_envelope, render_messages
+from anticharon.models import (
+    ERROR_STATUSES,
+    AgentMessage,
+    TrackerResult,
+    build_envelope,
+    render_messages,
+)
 from anticharon.tester import run_self_test
 from anticharon.tracker import run_tracker
 
@@ -59,13 +69,7 @@ def format_human_output(result: TrackerResult, messages: list[dict]) -> None:
         print("🟢 [STATUS: LIVE API] Latest OpenRouter prices fetched.")
     print("=" * 74)
 
-    # Determine default model from config
-    default_model = None
-    if result.config_path:
-        cfg = load_config(Path(result.config_path))
-        shortlist = cfg.get("shortlist", [])
-        if shortlist:
-            default_model = shortlist[0]
+    default_model = next((p.model for p in result.prices_shortlist if p.is_default), None)
 
     print(f"{'MODEL':<34} {'EFFECTIVE/1M':<13} {'MA 7D':<12} {'CHANGE (7D)':<10}")
     print("-" * 74)
@@ -134,12 +138,7 @@ def format_analytics_human_output(result: TrackerResult, messages: list[dict]) -
     print(f"{status_icon} [STATUS: {status_str}]")
     print("=" * 104)
 
-    default_model = None
-    if result.config_path:
-        cfg = load_config(Path(result.config_path))
-        shortlist = cfg.get("shortlist", [])
-        if shortlist:
-            default_model = shortlist[0]
+    default_model = next((p.model for p in result.prices_shortlist if p.is_default), None)
 
     print(f"{'MODEL':<33} {'PRICE/1M':<10} {'30D TREND':<18} {'PROFILE':<17} {'RECOMMENDATION'}")
     print("-" * 104)
@@ -246,7 +245,8 @@ def cmd_run(args) -> int:
         no_hermes=getattr(args, "no_hermes", False),
         enable_analytics=is_analytics,
         hints_enabled=getattr(args, "hints", False),
-        zdr_only=getattr(args, "zdr", False)
+        zdr_only=getattr(args, "zdr", False),
+        model_id=getattr(args, "model_id", None),
     )
     return _emit_tracker_result(res, started, args.json, is_analytics)
 
@@ -432,7 +432,7 @@ def cmd_model(args) -> int:
                 model_id=args.model_id,
                 dry_run=args.dry_run,
                 config_path=cfg_path,
-                validate_catalog=not args.no_validate
+                default=getattr(args, "default", False),
             )
         elif action == "remove":
             res = remove_model(model_id=args.model_id, dry_run=args.dry_run, config_path=cfg_path)
@@ -445,9 +445,11 @@ def cmd_model(args) -> int:
             print(f"\n📋 Shortlisted Models ({len(res.shortlist)}):")
             print(f"⚙️ Config: {res.config_path}")
             print("-" * 50)
+            defaults = {entry["model"] for entry in res.entries if entry.get("order") == 0}
             for idx, m in enumerate(res.shortlist, 1):
-                badge = " (Default Model)" if idx == 1 else ""
-                print(f" {idx}. {m}{badge}")
+                entry = next((e for e in res.entries if e["model"] == m), {"source": "manual"})
+                badge = " (Default Model)" if m in defaults else ""
+                print(f" {idx}. {m} [{entry.get('source', 'manual')}]{badge}")
             print("-" * 50)
             render_messages(envelope["messages"])
             print()
@@ -566,6 +568,7 @@ def main() -> None:
     run_parser = subparsers.add_parser("run", help="Fetch prices, update history, and display report")
     run_parser.add_argument("--dry-run", action="store_true", help="Do not write updates to history.csv")
     run_parser.add_argument("--json", action="store_true", help="Output results in JSON format")
+    run_parser.add_argument("--model", dest="model_id", type=str, default=None, help="Update one exact model already in the shortlist")
     run_parser.add_argument("--hints", action="store_true", help="Include self-describing key hints in JSON output")
     run_parser.add_argument("--profile", action="store_true", help="Display analytical model profiles and 30-day trajectory")
     run_parser.add_argument("--analytics", action="store_true", help=argparse.SUPPRESS)
@@ -666,7 +669,7 @@ def main() -> None:
     add_p = model_subparsers.add_parser("add", help="Add a model to shortlist.json")
     add_p.add_argument("model_id", type=str, help="Model ID (e.g. google/gemini-3.7-flash)")
     add_p.add_argument("--dry-run", action="store_true", help="Preview updated shortlist without saving to disk")
-    add_p.add_argument("--no-validate", action="store_true", help="Skip live OpenRouter catalog slug validation")
+    add_p.add_argument("--default", action="store_true", help="Set this manual model as the default")
     add_p.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")
     add_p.add_argument("--json", action="store_true", help="Output result in JSON format")
 
@@ -761,4 +764,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

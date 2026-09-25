@@ -232,13 +232,9 @@ Same data directory as `history.csv`, same path-resolution hierarchy (§6.1). Th
 ```json
 {
   "shortlist": [
-    "openai/gpt-5.6-luna",
-    "deepseek/deepseek-v4-flash-0731",
-    "deepseek/deepseek-v4-flash-0423",
-    "qwen/qwen3.7-flash",
-    "google/gemini-3.1-flash-lite",
-    "minimax/minimax-m2.7",
-    "google/gemini-2.5-flash-lite"
+    {"model": "openai/gpt-5.6-luna", "source": "hermes", "order": 0},
+    {"model": "deepseek/deepseek-v4-flash-0731", "source": "hermes", "order": 1},
+    {"model": "deepseek/deepseek-v4-flash-0423", "source": "manual"}
   ],
   "weight_uncached_prompt": 0.232622,
   "weight_cached_prompt": 0.764478,
@@ -248,6 +244,16 @@ Same data directory as `history.csv`, same path-resolution hierarchy (§6.1). Th
   "max_zdr_check_count": 10
 }
 ```
+
+Shortlist entries identify their owner with `source` (`hermes`, `manual`, or
+`import:<name>`). `order` records Hermes fallback position; position 0 is the
+Hermes default. A manual default also uses `order: 0`. Legacy flat string lists
+are interpreted as Hermes entries when Hermes is detected and manual entries
+otherwise, then migrated to objects on the next config write. Hermes sync
+replaces Hermes entries while preserving manual and other imported entries.
+The default is selected only from an explicit `order: 0` entry; list position
+never implies a default. When absent, Anticharon emits `NO_DEFAULT` and skips
+default-based alerts.
 
 `min_tracking_days_for_profile` (default `14`, half the 28-day backfill window): elapsed calendar days since a model was first tracked before analytics classification ("Historical Analytical Intelligence & Pricing Profiles" below) moves past `NEWLY_TRACKED`. Configurable per shortlist, same as `spike_threshold_pct`.
 
@@ -314,11 +320,11 @@ An `unavailable` source is **not** retried in-process; the next scheduled or man
 - When the shortlist is preserved this way, a `HERMES_INCOMPLETE` warning message (§10.1a) is surfaced in human CLI output, in `--json` `messages` (`run`/`check`/`history`, and `model sync` alongside its `detection` field), and in the `import_hermes_models` MCP tool payload.
 - Both sources `unavailable` is the ordinary no-Hermes case: existing configuration/standalone behavior is preserved, with a `HERMES_NOT_DETECTED` message rather than an incomplete-detection warning.
 - `anticharon test` reports `[WARN]` (never an unqualified `[PASS]`) for the Hermes step when detection is `incomplete` or when the detected model set diverges from the persisted shortlist, exposing `detection` and `shortlist_divergence` in `--json` and a `HERMES_INCOMPLETE` / `HERMES_DIVERGENT` message.
-- **Divergence (A2A-6, D-5):** one shared, order-sensitive check (`hermes_shortlist_divergent`) compares the detected Hermes sequence (default, then fallbacks) with the persisted shortlist. `run`, `check`, `history`, `check_prices`, `get_model_history` and `anticharon test` emit `HERMES_DIVERGENT` (action: `import_hermes_models(dry_run=false)` / `anticharon model sync`) when they differ. A persisting `run` compares after its sync, so it reports `SHORTLIST_UPDATED` instead. Until source-tagged shortlist entries exist (MCP-7), the whole persisted shortlist is compared; MCP-7 narrows this to Hermes-sourced entries.
+- **Divergence (A2A-6, D-5):** one shared, order-sensitive check (`hermes_shortlist_divergent`) compares the detected Hermes sequence (default, then fallbacks) with only the persisted Hermes-sourced entries. Manual and other imported entries are excluded. A persisting `run` compares after its sync, so it reports `SHORTLIST_UPDATED` instead.
 
 ### Model Placement & Synchronization Rules:
-- The Hermes `default` model is always placed at index 0 (`shortlist[0]`), receiving the `★ [DEFAULT]` badge and serving as the baseline for `BEST_OPTION_CHANGED` alerts.
-- OpenRouter fallback models follow in order.
+- The Hermes `default` model is stored with `source: "hermes", order: 0`; OpenRouter fallback models follow with increasing `order`. This explicit default receives the `★ [DEFAULT]` badge and serves as the baseline for `BEST_OPTION_CHANGED` alerts.
+- Manual entries survive Hermes synchronization. Their list position never implies a default.
 - Newly discovered models are automatically initialized in `history.csv`/`effective_prices.json` using the cold-start & backfill rule (§3.5).
 - User-configured weights (`weight_uncached_prompt`, `weight_cached_prompt`, `weight_completion`, `spike_threshold_pct`, `min_tracking_days_for_profile`) are preserved during synchronization.
 - Upgrades/reinstallation resilience: If `~/.anticharon/` is deleted during an update, the next execution re-creates `~/.anticharon/shortlist.json` automatically.
@@ -477,7 +483,7 @@ Anticharon natively exposes a standard Model Context Protocol (MCP) server over 
 One contract for every JSON payload: every MCP tool result and every CLI `--json` output (`run`, `check`, `history`, `info`, `test`, `calibrate`, `model add|remove|list|discover|sync`). Raw CSV outputs (`--history-csv`, `history --csv`) are not JSON and are unchanged.
 
 - **Top-level keys, in this order:** `status`, `messages`, `elapsed_ms`, then the payload.
-- **`status`:** `success` · `warning` (done, with problems worth flagging) · `error` · `refused` · `not_monitored` (local reads only). `status` is set by the operation, not derived from message levels: a `warning`-level message can accompany `status: "success"` (e.g. standalone mode).
+- **`status`:** `success` · `warning` (done, with problems worth flagging) · `error` · `refused`. A missing monitored slug has status `refused` and a `NOT_MONITORED` message. `status` is set by the operation, not derived from message levels: a `warning`-level message can accompany `status: "success"` (e.g. standalone mode).
 - **Error signaling (MCP spec 2026-07-28, Tools → Error Handling):** `status` ∈ {`error`, `refused`} means the requested operation was not performed. MCP returns it as a tool execution error (`isError: true`) whose text content and `structuredContent` are the same JSON envelope, so hosts pass it to the model for self-correction; the CLI exits with code `1`. Every other status is a normal result (exit `0`).
 - **`messages`:** never empty. Each entry is an `AgentMessage` (`models.py`): `level` (`info` | `warning` | `error`), `code` (stable string), `text` (one human sentence), optional `action` (`{"mcp": "<tool call>", "cli": "<command>"}`), optional `model` (slug, per-model messages only). Problem and outcome messages come first; the last entry is always `COMPLETED` (`info`), timed from the start of the command/tool call ("Anticharon processed your request successfully in 0.4s."; for `error`/`refused` it says the request was not performed).
 - **`elapsed_ms`:** integer wall-clock milliseconds for the command/tool call.
@@ -492,7 +498,12 @@ Codes emitted in 0.6.0 so far (the full catalog, including codes introduced by l
 | `COMPLETED` | info | every command/tool | always last; elapsed time |
 | `PREVIEW_ONLY` | info | any dry run (`check`, `history`, `run --dry-run`, `check_prices`, `get_model_history`, `model add/remove/sync --dry-run`, `calibrate --dry-run`, `import_hermes_models`) | work done for this response only; nothing persisted → repeat without dry run |
 | `SHORTLIST_UPDATED` / `SHORTLIST_UNCHANGED` | info (`SHORTLIST_UNCHANGED` is `warning` for a duplicate `model add`, `error` for `model remove` of an absent slug) | persisting `run`/default command (Hermes sync), `model sync`/`import_hermes_models`, `model add/remove`, `calibrate` | what was persisted to `shortlist.json` |
-| `NO_EXACT_MATCH` | warning (per model) | `model add` with catalog validation | the typed slug has no exact catalog entry (text names the closest prefix alias if any); it is still added as typed → `discover_models` |
+| `NO_EXACT_MATCH` | error (`refused`) on `model add`; warning (per model) on `run` | exact catalog validation or a shortlist slug absent from the live catalog | no prefix substitution; add refuses an invalid catalog slug and `run` skips the unmatched shortlisted slug → `discover_models` |
+| `CATALOG_UNAVAILABLE` | error | `model add` | catalog could not be queried; nothing is added → retry later |
+| `NOT_MONITORED` | error (`refused`) | `run --model`, exact local history lookup | slug is absent from shortlist; no catalog or price request is made → add the model explicitly |
+| `PRICE_UNAVAILABLE` / `PRICE_INVALID` | warning (per model) | `run` | model has no usable advertised price or its listed price is invalid; that model is skipped with an explicit reason |
+| `NO_DEFAULT` | info | `run`, local price views | no explicit `order: 0` entry; no default-based alert is produced |
+| `SOURCE_MANAGED` | error (`refused`) | `model remove`, manual default while Hermes owns the default | edit the owning source instead; Anticharon never writes to Hermes |
 | `API_FALLBACK` | warning | `run`, `check`, `history`, `check_prices`, `get_model_history` | OpenRouter unreachable; cached `history.csv` prices shown |
 | `HERMES_NOT_DETECTED` | warning | `run`, `check`, `history`, `check_prices`, `get_model_history`, `model sync`, `import_hermes_models` | no Hermes config found; standalone operation stays successful → pass a Hermes config path / `$HERMES_CONFIG`, or `--no-hermes` |
 | `HERMES_INCOMPLETE` | warning | same as above, and `test` | partial detection; shortlist protected (§6.2) |
@@ -606,7 +617,3 @@ During live MCP Inspector validation on September 3, 2026, Anticharon evaluated 
   Rather than an agent blindly continuing to run an expired promo model at double the price, Anticharon's MCP server provided structured mathematical proof and actionable instructions (`hermes config set model.default "google/gemini-3.8-flash"`) in a single JSON tool call.
 
 ![Anticharon MCP Inspector Price Analytics](docs/images/MCP%20Inspector_price_change.png)
-
-
-
-

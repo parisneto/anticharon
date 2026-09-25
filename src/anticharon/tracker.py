@@ -17,7 +17,12 @@ from typing import Any
 import requests
 
 from anticharon.analytics import calculate_model_analytics
-from anticharon.config import get_config_path, get_history_path, load_config
+from anticharon.config import (
+    default_model,
+    get_config_path,
+    get_history_path,
+    load_config,
+)
 from anticharon.hermes import (
     get_hermes_models,
     hermes_detection_messages,
@@ -321,10 +326,21 @@ def run_tracker(
     enable_analytics: bool = False,
     hints_enabled: bool = False,
     zdr_only: bool = False,
+    model_id: str | None = None,
 ) -> TrackerResult:
     """Execute price tracker workflow."""
     cfg_path = config_path or get_config_path()
     cfg = load_config(cfg_path)
+    if model_id is not None:
+        target = model_id.strip()
+        if target not in cfg.get("shortlist", []):
+            return TrackerResult(
+                status="refused", timestamp=datetime.now(timezone.utc).isoformat(),
+                config_path=str(cfg_path), messages=[AgentMessage(
+                    "error", "NOT_MONITORED", f"Model '{target}' is not in the configured shortlist.",
+                    action={"mcp": "add_model(model_id)", "cli": f"anticharon model add {target}"}, model=target,
+                )],
+            )
     hist_path = history_path or get_history_path()
     history = read_history(hist_path)
     effective_prices_path = get_effective_prices_path(hist_path.parent)
@@ -336,6 +352,8 @@ def run_tracker(
     if not no_hermes:
         hermes_info = get_hermes_models(custom_path=hermes_config_path)
         if hermes_info:
+            cfg = load_config(cfg_path, legacy_source="hermes")
+            persisted_entries = cfg.get("_shortlist_entries", [])
             # An incomplete detection is never allowed to shrink the shortlist
             # or to drive this run's tracking set (Issue #4).
             incomplete = hermes_info.get("detection", "complete") != "complete"
@@ -347,21 +365,28 @@ def run_tracker(
             )
             # Sync to shortlist config unless dry_run
             sync_message = None
+            changed, merged_shortlist, _ = sync_hermes_to_config(hermes_info, config_path=cfg_path, dry_run=dry_run)
             if not dry_run:
-                changed, _, _ = sync_hermes_to_config(hermes_info, config_path=cfg_path, dry_run=False)
                 cfg = load_config(cfg_path)
                 sync_message = shortlist_write_message(
                     changed, False, f"Hermes sync of {hermes_status.models_count} models"
                 )
+            elif not incomplete:
+                manual_entries = [entry for entry in cfg.get("_shortlist_entries", []) if entry.get("source") != "hermes"]
+                cfg["_shortlist_entries"] = [
+                    {"model": slug, "source": "hermes", "order": order}
+                    for order, slug in enumerate(hermes_info.get("all_models", []))
+                ] + manual_entries
             # Divergence is judged against the shortlist as persisted after any sync (A2A-6).
-            messages.extend(hermes_detection_messages(hermes_info, cfg.get("shortlist", [])))
+            comparison_entries = persisted_entries if dry_run else cfg.get("_shortlist_entries", [])
+            messages.extend(hermes_detection_messages(hermes_info, comparison_entries))
             if sync_message:
                 messages.append(sync_message)
             # Use hermes models for current tracking session
             if incomplete:
                 shortlist = cfg.get("shortlist", []) or hermes_info.get("all_models", [])
             else:
-                shortlist = hermes_info.get("all_models", [])
+                shortlist = merged_shortlist
         else:
             hermes_status = HermesIntegrationStatus(
                 detected=False,
@@ -379,8 +404,15 @@ def run_tracker(
             models_count=0,
         )
         shortlist = cfg.get("shortlist", [])
+    if model_id is not None:
+        shortlist = [model_id.strip()]
     if dry_run:
         messages.append(PREVIEW_ONLY_RUN_MESSAGE)
+    current_default = default_model(cfg.get("_shortlist_entries", []))
+    entry_by_model = {entry["model"]: entry for entry in cfg.get("_shortlist_entries", [])}
+    if current_default is None:
+        messages.append(AgentMessage("info", "NO_DEFAULT",
+            "No default model is set; default-based alerts are off. Set one with model add --default."))
 
     models_api = fetch_openrouter_models(timeout=timeout)
 
@@ -399,12 +431,12 @@ def run_tracker(
     # Fallback mode when API query returns empty
     if not models_api and history:
         prices_shortlist = []
-        for model_id in shortlist:
-            if model_id in history:
-                rec = history[model_id]
+        for fallback_model_id in shortlist:
+            if fallback_model_id in history:
+                rec = history[fallback_model_id]
                 delta_7d_pct = ((rec.effective_price_1m - rec.ma_7d) / rec.ma_7d) * 100 if rec.ma_7d > 0 else 0.0
                 prices_shortlist.append(ModelPrice(
-                    model=model_id,
+                    model=fallback_model_id,
                     price_1m=rec.effective_price_1m,
                     ma_7d=rec.ma_7d,
                     ma_3d=rec.ma_3d,
@@ -415,11 +447,14 @@ def run_tracker(
                         effective_price_1m=rec.effective_price_1m,
                         cache_hit_rate_used=cache_hit_rate,
                     ),
+                    canonical_slug=(effective_store.get(fallback_model_id) or {}).get("canonical_slug"),
+                    source=entry_by_model.get(fallback_model_id, {}).get("source"),
+                    is_default=fallback_model_id == current_default,
                 ))
         prices_shortlist.sort(key=lambda x: x.price_1m)
         if enable_analytics:
             cand = {p.model: p.price_1m for p in prices_shortlist}
-            c_def = shortlist[0] if shortlist else None
+            c_def = current_default
             min_tracking_days = cfg.get("min_tracking_days_for_profile", 14)
             for p in prices_shortlist:
                 if p.model in history:
@@ -450,15 +485,12 @@ def run_tracker(
     prices_shortlist = []
     warnings = []
 
-    for model_id in shortlist:
-        api_data = models_api.get(model_id)
+    for tracked_model_id in shortlist:
+        api_data = models_api.get(tracked_model_id)
         if not api_data:
-            # Check if permalink alias exists without full date tag or similar
-            matching_key = next((k for k in models_api if k.startswith(model_id)), None)
-            if matching_key:
-                api_data = models_api[matching_key]
-
-        if not api_data:
+            messages.append(AgentMessage("warning", "NO_EXACT_MATCH",
+                f"Model '{tracked_model_id}' is in the shortlist but has no exact catalog entry; it was skipped.",
+                action={"mcp": f"discover_models(query=\"{tracked_model_id}\")", "cli": f"anticharon model discover \"{tracked_model_id}\""}, model=tracked_model_id))
             continue
 
         # PE2-002: prompt/completion are required bulk-catalog fields -- a
@@ -470,14 +502,18 @@ def run_tracker(
         advertised_prompt_1m = parse_required_price_1m(pricing, "prompt")
         advertised_completion_1m = parse_required_price_1m(pricing, "completion")
         if advertised_prompt_1m is None or advertised_completion_1m is None:
+            messages.append(AgentMessage("warning", "PRICE_UNAVAILABLE",
+                f"Pricing is unavailable for shortlisted model '{tracked_model_id}'; it was skipped.", model=tracked_model_id))
             continue
 
         if not (is_valid_listed_price(advertised_prompt_1m) and is_valid_listed_price(advertised_completion_1m)):
             # Sentinel/non-priced model (e.g. a meta-router like openrouter/auto-beta) --
             # skip rather than let a negative sentinel masquerade as "cheapest".
+            messages.append(AgentMessage("warning", "PRICE_INVALID",
+                f"Catalog pricing for shortlisted model '{tracked_model_id}' is invalid; it was skipped.", model=tracked_model_id))
             continue
 
-        canonical_slug = api_data.get("canonical_slug") or model_id
+        canonical_slug = api_data.get("canonical_slug") or tracked_model_id
 
         endpoints = fetch_endpoint_policy_pricing(canonical_slug, timeout=timeout)
         policy_result = resolve_policy_pricing(endpoints, w_uncached, w_cached, w_completion, zdr_only)
@@ -505,11 +541,11 @@ def run_tracker(
         if zdr_only and is_policy_routable is False:
             warnings.append(PriceWarning(
                 type="POLICY_UNROUTABLE",
-                model=model_id,
+                model=tracked_model_id,
                 policy="zdr",
                 excluded_providers=policy_result["excluded_providers"],
                 reason="No ZDR-compliant endpoint (dataPolicy.retainsPrompts=false) is currently routable.",
-                message=f"Model {model_id} has no ZDR-compliant endpoint; policy price unavailable."
+                message=f"Model {tracked_model_id} has no ZDR-compliant endpoint; policy price unavailable."
             ))
         elif zdr_only and is_policy_routable is None:
             # PE2-003: policy-unknown (the internal per-endpoint route failed, returned
@@ -519,11 +555,11 @@ def run_tracker(
             # ranking (see _rank_price_1m below), not excluded.
             warnings.append(PriceWarning(
                 type="POLICY_UNKNOWN",
-                model=model_id,
+                model=tracked_model_id,
                 policy="zdr",
                 reason="ZDR compliance could not be determined (endpoint data unavailable); "
                        "falling back to the unconstrained effective price for ranking.",
-                message=f"Model {model_id}'s ZDR compliance is unknown; treating as routable by default."
+                message=f"Model {tracked_model_id}'s ZDR compliance is unknown; treating as routable by default."
             ))
 
         # PE2-001 fix: price_1m (ModelPrice's sort/chart/delta key) is ALWAYS the
@@ -543,9 +579,9 @@ def run_tracker(
         # d1..d30/MA columns fresh from it -- this is what makes a same-day rerun
         # a no-op for d1..d30 (there is no "shift" left to double-apply).
         sync_effective_prices_for_model(
-            model_id, canonical_slug, effective_store, w_completion, timeout, now=now
+            tracked_model_id, canonical_slug, effective_store, w_completion, timeout, now=now
         )
-        observations = (effective_store.get(model_id) or {}).get("observations", [])
+        observations = (effective_store.get(tracked_model_id) or {}).get("observations", [])
         derived = derive_history_window(observations, today=today)
         ma_3d = derived["ma_3d"] if derived["ma_3d"] is not None else effective_price_1m
         ma_7d = derived["ma_7d"] if derived["ma_7d"] is not None else effective_price_1m
@@ -557,18 +593,18 @@ def run_tracker(
         if delta_7d_pct >= threshold:
             warnings.append(PriceWarning(
                 type="PRICE_SPIKE",
-                model=model_id,
-                message=f"Model {model_id} price spiked +{delta_7d_pct:.1f}% vs 7-day MA. Current: ${effective_price_1m:.5f}/1M."
+                model=tracked_model_id,
+                message=f"Model {tracked_model_id} price spiked +{delta_7d_pct:.1f}% vs 7-day MA. Current: ${effective_price_1m:.5f}/1M."
             ))
         elif delta_7d_pct <= -threshold:
             warnings.append(PriceWarning(
                 type="PRICE_DROP",
-                model=model_id,
-                message=f"Model {model_id} price dropped {abs(delta_7d_pct):.1f}% vs 7-day MA. Current: ${effective_price_1m:.5f}/1M."
+                model=tracked_model_id,
+                message=f"Model {tracked_model_id} price dropped {abs(delta_7d_pct):.1f}% vs 7-day MA. Current: ${effective_price_1m:.5f}/1M."
             ))
 
         prices_shortlist.append(ModelPrice(
-            model=model_id,
+            model=tracked_model_id,
             price_1m=effective_price_1m,
             ma_7d=ma_7d,
             ma_3d=ma_3d,
@@ -583,10 +619,13 @@ def run_tracker(
                 is_policy_routable=is_policy_routable,
                 cache_hit_rate_used=cache_hit_rate,
             ),
+            canonical_slug=canonical_slug,
+            source=entry_by_model.get(tracked_model_id, {}).get("source"),
+            is_default=tracked_model_id == current_default,
         ))
 
         updated_records.append([
-            model_id, now_iso, effective_price_1m, advertised_prompt_1m, advertised_completion_1m,
+            tracked_model_id, now_iso, effective_price_1m, advertised_prompt_1m, advertised_completion_1m,
             ma_3d, ma_7d,
             slots["d1"], slots["d2"], slots["d3"], slots["d4"], slots["d5"], slots["d6"], slots["d7"],
             slots["d15"], slots["d30"],
@@ -623,21 +662,19 @@ def run_tracker(
 
     prices_shortlist.sort(key=_rank_price_1m)
 
-    # Check if lowest-cost option differs from default (first in shortlist)
-    if shortlist:
-        current_default = shortlist[0]
-        if prices_shortlist and prices_shortlist[0].model != current_default:
-            cheapest = prices_shortlist[0]
-            cheapest_rank = _rank_price_1m(cheapest)
-            # Never recommend a model that isn't actually the cheapest *routable*
-            # option under the active policy filter (PE2-001).
-            if cheapest_rank != math.inf:
-                warnings.append(PriceWarning(
-                    type="BEST_OPTION_CHANGED",
-                    current_default=current_default,
-                    suggested_cheapest=cheapest.model,
-                    message=f"Model {cheapest.model} (${cheapest_rank:.5f}/1M) is cheaper than configured default {current_default}."
-                ))
+    # Check if lowest-cost option differs from the explicitly configured default.
+    if current_default and prices_shortlist and prices_shortlist[0].model != current_default:
+        cheapest = prices_shortlist[0]
+        cheapest_rank = _rank_price_1m(cheapest)
+        # Never recommend a model that isn't actually the cheapest *routable*
+        # option under the active policy filter (PE2-001).
+        if cheapest_rank != math.inf:
+            warnings.append(PriceWarning(
+                type="BEST_OPTION_CHANGED",
+                current_default=current_default,
+                suggested_cheapest=cheapest.model,
+                message=f"Model {cheapest.model} (${cheapest_rank:.5f}/1M) is cheaper than configured default {current_default}."
+            ))
 
     if enable_analytics:
         if updated_records:
@@ -646,7 +683,7 @@ def run_tracker(
             history_prices_map = {m: r.prices for m, r in history.items()}
 
         cand = {p.model: p.price_1m for p in prices_shortlist}
-        c_def = shortlist[0] if shortlist else None
+        c_def = current_default
         min_tracking_days = cfg.get("min_tracking_days_for_profile", 14)
         for p in prices_shortlist:
             if p.model in history_prices_map:

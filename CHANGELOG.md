@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Store shortlist entries with their source and explicit order; preserve manual entries across Hermes synchronization and refuse removal of source-managed models.
+- Require exact model slugs, report per-model pricing omissions, and refuse `run --model` targets outside the shortlist before network access.
+- Use explicit shortlist defaults and surface stored canonical slugs in price JSON.
+
 ### Added
 - **Unified agent-message contract (#12, W1) (`src/anticharon/models.py`, `hermes.py`, `tracker.py`, `manager.py`, `tester.py`, `discovery.py`, `cli.py`, `mcp.py`):**
   - `AgentMessage` (`level`, `code`, `text`, optional `action` `{mcp, cli}`, optional `model`) and `build_envelope()`: every CLI `--json` output and every MCP tool result now starts with `status`, `messages` (never empty; always ends with a timed `COMPLETED`) and `elapsed_ms`.

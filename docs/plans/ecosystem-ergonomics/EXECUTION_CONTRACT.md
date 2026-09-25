@@ -848,6 +848,16 @@ Reactive to the two input documents only.
   (3) `calibrate` on a zero-token log silently keeps default weights —
   relevant to §3f (W4); (4) `anticharon test` reports an unreachable
   OpenRouter only as per-check data, with no message code.
+- **DEFERRED — Legacy Ruff findings inventory (2026-09-25; linting policy):**
+  `ruff check src tests --statistics` reports 39 findings: 21 BLE001, 8 B023,
+  3 S110, 2 PLW1510, 2 RUF059, 1 SIM102, 1 S112, and 1 F841.
+  Affected files (finding count → codes): `src/anticharon/analytics.py` (3 →
+  RUF059×2, SIM102); `cli.py` (5 → BLE001×3, S110, S112); `config.py` (2 →
+  BLE001, S110); `discovery.py` (9 → B023×8, BLE001); `hermes.py` (5 →
+  BLE001×2, F841, PLW1510×2); `mcp.py` (2 → BLE001, S110);
+  `storage.py` (2 → BLE001×2); `tester.py` (8 → BLE001×8);
+  `tracker.py` (3 → BLE001×3). Existing findings remain deferred under
+  `AGENTS.md` Rule 13; W2 adds no unresolved finding on its changed lines.
 - Everything in §8 and the OUT rows of §1 remain in `docs/BACKLOG.md`,
   untouched by this sprint.
 

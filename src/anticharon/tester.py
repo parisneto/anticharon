@@ -7,7 +7,11 @@ from pathlib import Path
 import requests
 
 from anticharon.config import get_config_path, get_data_dir, load_config
-from anticharon.hermes import get_hermes_models, hermes_detection_messages, hermes_shortlist_divergent
+from anticharon.hermes import (
+    get_hermes_models,
+    hermes_detection_messages,
+    hermes_shortlist_divergent,
+)
 from anticharon.models import AgentMessage, build_envelope, render_messages
 from anticharon.pricing import calculate_effective_cost, price_per_1m
 from anticharon.tracker import OPENROUTER_MODELS_URL
@@ -72,10 +76,12 @@ def run_self_test(
 
     # 2. Config Resolution & Parsing
     shortlist: list = []
+    shortlist_entries: list = []
     try:
         cfg_path = get_config_path()
         cfg = load_config(cfg_path)
         shortlist = cfg.get("shortlist", [])
+        shortlist_entries = cfg.get("_shortlist_entries", [])
         w_uncached = cfg.get("weight_uncached_prompt", 0.232622)
         w_cached = cfg.get("weight_cached_prompt", 0.764478)
         w_out = cfg.get("weight_completion", 0.0029)
@@ -102,11 +108,13 @@ def run_self_test(
         try:
             h_info = get_hermes_models(custom_path=hermes_config_path)
             if h_info:
+                cfg = load_config(cfg_path, legacy_source="hermes")
+                shortlist_entries = cfg.get("_shortlist_entries", [])
                 # Issue #4: a detected-but-divergent (or incomplete) Hermes state
                 # must be flagged, never reported as an unqualified pass. Same
                 # check and messages as run/check (A2A-6).
                 h_models = h_info.get("all_models", [])
-                h_messages = hermes_detection_messages(h_info, shortlist)
+                h_messages = hermes_detection_messages(h_info, shortlist_entries)
                 messages.extend(h_messages)
 
                 diag["hermes_integration"] = {
@@ -115,7 +123,7 @@ def run_self_test(
                     "source": h_info.get("source"),
                     "models_count": len(h_models),
                     "detection": h_info.get("detection", "complete"),
-                    "shortlist_divergence": hermes_shortlist_divergent(h_models, shortlist),
+                    "shortlist_divergence": hermes_shortlist_divergent(h_models, shortlist_entries),
                 }
                 if not json_mode:
                     label = "WARN" if h_messages else "PASS"

@@ -166,13 +166,13 @@ Anticharon looks for configuration in:
 ```json
 {
   "shortlist": [
-    "deepseek/deepseek-v4-flash-0731",
-    "deepseek/deepseek-v4-flash-0423",
-    "qwen/qwen3.7-flash",
-    "openai/gpt-5.6-luna",
-    "google/gemini-3.1-flash-lite",
-    "minimax/minimax-m2.7",
-    "google/gemini-2.5-flash-lite"
+    { "model": "deepseek/deepseek-v4-flash-0731", "source": "manual" },
+    { "model": "deepseek/deepseek-v4-flash-0423", "source": "manual" },
+    { "model": "qwen/qwen3.7-flash", "source": "manual" },
+    { "model": "openai/gpt-5.6-luna", "source": "manual" },
+    { "model": "google/gemini-3.1-flash-lite", "source": "manual" },
+    { "model": "minimax/minimax-m2.7", "source": "manual" },
+    { "model": "google/gemini-2.5-flash-lite", "source": "manual" }
   ],
   "weight_uncached_prompt": 0.2326,
   "weight_cached_prompt": 0.7645,

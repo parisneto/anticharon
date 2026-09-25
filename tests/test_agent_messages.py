@@ -203,13 +203,14 @@ def test_import_hermes_models_without_hermes_is_a_warning_not_an_error(sandbox):
     ("history", "--json", "--no-hermes"),
     ("info", "--json"),
     ("model", "list", "--json"),
-    ("model", "add", "x/new-model", "--no-validate", "--dry-run", "--json"),
+    ("model", "add", "x/new-model", "--dry-run", "--json"),
     ("model", "remove", MODELS[1], "--dry-run", "--json"),
     ("model", "discover", "--json"),
     ("model", "sync", "--json"),
 ])
 def test_cli_json_outputs_carry_the_envelope_and_exit_zero(sandbox, monkeypatch, capsys, argv):
     monkeypatch.setattr("anticharon.cli.fetch_catalog", lambda **kw: [])
+    monkeypatch.setattr("anticharon.manager.fetch_openrouter_models", lambda **kw: {"x/new-model": {}})
     code, env = _cli_json(monkeypatch, capsys, *argv)
     assert code == 0
     _assert_envelope(env)
@@ -256,11 +257,12 @@ def test_model_remove_absent_is_error_exit_one(sandbox, monkeypatch, capsys):
 
 
 def test_model_add_reports_persisted_vs_preview(sandbox, monkeypatch, capsys):
-    _, preview = _cli_json(monkeypatch, capsys, "model", "add", "x/new", "--no-validate", "--dry-run", "--json")
+    monkeypatch.setattr("anticharon.manager.fetch_openrouter_models", lambda **kw: {"x/new": {}})
+    _, preview = _cli_json(monkeypatch, capsys, "model", "add", "x/new", "--dry-run", "--json")
     assert "PREVIEW_ONLY" in _codes(preview)
-    _, saved = _cli_json(monkeypatch, capsys, "model", "add", "x/new", "--no-validate", "--json")
+    _, saved = _cli_json(monkeypatch, capsys, "model", "add", "x/new", "--json")
     assert "SHORTLIST_UPDATED" in _codes(saved) and "PREVIEW_ONLY" not in _codes(saved)
-    _, dup = _cli_json(monkeypatch, capsys, "model", "add", "x/new", "--no-validate", "--json")
+    _, dup = _cli_json(monkeypatch, capsys, "model", "add", "x/new", "--json")
     assert dup["status"] == "warning" and _codes(dup)[0] == "SHORTLIST_UNCHANGED"
 
 

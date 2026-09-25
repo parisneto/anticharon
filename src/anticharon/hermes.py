@@ -376,8 +376,9 @@ def sync_hermes_to_config(
     Returns (changed: bool, shortlist: List[str], config_path: Path).
     """
     target_path = config_path or get_config_path()
-    current_cfg = load_config(target_path)
+    current_cfg = load_config(target_path, legacy_source="hermes")
     current_shortlist = current_cfg.get("shortlist", [])
+    current_entries = current_cfg.get("_shortlist_entries", [])
 
     new_models = hermes_models.get("all_models", [])
     if not new_models:
@@ -387,16 +388,20 @@ def sync_hermes_to_config(
     if incomplete and current_shortlist:
         return False, current_shortlist, target_path
 
-    changed = (current_shortlist != new_models)
+    manual_entries = [e for e in current_entries if e.get("source") != "hermes"]
+    hermes_entries = [{"model": model, "source": "hermes", "order": index}
+                      for index, model in enumerate(new_models)]
+    entries = hermes_entries + manual_entries
+    changed = (current_entries != entries)
 
     if changed and not dry_run:
-        saved_path = update_config_shortlist(new_models, target_path)
-        return True, new_models, saved_path
+        saved_path = update_config_shortlist(new_models, target_path, entries=entries)
+        return True, [e["model"] for e in entries], saved_path
 
-    return changed, new_models, target_path
+    return changed, [e["model"] for e in entries], target_path
 
 
-def hermes_shortlist_divergent(hermes_models: list[str], shortlist: list[str]) -> bool:
+def hermes_shortlist_divergent(hermes_models: list[str], shortlist: list[Any]) -> bool:
     """True when the Hermes model sequence differs from the persisted shortlist.
 
     Order-sensitive on purpose: Hermes resolves `fallback_providers` strictly
@@ -404,7 +409,9 @@ def hermes_shortlist_divergent(hermes_models: list[str], shortlist: list[str]) -
     `anticharon test` (A2A-6). Compares the whole persisted shortlist until
     source-tagged entries exist (MCP-7), which narrow it to Hermes-sourced ones.
     """
-    return list(hermes_models) != list(shortlist)
+    managed = [e.get("model") if isinstance(e, dict) else e for e in shortlist
+               if not isinstance(e, dict) or e.get("source") == "hermes"]
+    return list(hermes_models) != managed
 
 
 def hermes_detection_messages(hermes_info: dict[str, Any] | None, shortlist: list[str]) -> list[AgentMessage]:

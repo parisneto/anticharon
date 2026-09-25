@@ -12,10 +12,12 @@ import pytest
 from anticharon.tracker import run_tracker
 
 
-def _write_shortlist(tmp_path, models):
+def _write_shortlist(tmp_path, models, default_first=False):
     cfg_path = tmp_path / "shortlist.json"
+    shortlist = ([{"model": model, "source": "manual", **({"order": 0} if default_first and index == 0 else {})}
+                  for index, model in enumerate(models)] if default_first else models)
     cfg_path.write_text(json.dumps({
-        "shortlist": models,
+        "shortlist": shortlist,
         "weight_uncached_prompt": 0.232622,
         "weight_cached_prompt": 0.764478,
         "weight_completion": 0.0029,
@@ -374,7 +376,7 @@ def test_run_tracker_zdr_never_recommends_unroutable_model_as_best_option(monkey
 
     cfg_path = _write_shortlist(tmp_path, [
         "provider/expensive-default", "provider/cheap-routable", "provider/cheap-unroutable"
-    ])
+    ], default_first=True)
     result = run_tracker(
         dry_run=True, config_path=cfg_path, history_path=tmp_path / "history.csv", no_hermes=True, zdr_only=True
     )
@@ -585,7 +587,7 @@ def test_run_tracker_zdr_policy_unknown_model_can_still_be_recommended(monkeypat
 
     monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", fake_endpoints)
 
-    cfg_path = _write_shortlist(tmp_path, ["provider/expensive-default", "provider/cheap-unknown"])
+    cfg_path = _write_shortlist(tmp_path, ["provider/expensive-default", "provider/cheap-unknown"], default_first=True)
     result = run_tracker(
         dry_run=True, config_path=cfg_path, history_path=tmp_path / "history.csv", no_hermes=True, zdr_only=True
     )

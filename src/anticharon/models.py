@@ -201,6 +201,9 @@ class ModelPrice:
     completion_price_raw: float | None = None
     analytics: ModelAnalytics | None = None
     price: PricePoint | None = None
+    canonical_slug: str | None = None
+    source: str | None = None
+    is_default: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         # PE2-001 defense-in-depth: always serialize the true unconstrained
@@ -216,6 +219,11 @@ class ModelPrice:
             "ma_7d": round(self.ma_7d, 5),
             "change_vs_7d_pct": round(self.change_vs_7d_pct, 2)
         }
+        if self.canonical_slug:
+            data["canonical_slug"] = self.canonical_slug
+        if self.source:
+            data["source"] = self.source
+        data["is_default"] = self.is_default
         if self.price:
             price_dict = self.price.to_dict()
             price_dict.pop("effective_price_1m", None)

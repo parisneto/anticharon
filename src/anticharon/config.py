@@ -116,7 +116,31 @@ def get_history_path(custom_data_dir: Path | str | None = None) -> Path:
     return get_data_dir(custom_data_dir) / "history.csv"
 
 
-def load_config(config_path: Path | None = None) -> dict[str, Any]:
+def _entry_list(raw: list[Any], legacy_source: str = "manual") -> list[dict[str, Any]]:
+    entries = []
+    for index, item in enumerate(raw):
+        if isinstance(item, str):
+            entry = {"model": item, "source": legacy_source}
+            if legacy_source == "hermes":
+                entry["order"] = index
+            entries.append(entry)
+        elif isinstance(item, dict) and isinstance(item.get("model"), str):
+            entry = {"model": item["model"], "source": item.get("source", "manual")}
+            if "order" in item:
+                entry["order"] = item["order"]
+            entries.append(entry)
+    return entries
+
+
+def default_model(entries: list[dict[str, Any]]) -> str | None:
+    """Return the explicitly ordered Hermes or manual default, if configured."""
+    defaults = [entry for entry in entries if entry.get("order") == 0
+                and entry.get("source") in {"hermes", "manual"}]
+    hermes = next((entry for entry in defaults if entry.get("source") == "hermes"), None)
+    return (hermes or (defaults[0] if defaults else None) or {}).get("model")
+
+
+def load_config(config_path: Path | None = None, *, legacy_source: str = "manual") -> dict[str, Any]:
     """Load configuration from JSON file or return default fallback."""
     path = config_path or get_config_path()
     if path.exists():
@@ -126,10 +150,15 @@ def load_config(config_path: Path | None = None) -> dict[str, Any]:
                 # Merge with default keys to ensure completeness
                 config = dict(DEFAULT_CONFIG)
                 config.update(data)
+                entries = _entry_list(data.get("shortlist", DEFAULT_SHORTLIST), legacy_source)
+                config["_shortlist_entries"] = entries
+                config["shortlist"] = [entry["model"] for entry in entries]
                 return config
         except Exception:
             pass
-    return dict(DEFAULT_CONFIG)
+    config = dict(DEFAULT_CONFIG)
+    config["_shortlist_entries"] = _entry_list(DEFAULT_SHORTLIST, legacy_source)
+    return config
 
 
 def update_config_weights(
@@ -144,6 +173,7 @@ def update_config_weights(
     config["weight_uncached_prompt"] = round(weight_uncached_prompt, 6)
     config["weight_cached_prompt"] = round(weight_cached_prompt, 6)
     config["weight_completion"] = round(weight_completion, 6)
+    config["shortlist"] = config.pop("_shortlist_entries", _entry_list(config.get("shortlist", [])))
 
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
@@ -152,13 +182,16 @@ def update_config_weights(
 
 
 def update_config_shortlist(
-    shortlist: list[str],
-    config_path: Path | None = None
+    shortlist: list[str] | list[dict[str, Any]],
+    config_path: Path | None = None,
+    *, entries: list[dict[str, Any]] | None = None,
 ) -> Path:
     """Update model shortlist in the configuration file."""
     path = config_path or get_config_path()
     config = load_config(path)
-    config["shortlist"] = shortlist
+    normalized = _entry_list(entries if entries is not None else shortlist)
+    config["shortlist"] = normalized
+    config.pop("_shortlist_entries", None)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:

@@ -9,6 +9,7 @@ import json
 import logging
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -20,12 +21,27 @@ except ImportError:
 from mcp.types import CallToolResult, TextContent
 
 from anticharon import __version__
-from anticharon.config import get_config_path, get_history_path, load_config
+from anticharon.analytics import calculate_model_analytics
+from anticharon.config import (
+    default_model,
+    get_config_path,
+    get_history_path,
+    load_config,
+)
 from anticharon.discovery import fetch_catalog, filter_catalog
-from anticharon.hermes import build_hermes_import_payload, get_hermes_models
-from anticharon.models import ERROR_STATUSES, build_envelope
-from anticharon.storage import CSV_HEADER
-from anticharon.tracker import run_tracker
+from anticharon.hermes import (
+    build_hermes_import_payload,
+    get_hermes_models,
+    hermes_detection_messages,
+)
+from anticharon.models import ERROR_STATUSES, AgentMessage, ModelPrice, build_envelope
+from anticharon.storage import (
+    CSV_HEADER,
+    get_effective_prices_path,
+    read_effective_prices,
+    read_history,
+)
+from anticharon.tracker import run_tracker, tracking_days_elapsed
 
 # Initialize MCP Server instance
 server = MCPServer("anticharon")
@@ -99,6 +115,14 @@ def get_model_history(
     """Return historical intelligence in JSON format or raw CSV table."""
     started = time.perf_counter()
     hist_path = get_history_path()
+    if model_id:
+        target = model_id.strip()
+        cfg = load_config()
+        if target not in cfg.get("shortlist", []):
+            return tool_result(build_envelope({"status": "refused", "target_model": target}, [
+                AgentMessage("error", "NOT_MONITORED", f"Model '{target}' is not in the configured shortlist.",
+                    action={"mcp": "add_model(model_id)", "cli": f"anticharon model add {target}"}, model=target)
+            ], started))
 
     if format.lower() == "csv":
         content = hist_path.read_text(encoding="utf-8").strip() if hist_path.exists() else CSV_HEADER
@@ -109,23 +133,57 @@ def get_model_history(
             "data": content
         }, [], started))
 
-    res = run_tracker(
-        dry_run=True,
-        enable_analytics=True,
-        hints_enabled=True
-    )
-    payload = res.to_dict()
-
-    if model_id:
-        target = model_id.strip().lower()
-        filtered_shortlist = [
-            p for p in payload.get("prices_shortlist", [])
-            if target in p.get("model", "").lower()
-        ]
-        payload["prices_shortlist"] = filtered_shortlist
-        payload["target_model"] = model_id
-
-    return tool_result(build_envelope(payload, res.messages, started))
+    cfg = load_config()
+    entries = cfg.get("_shortlist_entries", [])
+    shortlist = cfg.get("shortlist", [])
+    history = read_history(hist_path)
+    effective_store = read_effective_prices(get_effective_prices_path(hist_path.parent))
+    target = model_id.strip() if model_id else None
+    hermes_info = get_hermes_models(prompt_if_missing=False)
+    if hermes_info:
+        cfg = load_config(legacy_source="hermes")
+        entries = cfg.get("_shortlist_entries", [])
+        shortlist = cfg.get("shortlist", [])
+    messages = hermes_detection_messages(hermes_info, entries)
+    configured_default = default_model(entries)
+    if configured_default is None:
+        messages.append(AgentMessage("info", "NO_DEFAULT", "No default model is set; default-based alerts are off."))
+    candidates = {slug: record.effective_price_1m for slug, record in history.items() if slug in shortlist}
+    prices = []
+    for slug in ([target] if target else shortlist):
+        record = history.get(slug)
+        if record is None:
+            continue
+        analytics = calculate_model_analytics(
+            model_id=slug,
+            current_price=record.effective_price_1m,
+            history_prices=record.prices,
+            candidate_prices=candidates,
+            current_default=configured_default,
+            min_tracking_days_for_profile=cfg.get("min_tracking_days_for_profile", 14),
+            tracking_days_elapsed=tracking_days_elapsed(effective_store, slug, datetime.now(timezone.utc).date()),
+        )
+        entry = next((item for item in entries if item["model"] == slug), {})
+        prices.append(ModelPrice(
+            model=slug,
+            price_1m=record.effective_price_1m,
+            ma_7d=record.ma_7d,
+            ma_3d=record.ma_3d,
+            change_vs_7d_pct=((record.effective_price_1m - record.ma_7d) / record.ma_7d * 100) if record.ma_7d else 0.0,
+            analytics=analytics,
+            canonical_slug=(effective_store.get(slug) or {}).get("canonical_slug"),
+            source=entry.get("source"),
+            is_default=slug == configured_default,
+        ))
+    payload = {
+        "status": "success",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "target_model": target,
+        "prices_shortlist": [price.to_dict() for price in prices],
+        "storage_path": str(hist_path),
+        "config_path": str(get_config_path()),
+    }
+    return tool_result(build_envelope(payload, messages, started))
 
 
 @server.tool(
