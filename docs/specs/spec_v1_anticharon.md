@@ -519,8 +519,8 @@ Anticharon natively exposes a standard Model Context Protocol (MCP) server over 
 One contract for every JSON payload: every MCP tool result and every CLI `--json` output (`run`, `check`, `history`, `info`, `test`, `calibrate`, `model add|remove|list|discover|sync`). Raw CSV outputs (`--history-csv`, `history --csv`) are not JSON and are unchanged.
 
 - **Top-level keys, in this order:** `status`, `messages`, `elapsed_ms`, then the payload.
-- **`status`:** `success` · `warning` (done, with problems worth flagging) · `error` · `refused`. A missing monitored slug has status `refused` and a `NOT_MONITORED` message. `status` is set by the operation, not derived from message levels: a `warning`-level message can accompany `status: "success"` (e.g. standalone mode).
-- **Error signaling (MCP spec 2026-07-28, Tools → Error Handling):** `status` ∈ {`error`, `refused`} means the requested operation was not performed. MCP returns it as a tool execution error (`isError: true`) whose text content and `structuredContent` are the same JSON envelope, so hosts pass it to the model for self-correction; the CLI exits with code `1`. Every other status is a normal result (exit `0`).
+- **`status`:** `success` · `warning` (done, with problems worth flagging) · `error` · `refused` · `not_monitored`. A target absent from the shortlist is `refused` (with a `NOT_MONITORED` message) only for a filtered *live* operation (`run --model`/`run_prices(model_id)`), which makes no catalog or price request for it; on a local read (`check`/`check_prices`, `history`/`get_model_history`) the same absent-target case is `status: "not_monitored"` — a normal result, not an error. `status` is set by the operation, not derived from message levels: a `warning`-level message can accompany `status: "success"` (e.g. standalone mode).
+- **Error signaling (MCP spec 2026-07-28, Tools → Error Handling):** `status` ∈ {`error`, `refused`} means the requested operation was not performed. MCP returns it as a tool execution error (`isError: true`) whose text content and `structuredContent` are the same JSON envelope, so hosts pass it to the model for self-correction; the CLI exits with code `1`. Every other status, including `not_monitored`, is a normal result (exit `0`).
 - **`messages`:** never empty. Each entry is an `AgentMessage` (`models.py`): `level` (`info` | `warning` | `error`), `code` (stable string), `text` (one human sentence), optional `action` (`{"mcp": "<tool call>", "cli": "<command>"}`), optional `model` (slug, per-model messages only). Problem and outcome messages come first; the last entry is always `COMPLETED` (`info`), timed from the start of the command/tool call ("Anticharon processed your request successfully in 0.4s."; for `error`/`refused` it says the request was not performed).
 - **`elapsed_ms`:** integer wall-clock milliseconds for the command/tool call.
 - **Human CLI output** renders the same serialized `messages` through one renderer (`render_messages`): `<icon> [CODE] text`, followed by `↳ <cli action>` when present. In MCP mode nothing is rendered to `stdout` (stdio isolation, ADR 0001).
@@ -536,7 +536,7 @@ Codes emitted in 0.6.0 so far (the full catalog, including codes introduced by l
 | `SHORTLIST_UPDATED` / `SHORTLIST_UNCHANGED` | info (`SHORTLIST_UNCHANGED` is `warning` for a duplicate `model add`, `error` for `model remove` of an absent slug) | persisting `run`/default command (Hermes sync), `model sync`/`import_hermes_models`, `model add/remove`, `calibrate` | what was persisted to `shortlist.json` |
 | `NO_EXACT_MATCH` | error (`refused`) on `model add`; warning (per model) on `run` | exact catalog validation or a shortlist slug absent from the live catalog | no prefix substitution; add refuses an invalid catalog slug and `run` skips the unmatched shortlisted slug → `discover_models` |
 | `CATALOG_UNAVAILABLE` | error | `model add` | catalog could not be queried; nothing is added → retry later |
-| `NOT_MONITORED` | error (`refused`) | `run --model`, `check --model`/`check_prices`, `history --model`/`get_model_history` | slug is absent from shortlist; no catalog or price request is made → add the model explicitly |
+| `NOT_MONITORED` | warning on local reads (`status: "not_monitored"`); error (`refused`) on a filtered live `run` | `run --model` (`refused`); `check --model`/`check_prices`, `history --model`/`get_model_history` (`not_monitored`) | slug is absent from shortlist; no catalog or price request is made → add the model explicitly |
 | `PRICE_UNAVAILABLE` / `PRICE_INVALID` | warning (per model) | `run` | model has no usable advertised price or its listed price is invalid; that model is skipped with an explicit reason |
 | `NO_DEFAULT` | info | `run`, local price views | no explicit `order: 0` entry; no default-based alert is produced |
 | `SOURCE_MANAGED` | error (`refused`) | `model remove`, manual default while Hermes owns the default | edit the owning source instead; Anticharon never writes to Hermes |
@@ -554,7 +554,7 @@ Codes emitted in 0.6.0 so far (the full catalog, including codes introduced by l
 #### 1. `check_prices` (D-19: local read, no network)
 - **Description:** Local read of the latest normalized/blended price per the monitored shortlist from `history.csv`, plus the price alerts (PRICE_SPIKE, PRICE_DROP, BEST_OPTION_CHANGED) persisted by the last `run_prices` call in `alerts.json` -- shown verbatim, never recomputed. Makes no OpenRouter network call; `readOnlyHint: true`, `openWorldHint: false`.
 - **Parameters:**
-  - `model_id` (string, optional): Exact shortlisted slug to read. If omitted, returns all shortlisted models. An absent slug returns `status: "refused"` with `NOT_MONITORED` (no catalog lookup).
+  - `model_id` (string, optional): Exact shortlisted slug to read. If omitted, returns all shortlisted models. An absent slug returns `status: "not_monitored"` with `NOT_MONITORED` (a normal result, not `isError`; no catalog lookup).
 - **Return Payload:** The §10.1a envelope (`status`, `messages`, `elapsed_ms`) followed by `timestamp`, `data_source` (always `"cached_history"` -- this tool never performs a live call), `api_offline_fallback`, `prices_shortlist` (each entry carrying `effective_price_1m` and `advertised_prompt_1m`/`advertised_completion_1m`; no `policy_price_1m` -- ZDR is live-only, `run_prices`-only, D-28), `price_warnings` (as persisted), `hermes_integration` (`detected`, `source`, `method`, `models_count`), and in-band `_hints`. A `DATA_STALE` warning is added when the latest locally stored observation is older than today.
 
 #### 2. `run_prices` (D-19: the only fetch-and-persist tool)
@@ -577,7 +577,9 @@ no catalog lookup or pricing request for X. Prefix and similar-slug matching
 are prohibited.
 
 Local `check` and `history` operations also make no network calls; an absent
-shortlist slug is reported as `NOT_MONITORED`. `add_model` is the separate
+shortlist slug is reported as `status: "not_monitored"` with a `NOT_MONITORED`
+message -- a normal result (exit `0`, not MCP `isError`), unlike the `refused`
+result above for a filtered *live* `run`. `add_model` is the separate
 network-backed catalog validation operation. It accepts only an exact catalog
 slug, returns `NO_EXACT_MATCH` for an invalid or nonexistent slug, and reports
 `CATALOG_UNAVAILABLE` when the catalog cannot be checked.
@@ -585,7 +587,7 @@ slug, returns `NO_EXACT_MATCH` for an invalid or nonexistent slug, and reports
 #### 3. `get_model_history` (D-19: local read, no network)
 - **Description:** Local read of 30-day temporal price history, volatility coefficient of variation (CV%), directional trends, and deterministic intelligence profiles (STABLE, PROMO_ENDED, SUNSETTING, VOLATILE, DISCOUNTED, CREEPING_INFLATION, NEWLY_TRACKED), derived from `history.csv`'s `d1..d30` columns (themselves derived from `effective_prices.json` by the last `run_prices` call, §5.2). All analytics/profile classification lives in this tool, not in `check_prices`. Makes no OpenRouter network call; `readOnlyHint: true`, `openWorldHint: false`.
 - **Parameters:**
-  - `model_id` (string, optional): Exact shortlisted slug to inspect. If omitted, returns all shortlisted models. An absent slug returns `status: "refused"` with `NOT_MONITORED`.
+  - `model_id` (string, optional): Exact shortlisted slug to inspect. If omitted, returns all shortlisted models. An absent slug returns `status: "not_monitored"` with `NOT_MONITORED` (a normal result, not `isError`).
   - `format` (string, optional, default: `"json"`): Output format (`"json"` for structured analytics or `"csv"` for raw historical table).
 - A `DATA_STALE` warning is added when the latest locally stored observation is older than today.
 

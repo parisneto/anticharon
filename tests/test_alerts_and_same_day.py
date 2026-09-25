@@ -159,7 +159,10 @@ def test_check_and_history_make_zero_network_calls(tmp_path, monkeypatch):
     assert history_res.status == "success"
 
 
-def test_check_model_filter_refuses_absent_slug_without_network(tmp_path, monkeypatch):
+def test_check_model_filter_reports_not_monitored_without_network(tmp_path, monkeypatch):
+    """D-1 §3d: a local read's absent-slug result is `not_monitored` (a normal
+    result, not an error) -- `refused`/isError is reserved for a filtered
+    *live* run (`run --model`)."""
     cfg_path = _write_shortlist(tmp_path, ["p/alpha"])
     hist_path = tmp_path / "history.csv"
 
@@ -168,5 +171,6 @@ def test_check_model_filter_refuses_absent_slug_without_network(tmp_path, monkey
 
     monkeypatch.setattr("anticharon.tracker.requests.get", _boom)
     res = read_check_result(config_path=cfg_path, history_path=hist_path, no_hermes=True, model_id="p/not-there")
-    assert res.status == "refused"
+    assert res.status == "not_monitored"
     assert res.messages[0].code == "NOT_MONITORED"
+    assert res.messages[0].level == "warning"

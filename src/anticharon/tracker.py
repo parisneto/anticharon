@@ -68,12 +68,12 @@ PREVIEW_ONLY_RUN_MESSAGE = AgentMessage(
     "info", "PREVIEW_ONLY",
     "Dry run: prices were fetched and computed for this response only; nothing was persisted "
     "(history.csv, effective_prices.json and shortlist.json are unchanged).",
-    action={"mcp": "check_prices(dry_run=false)", "cli": "anticharon run"},
+    action={"mcp": "run_prices()", "cli": "anticharon run"},
 )
 API_FALLBACK_MESSAGE = AgentMessage(
     "warning", "API_FALLBACK",
     "OpenRouter API was unreachable; showing the last cached prices from history.csv.",
-    action={"mcp": "retry check_prices later", "cli": "retry anticharon run later"},
+    action={"mcp": "retry run_prices() later", "cli": "retry anticharon run later"},
 )
 DATA_STALE_MESSAGE = AgentMessage(
     "warning", "DATA_STALE",
@@ -864,12 +864,17 @@ def run_tracker(
     )
 
 
-def _not_monitored_result(target: str, cfg_path: Path, hist_path: Path) -> TrackerResult:
+def _local_not_monitored_result(target: str, cfg_path: Path, hist_path: Path) -> TrackerResult:
+    """`NOT_MONITORED` for a local read (`check`/`history`): `status:
+    "not_monitored"`, level `warning` -- a normal result, not an error (D-1
+    §3d: `not_monitored` is used only by local reads; `isError`/exit 1 are
+    reserved for a filtered *live* run, e.g. `run --model` -- see the
+    `refused` path in `run_tracker` above)."""
     return TrackerResult(
-        status="refused", timestamp=datetime.now(timezone.utc).isoformat(),
+        status="not_monitored", timestamp=datetime.now(timezone.utc).isoformat(),
         config_path=str(cfg_path), storage_path=str(hist_path),
         messages=[AgentMessage(
-            "error", "NOT_MONITORED", f"Model '{target}' is not in the configured shortlist.",
+            "warning", "NOT_MONITORED", f"Model '{target}' is not in the configured shortlist.",
             action={"mcp": "add_model(model_id)", "cli": f"anticharon model add {target}"}, model=target,
         )],
     )
@@ -918,7 +923,7 @@ def read_check_result(
 
     target = model_id.strip() if model_id else None
     if target is not None and target not in cfg.get("shortlist", []):
-        return _not_monitored_result(target, cfg_path, hist_path)
+        return _local_not_monitored_result(target, cfg_path, hist_path)
 
     cfg, hermes_status, messages = _local_hermes_snapshot(cfg_path, cfg, hermes_config_path, no_hermes)
     current_default = default_model(cfg.get("_shortlist_entries", []))
@@ -1011,7 +1016,7 @@ def read_history_result(
 
     target = model_id.strip() if model_id else None
     if target is not None and target not in cfg.get("shortlist", []):
-        return _not_monitored_result(target, cfg_path, hist_path)
+        return _local_not_monitored_result(target, cfg_path, hist_path)
 
     cfg, hermes_status, messages = _local_hermes_snapshot(cfg_path, cfg, hermes_config_path, no_hermes)
     entries = cfg.get("_shortlist_entries", [])

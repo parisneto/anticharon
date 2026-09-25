@@ -124,18 +124,19 @@ def test_manual_default_is_explicit_and_replacing_it_clears_old_default(tmp_path
     assert entries[0] == {"model": "p/first", "source": "manual"}
 
 
-def test_not_monitored_history_is_refused_without_catalog_or_price_fetch(tmp_path, monkeypatch):
+def test_not_monitored_history_is_a_normal_result_without_catalog_or_price_fetch(tmp_path, monkeypatch):
+    """D-1 §3d: `not_monitored` is a normal local-read result, not an error --
+    isError/exit-1 are reserved for a filtered *live* run (e.g. `run --model`)."""
     from anticharon import mcp
 
     path = tmp_path / "shortlist.json"
     path.write_text(json.dumps({"shortlist": ["p/known"]}), encoding="utf-8")
     monkeypatch.setenv("ANTICHARON_CONFIG", str(path))
     monkeypatch.setattr(mcp, "run_tracker", lambda **kwargs: (_ for _ in ()).throw(AssertionError("tracker queried")))
-    result = mcp.get_model_history("p/known-prefix")
-    assert result.is_error is True
-    envelope = json.loads(result.content[0].text)
-    assert envelope["status"] == "refused"
+    envelope = mcp.get_model_history("p/known-prefix")
+    assert envelope["status"] == "not_monitored"
     assert envelope["messages"][0]["code"] == "NOT_MONITORED"
+    assert envelope["messages"][0]["level"] == "warning"
 
 
 def test_monitored_history_reads_local_storage_without_tracker_or_catalog(tmp_path, monkeypatch):

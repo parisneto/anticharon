@@ -312,7 +312,7 @@ def daily_cost_briefing(budget_threshold: float = 0.50) -> str:
     return (
         f"Anticharon agent workflow: Executive Daily Cost Briefing (Threshold: ${budget_threshold:.2f}/1M tokens).\n\n"
         f"Execution Plan:\n"
-        f"1. Call tool `check_prices(dry_run=true, include_analytics=true)`.\n"
+        f"1. Call tool `check_prices()` (run `run_prices()` first if it reports `DATA_STALE`).\n"
         f"2. Check for any active price warnings (e.g. `BEST_OPTION_CHANGED`, `PRICE_SPIKE`, `PRICE_DROP`).\n"
         f"3. Identify models exceeding ${budget_threshold:.2f} per 1M blended tokens.\n"
         f"4. Produce a concise 3-bullet briefing:\n"
