@@ -173,7 +173,7 @@ Cache_Hit_Rate         = Total_Cached_Tokens   / Total_Prompt_Tokens
 
 ---
 
-## 5. Data Storage: Two Files, Two Lifecycles
+## 5. Data Storage: Three Files, Three Lifecycles (D-22)
 
 ### 5.1 `history.csv` — compact, fast-read summary (one line per model)
 
@@ -224,6 +224,26 @@ Same data directory as `history.csv`, same path-resolution hierarchy (§6.1). Th
 - `observations`: one entry per calendar day, the cheapest endpoint's blended $/1M that day (input/output combined via the locally calibrated `weight_completion` split — the internal effective-pricing route's own per-endpoint series is already cache-weighted by that provider's real traffic that day, so only the input/output combination is Anticharon's to apply).
 - 28-day backfill source: `GET /api/frontend/v1/stats/effective-pricing?permaslug={canonical_slug}&shape=v7&variant=standard&range=1m`. **The `range=1m` parameter is required** — live-verified 2026-09-16: the bare/default call (no `range`) only returns the last ~8 days, not ~30.
 - Graceful degradation: a `~`-prefixed router alias (e.g. `~deepseek/deepseek-pro-latest`) returns an empty-but-200-OK payload (live-verified — "latest" has no fixed permaslug identity to have history against). A transient failure never overwrites previously accumulated real `observations` with empty data; `last_synced` still advances so a permanently-empty model isn't re-fetched every run.
+
+### 5.3 `alerts.json` — latest persisted alerts (D-22)
+
+Same data directory as `history.csv`/`effective_prices.json`, same path-resolution hierarchy (§6.1). Written **only** by `run`/`run_prices` (the only fetch-and-write path, §10.2); `check`/`check_prices` and `history`/`get_model_history` read it verbatim and never recompute it (D-19).
+
+```json
+{
+  "timestamp": "2026-09-25T10:00:00+00:00",
+  "default_model": "openai/gpt-5.6-luna",
+  "data_source": "live_api",
+  "price_warnings": [
+    {"type": "PRICE_SPIKE", "model": "openai/gpt-5.6-luna", "message": "..."}
+  ]
+}
+```
+
+- Alert computation is decoupled from the fetch/update code path, so a local read never triggers network access or recalculation.
+- `run --model X` / `run_prices(model_id=X)` replaces only `X`'s per-model alerts (`PRICE_SPIKE`/`PRICE_DROP`) and recomputes the cross-model `BEST_OPTION_CHANGED` alert from the currently stored price of every shortlisted model; every other model's persisted alert is kept unchanged (mixed recency, D-18 Rule 1).
+- A full (unfiltered) `run` replaces the whole `price_warnings` list.
+- **Policy (ZDR) results are never persisted** (D-28): `POLICY_UNROUTABLE`/`POLICY_UNKNOWN` and any ZDR-ranked `BEST_OPTION_CHANGED` exist only in that call's live response, never in `alerts.json`. The persisted `BEST_OPTION_CHANGED` is always derived from the unconstrained `effective_price_1m`.
 
 ---
 
@@ -372,22 +392,38 @@ Anticharon inspects the full 30-day temporal window stored in `history.csv` (`[d
 
 ## 7. CLI Command Interface
 
+### v0.6.0 command split (D-19, MCP-11)
+`run` is the **only** command that talks to OpenRouter. It writes `history.csv`,
+`effective_prices.json`, and pre-computes + persists this run's alerts into
+`alerts.json` (§5.3). `check` and `history` are both **local reads only** --
+they make zero network calls, ever, and never recompute alerts:
+- `check` = the latest normalized/blended price per model, from `history.csv`,
+  plus the alerts `run` last persisted, shown verbatim.
+- `history` = the long-term 30-day view over `effective_prices.json` (via
+  `history.csv`'s already-derived `d1..d30`/MA columns) plus all analytics/
+  profile classification, which lives here and not in `check`.
+
+Both `check` and `history` report `DATA_STALE` when the latest locally stored
+observation is older than today, pointing back to `run`.
+
 ### Primary Commands & Options:
 ```bash
-# 1. Standard execution: Fetch API, update ./data/history.csv, print report & alerts
+# 1. Standard execution: fetch OpenRouter, persist history/effective_prices/alerts, print report
 anticharon run
+anticharon run --force        # re-fetch even if already updated today (same-day rule)
+anticharon run --model "openai/gpt-5.6-luna"   # exact-filter the configured shortlist
 
-# 2. Dry run / Check: Fetch API, calculate prices without modifying history.csv
-anticharon check --dry-run
+# 2. Check: local read of the latest prices and persisted alerts (no network)
+anticharon check
+anticharon check --model "openai/gpt-5.6-luna"
 
-# 3. Analytical Intelligence: Evaluate 30-day historical profiles and trajectory table
-anticharon check --profile
-anticharon run --profile
-anticharon check --profile --json
+# 3. Analytical Intelligence: Evaluate 30-day historical profiles and trajectory table (history only)
+anticharon history --json
+anticharon check --json
 
 # 4. History Subcommand: Audit 30-day temporal metrics and export raw CSV
 anticharon history
-anticharon history --profile
+anticharon history --model "openai/gpt-5.6-luna"
 anticharon history --csv
 anticharon history --json
 
@@ -431,8 +467,8 @@ anticharon model discover --zdr  # live-checks only the (already-filtered) cheap
 anticharon model discover "gemini" --zdr  # narrow filters first to check more of your actual matches
 
 # 15. Policy (ZDR) Pricing: calculate a separate ZDR-constrained `policy_price_1m` without replacing `effective_price_1m`
-anticharon check --zdr --json
-anticharon run --zdr
+# --zdr exists only on `run` (D-28); it is a live-only, never-persisted addition to that response
+anticharon run --zdr --json
 
 # 16. Ergonomic Help Subcommand: Display top-level or subcommand usage
 anticharon help
@@ -500,11 +536,12 @@ Codes emitted in 0.6.0 so far (the full catalog, including codes introduced by l
 | `SHORTLIST_UPDATED` / `SHORTLIST_UNCHANGED` | info (`SHORTLIST_UNCHANGED` is `warning` for a duplicate `model add`, `error` for `model remove` of an absent slug) | persisting `run`/default command (Hermes sync), `model sync`/`import_hermes_models`, `model add/remove`, `calibrate` | what was persisted to `shortlist.json` |
 | `NO_EXACT_MATCH` | error (`refused`) on `model add`; warning (per model) on `run` | exact catalog validation or a shortlist slug absent from the live catalog | no prefix substitution; add refuses an invalid catalog slug and `run` skips the unmatched shortlisted slug → `discover_models` |
 | `CATALOG_UNAVAILABLE` | error | `model add` | catalog could not be queried; nothing is added → retry later |
-| `NOT_MONITORED` | error (`refused`) | `run --model`, exact local history lookup | slug is absent from shortlist; no catalog or price request is made → add the model explicitly |
+| `NOT_MONITORED` | error (`refused`) | `run --model`, `check --model`/`check_prices`, `history --model`/`get_model_history` | slug is absent from shortlist; no catalog or price request is made → add the model explicitly |
 | `PRICE_UNAVAILABLE` / `PRICE_INVALID` | warning (per model) | `run` | model has no usable advertised price or its listed price is invalid; that model is skipped with an explicit reason |
 | `NO_DEFAULT` | info | `run`, local price views | no explicit `order: 0` entry; no default-based alert is produced |
 | `SOURCE_MANAGED` | error (`refused`) | `model remove`, manual default while Hermes owns the default | edit the owning source instead; Anticharon never writes to Hermes |
-| `API_FALLBACK` | warning | `run`, `check`, `history`, `check_prices`, `get_model_history` | OpenRouter unreachable; cached `history.csv` prices shown |
+| `API_FALLBACK` | warning | `run`/`run_prices` only | OpenRouter unreachable; cached `history.csv` prices shown. `check`/`history` never call OpenRouter, so they cannot emit this code (§10.2 v0.6.0 command split) |
+| `DATA_STALE` | warning | `check`/`check_prices`, `history`/`get_model_history` | the latest locally stored price observation (across the models shown) is older than today → `run`/`run_prices` |
 | `HERMES_NOT_DETECTED` | warning | `run`, `check`, `history`, `check_prices`, `get_model_history`, `model sync`, `import_hermes_models` | no Hermes config found; standalone operation stays successful → pass a Hermes config path / `$HERMES_CONFIG`, or `--no-hermes` |
 | `HERMES_INCOMPLETE` | warning | same as above, and `test` | partial detection; shortlist protected (§6.2) |
 | `HERMES_DIVERGENT` | warning | `run`, `check`, `history`, `check_prices`, `get_model_history`, `test` | Hermes sequence ≠ persisted shortlist, order-sensitive (§6.2) → `import_hermes_models(dry_run=false)` / `anticharon model sync` |
@@ -514,14 +551,20 @@ Codes emitted in 0.6.0 so far (the full catalog, including codes introduced by l
 
 ### 10.2 Exposed MCP Tools
 
-#### 1. `check_prices`
-- **Description:** Fetches current OpenRouter model pricing for the monitored shortlist, calculates the cache-aware advertised/effective/policy price triple (§3.1), computes 7-day moving averages, evaluates volatility alerts (PRICE_SPIKE, PRICE_DROP, BEST_OPTION_CHANGED, POLICY_UNROUTABLE, POLICY_UNKNOWN), and attaches 30-day analytical intelligence profiles.
+#### 1. `check_prices` (D-19: local read, no network)
+- **Description:** Local read of the latest normalized/blended price per the monitored shortlist from `history.csv`, plus the price alerts (PRICE_SPIKE, PRICE_DROP, BEST_OPTION_CHANGED) persisted by the last `run_prices` call in `alerts.json` -- shown verbatim, never recomputed. Makes no OpenRouter network call; `readOnlyHint: true`, `openWorldHint: false`.
 - **Parameters:**
-  - `force_refresh` (boolean, optional, default: `false`): Force fresh HTTP fetch from OpenRouter API, ignoring local cache.
-  - `dry_run` (boolean, optional, default: `true`): Calculate prices without updating `history.csv`/`effective_prices.json`.
-  - `include_analytics` (boolean, optional, default: `true`): Attach 30-day statistical profiles, badges, and sibling alternatives.
-  - `zdr_only` (boolean, optional, default: `false`): Restrict `policy_price_1m` to Zero Data Retention-compliant endpoints (§3.2) and surface `POLICY_UNROUTABLE`/`POLICY_UNKNOWN` warnings.
-- **Return Payload:** The §10.1a envelope (`status`, `messages`, `elapsed_ms`) followed by `timestamp`, `data_source` (`live_api` or `cached_history`), `api_offline_fallback` (boolean), `prices_shortlist` (each entry carrying `effective_price_1m`, `advertised_prompt_1m`/`advertised_completion_1m`, and `policy_price_1m`/`is_policy_routable` when a policy filter is active), `price_warnings`, `hermes_integration` (`detected`, `source`, `method`, `models_count`), and in-band `_hints`.
+  - `model_id` (string, optional): Exact shortlisted slug to read. If omitted, returns all shortlisted models. An absent slug returns `status: "refused"` with `NOT_MONITORED` (no catalog lookup).
+- **Return Payload:** The §10.1a envelope (`status`, `messages`, `elapsed_ms`) followed by `timestamp`, `data_source` (always `"cached_history"` -- this tool never performs a live call), `api_offline_fallback`, `prices_shortlist` (each entry carrying `effective_price_1m` and `advertised_prompt_1m`/`advertised_completion_1m`; no `policy_price_1m` -- ZDR is live-only, `run_prices`-only, D-28), `price_warnings` (as persisted), `hermes_integration` (`detected`, `source`, `method`, `models_count`), and in-band `_hints`. A `DATA_STALE` warning is added when the latest locally stored observation is older than today.
+
+#### 2. `run_prices` (D-19: the only fetch-and-persist tool)
+- **Description:** Fetches current OpenRouter model pricing for the monitored shortlist, calculates the cache-aware advertised/effective/policy price triple (§3.1), writes `history.csv` and `effective_prices.json`, and pre-computes + persists this run's price alerts into `alerts.json` (§5.3). Saves by default (D-29); `readOnlyHint: false`, `openWorldHint: true`.
+- **Parameters:**
+  - `model_id` (string, optional): Exact-filter the configured shortlist to one model (D-18c). An absent slug is refused as `NOT_MONITORED` with no catalog lookup or pricing request.
+  - `dry_run` (boolean, optional, default: `false`): Compute the full update without persisting anything (D-18b).
+  - `force` (boolean, optional, default: `false`): Re-fetch a model even if it was already updated today (same-day rule, D-3/D-18).
+  - `zdr_only` (boolean, optional, default: `false`): Add a policy-constrained `policy_price_1m` from Zero Data Retention-compliant endpoints (§3.2) and surface `POLICY_UNROUTABLE`/`POLICY_UNKNOWN` warnings for this response only -- never persisted to `alerts.json` (D-28).
+- **Return Payload:** Same shape as `check_prices` above, plus `data_source` reflecting the live call (`"live_api"` or `"cached_history"` on API failure) and, when `zdr_only` is set, `policy_price_1m`/`is_policy_routable` per model.
 
 #### v0.6.0 exact shortlist selection contract (D-14, D-18c)
 
@@ -539,13 +582,14 @@ network-backed catalog validation operation. It accepts only an exact catalog
 slug, returns `NO_EXACT_MATCH` for an invalid or nonexistent slug, and reports
 `CATALOG_UNAVAILABLE` when the catalog cannot be checked.
 
-#### 2. `get_model_history`
-- **Description:** Audits 30-day temporal price history, volatility coefficient of variation (CV%), directional trends, and deterministic intelligence profiles (STABLE, PROMO_ENDED, SUNSETTING, VOLATILE, DISCOUNTED, CREEPING_INFLATION, NEWLY_TRACKED).
+#### 3. `get_model_history` (D-19: local read, no network)
+- **Description:** Local read of 30-day temporal price history, volatility coefficient of variation (CV%), directional trends, and deterministic intelligence profiles (STABLE, PROMO_ENDED, SUNSETTING, VOLATILE, DISCOUNTED, CREEPING_INFLATION, NEWLY_TRACKED), derived from `history.csv`'s `d1..d30` columns (themselves derived from `effective_prices.json` by the last `run_prices` call, §5.2). All analytics/profile classification lives in this tool, not in `check_prices`. Makes no OpenRouter network call; `readOnlyHint: true`, `openWorldHint: false`.
 - **Parameters:**
-  - `model_id` (string, optional): Specific model slug to inspect. If omitted, returns all shortlisted models.
+  - `model_id` (string, optional): Exact shortlisted slug to inspect. If omitted, returns all shortlisted models. An absent slug returns `status: "refused"` with `NOT_MONITORED`.
   - `format` (string, optional, default: `"json"`): Output format (`"json"` for structured analytics or `"csv"` for raw historical table).
+- A `DATA_STALE` warning is added when the latest locally stored observation is older than today.
 
-#### 3. `discover_models`
+#### 4. `discover_models`
 - **Description:** Queries and filters OpenRouter's live catalog (~417+ models) using multi-criteria keyword matching, promotional status, output modality, and price ceiling expressions, calculating real-world blended prices calibrated to user token weights.
 - **Parameters:**
   - `query` (string, optional): Search query (e.g. `"gemini"`, `"qwen"`).
@@ -554,7 +598,7 @@ slug, returns `NO_EXACT_MATCH` for an invalid or nonexistent slug, and reports
   - `max_price` (number, optional): Maximum blended price per 1M tokens ($).
   - `limit` (integer, optional, default: `15`): Maximum number of matching models to return.
 
-#### 4. `import_hermes_models`
+#### 5. `import_hermes_models`
 - **Description:** Imports active default and fallback models from Hermes Agent configuration (`~/.hermes/config.yaml` or `$HERMES_HOME`) into Anticharon's shortlist. **Strictly read-only on Hermes**: never modifies Hermes configuration.
 - **Parameters:**
   - `hermes_config_path` (string, optional): Explicit custom path to Hermes `config.yaml`.

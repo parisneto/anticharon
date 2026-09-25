@@ -155,7 +155,8 @@ def test_cli_exit_code_follows_status(status, code):
 # --- A2A-2 / A2A-5: every MCP tool returns the envelope ---------------------
 
 MCP_CALLS = {
-    "check_prices": {"dry_run": True},
+    "check_prices": {},
+    "run_prices": {"dry_run": True},
     "get_model_history": {"format": "json"},
     "discover_models": {"query": "gpt"},
     "import_hermes_models": {},
@@ -177,11 +178,31 @@ def test_every_registered_mcp_tool_returns_the_envelope(sandbox, monkeypatch, ca
 
 
 def test_check_prices_payload_uses_price_warnings_and_marks_preview(sandbox):
-    env = json.loads(_run_async(server.call_tool("check_prices", {"dry_run": True})).content[0].text)
+    """`check_prices` is a local-only read (D-19): with nothing persisted yet,
+    it reports DATA_STALE (no run has ever populated history.csv/alerts.json)
+    rather than PREVIEW_ONLY (that code is for a `dry_run` write tool, and
+    check_prices never writes at all)."""
+    env = json.loads(_run_async(server.call_tool("check_prices", {})).content[0].text)
     assert "price_warnings" in env and "priceWarnings" not in env
-    assert "PREVIEW_ONLY" in _codes(env)
+    assert "DATA_STALE" in _codes(env)
     assert "HERMES_NOT_DETECTED" in _codes(env)
     assert env["status"] == "success"  # standalone stays successful (D-1e)
+
+
+def test_run_prices_marks_preview_and_check_prices_reads_it_back(sandbox):
+    """`run_prices(dry_run=True)` computes without persisting (PREVIEW_ONLY);
+    `run_prices(dry_run=False)` persists, and a subsequent `check_prices`
+    local read reflects it with no DATA_STALE/PREVIEW_ONLY message (D-18/D-19)."""
+    preview = json.loads(_run_async(server.call_tool("run_prices", {"dry_run": True})).content[0].text)
+    assert "PREVIEW_ONLY" in _codes(preview)
+    still_stale = json.loads(_run_async(server.call_tool("check_prices", {})).content[0].text)
+    assert "DATA_STALE" in _codes(still_stale)
+
+    saved = json.loads(_run_async(server.call_tool("run_prices", {"dry_run": False})).content[0].text)
+    assert "PREVIEW_ONLY" not in _codes(saved)
+    fresh = json.loads(_run_async(server.call_tool("check_prices", {})).content[0].text)
+    assert "DATA_STALE" not in _codes(fresh)
+    assert fresh["prices_shortlist"]
 
 
 def test_import_hermes_models_without_hermes_is_a_warning_not_an_error(sandbox):
@@ -400,9 +421,11 @@ def test_check_human_output_says_detected_not_synced_and_renders_messages(sandbo
 
 
 def test_api_fallback_message_when_openrouter_unreachable(sandbox, monkeypatch, capsys):
+    """API_FALLBACK can only come from `run` (D-19): `check` never calls
+    OpenRouter at all, so it cannot observe an API failure directly."""
     _cli_json(monkeypatch, capsys, "run", "--json", "--no-hermes")  # seed history.csv
     monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {})
-    _, env = _cli_json(monkeypatch, capsys, "check", "--json", "--no-hermes")
+    _, env = _cli_json(monkeypatch, capsys, "run", "--json", "--no-hermes")
     assert env["api_offline_fallback"] is True
     assert _codes(env)[0] == "API_FALLBACK"
 

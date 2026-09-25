@@ -6,16 +6,17 @@ Anticharon monitors OpenRouter pricing for models configured in `~/.hermes/confi
 
 #### How Hermes Should Use Anticharon:
 
-1. **To Check Current Model Costs & Alerts (Read-Only JSON):**
+1. **To Check Current Model Costs & Alerts (Local Read, No Network):**
    ```bash
    anticharon check --json
    # Or with in-band field glossary:
    anticharon check --json --hints
    ```
+   - `check` is a pure local read of `history.csv` and the alerts persisted by the last `run` in `alerts.json` -- it never calls OpenRouter. Run `anticharon run` first (e.g. via cron) to refresh; `check` will report `DATA_STALE` if the latest local observation is older than today.
    - `.status` / `.messages` / `.elapsed_ms`: Response envelope on every JSON output (see "Response Envelope & Agent Messages" below). Read `.messages` first.
-   - `.data_source`: `"live_api"` (fresh OpenRouter prices) or `"cached_history"` (network failure fallback).
+   - `.data_source`: always `"cached_history"` for `check` (local storage, never a live call); `"live_api"` only appears in `run`'s output.
    - `.prices_shortlist`: Sorted cheapest to most expensive with `price_1m` and `ma_7d`.
-   - `.price_warnings`: Volatility alerts (`PRICE_SPIKE`, `PRICE_DROP`) and `BEST_OPTION_CHANGED`.
+   - `.price_warnings`: Volatility alerts (`PRICE_SPIKE`, `PRICE_DROP`) and `BEST_OPTION_CHANGED`, exactly as persisted by the last `run` (never recomputed by `check`).
    - `.hermes_integration`: Sync status with your active configuration.
 
 2. **To Get Pre-Processed 30-Day Analytical Profiles & Trajectory Intelligence:**
@@ -44,8 +45,12 @@ Anticharon monitors OpenRouter pricing for models configured in `~/.hermes/confi
 4. **To Update 7-Day Moving Averages & Price History (Daily Cron):**
    ```bash
    anticharon run --json
+   # One exact shortlisted model only:
+   anticharon run --model "openai/gpt-5.6-luna" --json
+   # Re-fetch even if already updated today (same-day rule):
+   anticharon run --force --json
    ```
-   *(Recommended daily via cron: `0 6 * * * ~/.local/bin/anticharon run`)*.
+   `run` is the only command that talks to OpenRouter: it writes `history.csv` and `effective_prices.json`, then pre-computes and persists this run's `price_warnings` into `alerts.json` (which `check` later reads back, unchanged). Without `--force`, a full-shortlist `run` skips a model already updated today. *(Recommended daily via cron: `0 6 * * * ~/.local/bin/anticharon run`)*.
 
 5. **To Switch Your Default Model When Triggered by an Alert:**
    If Anticharon alerts you with `BEST_OPTION_CHANGED`, `PROMO_ENDED`, or `SUNSETTING`:
@@ -66,8 +71,9 @@ Anticharon monitors OpenRouter pricing for models configured in `~/.hermes/confi
    uvx --from git+https://github.com/parisneto/anticharon.git anticharon mcp
    ```
    **MCP Tools Available:**
-   - `check_prices(force_refresh, dry_run, include_analytics)`: Fetches live prices, alerts, and 30d profiles.
-   - `get_model_history(model_id, format)`: Retrieves 30d trajectories, CV%, and recommendations (json or csv).
+   - `check_prices(model_id)`: Local read (no network) of the latest persisted price + alerts, exactly like CLI `check`.
+   - `run_prices(model_id, dry_run, force, zdr_only)`: The only fetch-and-persist tool; writes history.csv, effective_prices.json, and alerts.json, exactly like CLI `run`.
+   - `get_model_history(model_id, format)`: Local read (no network) of 30d trajectories, CV%, and recommendations (json or csv).
    - `discover_models(query, promo_only, modality, max_price, limit)`: Live OpenRouter catalog search.
    - `import_hermes_models(hermes_config_path, dry_run)`: One-way import from Hermes config into Anticharon shortlist (read-only on Hermes; default dry_run=true).
 
@@ -80,7 +86,7 @@ Anticharon monitors OpenRouter pricing for models configured in `~/.hermes/confi
 - Top-level keys, in order: `status`, `messages`, `elapsed_ms`, then the payload.
 - `status`: `success` | `warning` | `error` | `refused` | `not_monitored`. `error` / `refused` mean the operation was NOT performed: MCP returns them with `isError: true` (same JSON body); the CLI exits with code 1. Everything else is a normal result (exit 0).
 - `messages`: never empty; each entry has `level` (`info` | `warning` | `error`), `code`, `text`, optional `action` (`{"mcp": ..., "cli": ...}`) and optional `model`. The last entry is always `COMPLETED` with the elapsed time.
-- Codes: `COMPLETED` (always last) · `PREVIEW_ONLY` (dry run; nothing persisted) · `SHORTLIST_UPDATED` / `SHORTLIST_UNCHANGED` (what was written to shortlist.json) · `NO_EXACT_MATCH` (no exact model slug in catalog; use `discover_models`) · `CATALOG_UNAVAILABLE` (catalog could not be queried; retry later) · `NOT_MONITORED` (`run --model` or local history target is absent from the shortlist) · `PRICE_UNAVAILABLE` / `PRICE_INVALID` (per-model price omission and reason) · `NO_DEFAULT` (no explicit default; default-based alerts off) · `SOURCE_MANAGED` (change the model in its owning source) · `API_FALLBACK` (OpenRouter unreachable; cached prices) · `HERMES_NOT_DETECTED` (no Hermes config; standalone mode, not an error) · `HERMES_INCOMPLETE` (partial Hermes detection; shortlist protected) · `HERMES_DIVERGENT` (Hermes default/fallback order differs from Hermes-owned entries; run `import_hermes_models(dry_run=false)`) · `SELF_TEST_FAILED` (`anticharon test` failed) · `CALIBRATION_INPUT_INVALID` (`calibrate` CSV missing/unreadable) · `ZDR_LIVE_LIMITED` (`model discover --zdr` live check capped or partly unknown).
+- Codes: `COMPLETED` (always last) · `PREVIEW_ONLY` (dry run; nothing persisted) · `SHORTLIST_UPDATED` / `SHORTLIST_UNCHANGED` (what was written to shortlist.json) · `NO_EXACT_MATCH` (no exact model slug in catalog; use `discover_models`) · `CATALOG_UNAVAILABLE` (catalog could not be queried; retry later) · `NOT_MONITORED` (`run --model`, `check --model`, or `history --model` target is absent from the shortlist) · `PRICE_UNAVAILABLE` / `PRICE_INVALID` (per-model price omission and reason) · `NO_DEFAULT` (no explicit default; default-based alerts off) · `SOURCE_MANAGED` (change the model in its owning source) · `API_FALLBACK` (OpenRouter unreachable during `run`; cached prices) · `DATA_STALE` (`check`/`history`: the latest local observation is older than today; run `anticharon run`) · `HERMES_NOT_DETECTED` (no Hermes config; standalone mode, not an error) · `HERMES_INCOMPLETE` (partial Hermes detection; shortlist protected) · `HERMES_DIVERGENT` (Hermes default/fallback order differs from Hermes-owned entries; run `import_hermes_models(dry_run=false)`) · `SELF_TEST_FAILED` (`anticharon test` failed) · `CALIBRATION_INPUT_INVALID` (`calibrate` CSV missing/unreadable) · `ZDR_LIVE_LIMITED` (`model discover --zdr` live check capped or partly unknown).
 - Legacy keys `notice`, `hint`, `message`, `warning`, `error`, `zdr_warning` no longer exist; `priceWarnings` is now `price_warnings`.
 
 #### A2A JSON Schema & Field Glossary:

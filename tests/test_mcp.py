@@ -1,8 +1,10 @@
 """Tests for anticharon.mcp: FastMCP server tools/resources/prompts.
 
-Marked @pytest.mark.live: check_prices (and get_model_history) call run_tracker
-without mocking the network, so this exercises the real OpenRouter API contract.
-Excluded from the default `uv run pytest` gate per EXECUTION_CONTRACT.md.
+Marked @pytest.mark.live: run_prices calls run_tracker without mocking the
+network, so this exercises the real OpenRouter API contract. `check_prices`
+and `get_model_history` are local-only reads since W3 (D-19) and make no
+network call even here. Excluded from the default `uv run pytest` gate per
+EXECUTION_CONTRACT.md.
 
 The deterministic (mocked, no network) tests below cover PE2-006's "MCP suite
 is live-only and does not deterministically assert the complete three-price
@@ -26,21 +28,28 @@ def test_mcp_server_suite():
         tools = loop.run_until_complete(server.list_tools())
         tool_names = [t.name for t in tools]
         assert "check_prices" in tool_names
+        assert "run_prices" in tool_names
         assert "get_model_history" in tool_names
         assert "discover_models" in tool_names
         assert "import_hermes_models" in tool_names
         assert "sync_hermes_models" not in tool_names
 
-        # 2. Tool execution: check_prices
-        res_prices = loop.run_until_complete(server.call_tool("check_prices", {"dry_run": True, "include_analytics": True}))
-        assert not res_prices.is_error
-        assert len(res_prices.content) > 0
-        payload = json.loads(res_prices.content[0].text)
+        # 2. Tool execution: run_prices (the only fetch-and-persist tool, D-19)
+        res_run = loop.run_until_complete(server.call_tool("run_prices", {"dry_run": True}))
+        assert not res_run.is_error
+        assert len(res_run.content) > 0
+        payload = json.loads(res_run.content[0].text)
         assert "data_source" in payload
         assert "api_offline_fallback" in payload
         assert "_hints" in payload
         assert "api_offline_fallback" in payload["_hints"]
         assert "fallback_providers" in payload["_hints"]["api_offline_fallback"]
+
+        # 2b. Tool execution: check_prices (local read, no network -- D-19)
+        res_check = loop.run_until_complete(server.call_tool("check_prices", {}))
+        assert not res_check.is_error
+        check_payload = json.loads(res_check.content[0].text)
+        assert check_payload["data_source"] == "cached_history"
 
         # 3. Tool execution: get_model_history (csv format)
         res_hist = loop.run_until_complete(server.call_tool("get_model_history", {"format": "csv"}))
@@ -144,11 +153,12 @@ def test_import_hermes_models_warns_and_preserves_shortlist_on_equal_length_inco
     assert load_config(cfg_path)["shortlist"] == existing
 
 
-def test_check_prices_zdr_preserves_three_price_distinction_deterministic(monkeypatch, tmp_path):
+def test_run_prices_zdr_preserves_three_price_distinction_deterministic(monkeypatch, tmp_path):
     """Deterministic (mocked, no network) coverage of PE2-001/PE2-003's fix
     surviving through the actual MCP tool boundary, not just run_tracker
-    directly -- check_prices(zdr_only=True) must return effective_price_1m
-    and policy_price_1m as distinct values in its JSON payload."""
+    directly -- run_prices(zdr_only=True) must return effective_price_1m
+    and policy_price_1m as distinct values in its JSON payload. `--zdr` moved
+    from check_prices to run_prices in W3 (D-28: ZDR is live-only)."""
     cfg_path = tmp_path / "shortlist.json"
     cfg_path.write_text(json.dumps({
         "shortlist": ["openai/gpt-5.6-sol"],
@@ -174,7 +184,7 @@ def test_check_prices_zdr_preserves_three_price_distinction_deterministic(monkey
     ])
     monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", lambda *a, **kw: {})
 
-    res = _run_async(server.call_tool("check_prices", {"dry_run": True, "zdr_only": True, "force_refresh": True}))
+    res = _run_async(server.call_tool("run_prices", {"dry_run": True, "zdr_only": True}))
     assert not res.is_error
     payload = json.loads(res.content[0].text)
 
@@ -184,7 +194,7 @@ def test_check_prices_zdr_preserves_three_price_distinction_deterministic(monkey
     assert model["is_policy_routable"] is True
 
 
-def test_check_prices_zdr_unroutable_never_recommended_deterministic(monkeypatch, tmp_path):
+def test_run_prices_zdr_unroutable_never_recommended_deterministic(monkeypatch, tmp_path):
     """Deterministic MCP-boundary coverage of PE2-001's BEST_OPTION_CHANGED fix."""
     cfg_path = tmp_path / "shortlist.json"
     cfg_path.write_text(json.dumps({
@@ -217,7 +227,7 @@ def test_check_prices_zdr_unroutable_never_recommended_deterministic(monkeypatch
     monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", fake_endpoints)
     monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", lambda *a, **kw: {})
 
-    res = _run_async(server.call_tool("check_prices", {"dry_run": True, "zdr_only": True, "force_refresh": True}))
+    res = _run_async(server.call_tool("run_prices", {"dry_run": True, "zdr_only": True}))
     assert not res.is_error
     payload = json.loads(res.content[0].text)
 

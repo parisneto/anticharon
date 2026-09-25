@@ -7,11 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+### Added
+- **Command separation & parity (#13, W3) (`src/anticharon/tracker.py`, `storage.py`, `mcp.py`, `cli.py`):**
+  - New third data file `alerts.json` (same data directory as `history.csv`/`effective_prices.json`): the price alerts (`PRICE_SPIKE`, `PRICE_DROP`, `BEST_OPTION_CHANGED`) computed and persisted by the last `run`/`run_prices`, plus run context (`timestamp`, `default_model`, `data_source`).
+  - New MCP tool `run_prices(model_id, dry_run, force, zdr_only)`: the only fetch-and-persist tool, mirroring CLI `run`.
+  - `run`/`run_prices` gained `--force`/`force`: re-fetch a shortlisted model even if it was already updated today. Without it, a full-shortlist `run` now skips a model already refreshed today (the same-day rule) instead of re-fetching every model on every invocation.
+  - `run --model X` / `run_prices(model_id=X)` now replaces only X's persisted per-model alerts and recomputes the cross-model `BEST_OPTION_CHANGED` alert from every shortlisted model's currently stored price, leaving every other model's persisted alert untouched.
+  - New code `DATA_STALE` (warning): emitted by `check`/`check_prices` and `history`/`get_model_history` when the latest locally stored price observation is older than today.
 
+### Changed
+- **Breaking: `check`/`check_prices` and `history`/`get_model_history` are now pure local reads (#13, W3, D-19):** neither makes an OpenRouter network call anymore, or triggers a Hermes shortlist sync. `check_prices` reads `history.csv` and the alerts `run_prices` last persisted to `alerts.json`, shown verbatim (never recomputed); `get_model_history` reads `history.csv`'s already-derived 30-day columns and owns all analytics/profile classification. `run`/`run_prices` is now the only command/tool that fetches from OpenRouter and writes `history.csv`/`effective_prices.json`/`alerts.json`.
+- A filtered `run --model X` (and a same-day-skipped model within a full `run`) no longer overwrites `history.csv` with only the models it actually re-fetched; every other shortlisted model's existing row is preserved (previously, persisting `run --model X` silently discarded every other model's history).
 - Store shortlist entries with their source and explicit order; preserve manual entries across Hermes synchronization and refuse removal of source-managed models.
 - Require exact model slugs, report per-model pricing omissions, and refuse `run --model` targets outside the shortlist before network access.
 - Use explicit shortlist defaults and surface stored canonical slugs in price JSON.
+
+### Removed
+- **Breaking: `force_refresh` removed from `check_prices`** (#13, W3, D-3): its only effect was a longer timeout; the meaningful switch is now `run`/`run_prices`'s `--force`/`force`.
+- **Breaking: `--zdr`/`zdr_only` removed from `check`/`check_prices`** (#13, W3, D-28): ZDR policy pricing is live-only and exists only on `run`/`run_prices`; it is never persisted to `alerts.json`/`history.csv`.
+- **Breaking: `check`'s hard-wired `--dry-run` default removed** (#13, W3, D-18b): `check` is no longer a `run --dry-run` alias -- it takes no `--dry-run`/`--timeout`/`--zdr`/`--profile` flags at all, since it never fetches. `check --model` / `history --model` are new, matching `run --model`.
 
 ### Added
 - **Unified agent-message contract (#12, W1) (`src/anticharon/models.py`, `hermes.py`, `tracker.py`, `manager.py`, `tester.py`, `discovery.py`, `cli.py`, `mcp.py`):**

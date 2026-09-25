@@ -36,7 +36,7 @@ from anticharon.models import (
     render_messages,
 )
 from anticharon.tester import run_self_test
-from anticharon.tracker import run_tracker
+from anticharon.tracker import read_check_result, read_history_result, run_tracker
 
 
 def _exit_code(status: str) -> int:
@@ -53,7 +53,18 @@ def _print_hermes_line(result: TrackerResult) -> None:
         print("🤖 Hermes:    Standalone mode (Anticharon shortlist.json)")
 
 
-def format_human_output(result: TrackerResult, messages: list[dict]) -> None:
+def _print_status_line(result: TrackerResult, local_read: bool) -> None:
+    """`check`/`history` are always local reads (D-19); only `run` actually
+    talks to OpenRouter, so only `run` distinguishes live vs. offline-fallback."""
+    if local_read:
+        print("💾 [STATUS: LOCAL READ] Showing the latest locally stored prices (no network call).")
+    elif result.fallback:
+        print("⚠️  [STATUS: OFFLINE FALLBACK] Using cached history prices.")
+    else:
+        print("🟢 [STATUS: LIVE API] Latest OpenRouter prices fetched.")
+
+
+def format_human_output(result: TrackerResult, messages: list[dict], local_read: bool = False) -> None:
     """Format and print human-readable CLI summary; `messages` are the envelope's."""
     print("\n" + "=" * 74)
     print(f"🪙  ANTICHARON — OpenRouter Price Monitor (v{__version__})")
@@ -63,10 +74,7 @@ def format_human_output(result: TrackerResult, messages: list[dict]) -> None:
     if result.config_path:
         print(f"⚙️  Config:    {result.config_path}")
     _print_hermes_line(result)
-    if result.fallback:
-        print("⚠️  [STATUS: OFFLINE FALLBACK] Using cached history prices.")
-    else:
-        print("🟢 [STATUS: LIVE API] Latest OpenRouter prices fetched.")
+    _print_status_line(result, local_read)
     print("=" * 74)
 
     default_model = next((p.model for p in result.prices_shortlist if p.is_default), None)
@@ -121,8 +129,9 @@ def format_human_output(result: TrackerResult, messages: list[dict]) -> None:
     print("=" * 74 + "\n")
 
 
-def format_analytics_human_output(result: TrackerResult, messages: list[dict]) -> None:
-    """Format TrackerResult with deep 30-day analytical intelligence and profiles."""
+def format_analytics_human_output(result: TrackerResult, messages: list[dict], local_read: bool = True) -> None:
+    """Format TrackerResult with deep 30-day analytical intelligence and profiles.
+    `history` (D-19) is always a local read; default reflects that."""
     print("\n" + "=" * 104)
     print(f"🪙  ANTICHARON — Analytical Price Intelligence & History (v{__version__})")
     print(f"📅 Timestamp: {result.timestamp}")
@@ -132,10 +141,7 @@ def format_analytics_human_output(result: TrackerResult, messages: list[dict]) -
         print(f"⚙️  Config:    {result.config_path}")
 
     _print_hermes_line(result)
-
-    status_str = "CACHED HISTORY (Offline Fallback)" if result.fallback else "LIVE API"
-    status_icon = "🟠" if result.fallback else "🟢"
-    print(f"{status_icon} [STATUS: {status_str}]")
+    _print_status_line(result, local_read)
     print("=" * 104)
 
     default_model = next((p.model for p in result.prices_shortlist if p.is_default), None)
@@ -212,20 +218,22 @@ def format_analytics_human_output(result: TrackerResult, messages: list[dict]) -
     print("=" * 104 + "\n")
 
 
-def _emit_tracker_result(res: TrackerResult, started: float, as_json: bool, is_analytics: bool) -> int:
+def _emit_tracker_result(
+    res: TrackerResult, started: float, as_json: bool, is_analytics: bool, local_read: bool = False
+) -> int:
     """Print a tracker result as the JSON envelope or human report; return the exit code."""
     envelope = build_envelope(res.to_dict(), res.messages, started)
     if as_json:
         print(json.dumps(envelope, indent=2))
     elif is_analytics:
-        format_analytics_human_output(res, envelope["messages"])
+        format_analytics_human_output(res, envelope["messages"], local_read=local_read)
     else:
-        format_human_output(res, envelope["messages"])
+        format_human_output(res, envelope["messages"], local_read=local_read)
     return _exit_code(envelope["status"])
 
 
 def cmd_run(args) -> int:
-    """Handle `run` and `check` commands."""
+    """Handle the `run` command: the only fetch-and-persist path (D-19)."""
     started = time.perf_counter()
     hist_path = Path(args.data_dir) / "history.csv" if getattr(args, "data_dir", None) else get_history_path()
     if getattr(args, "history_csv", False):
@@ -247,12 +255,37 @@ def cmd_run(args) -> int:
         hints_enabled=getattr(args, "hints", False),
         zdr_only=getattr(args, "zdr", False),
         model_id=getattr(args, "model_id", None),
+        force=getattr(args, "force", False),
     )
     return _emit_tracker_result(res, started, args.json, is_analytics)
 
 
+def cmd_check(args) -> int:
+    """Handle the `check` command: a local-only latest-price + persisted-alerts
+    read (D-19). Makes no OpenRouter network call."""
+    started = time.perf_counter()
+    hist_path = Path(args.data_dir) / "history.csv" if getattr(args, "data_dir", None) else get_history_path()
+    if getattr(args, "history_csv", False):
+        if not hist_path.exists():
+            print(f"History file not found at {hist_path}", file=sys.stderr)
+            return 1
+        print(hist_path.read_text(encoding="utf-8").strip())
+        return 0
+
+    res = read_check_result(
+        config_path=Path(args.config) if getattr(args, "config", None) else None,
+        history_path=hist_path,
+        hermes_config_path=getattr(args, "hermes_config", None),
+        no_hermes=getattr(args, "no_hermes", False),
+        hints_enabled=getattr(args, "hints", False),
+        model_id=getattr(args, "model_id", None),
+    )
+    return _emit_tracker_result(res, started, args.json, False, local_read=True)
+
+
 def cmd_history(args) -> int:
-    """Handle `history` analytical command."""
+    """Handle `history`: a local-only 30-day analytics read (D-19). Makes no
+    OpenRouter network call."""
     started = time.perf_counter()
     hist_path = Path(args.data_dir) / "history.csv" if getattr(args, "data_dir", None) else get_history_path()
     if getattr(args, "csv", False) or getattr(args, "history_csv", False):
@@ -262,17 +295,15 @@ def cmd_history(args) -> int:
         print(hist_path.read_text(encoding="utf-8").strip())
         return 0
 
-    res = run_tracker(
-        dry_run=True,
+    res = read_history_result(
         config_path=Path(args.config) if getattr(args, "config", None) else None,
         history_path=hist_path,
-        timeout=getattr(args, "timeout", 10.0),
         hermes_config_path=getattr(args, "hermes_config", None),
         no_hermes=getattr(args, "no_hermes", False),
-        enable_analytics=True,
-        hints_enabled=getattr(args, "hints", False)
+        hints_enabled=getattr(args, "hints", False),
+        model_id=getattr(args, "model_id", None),
     )
-    return _emit_tracker_result(res, started, getattr(args, "json", False), True)
+    return _emit_tracker_result(res, started, getattr(args, "json", False), True, local_read=True)
 
 
 def cmd_info(args) -> int:
@@ -546,8 +577,10 @@ def cmd_help(
     return 2
 
 
-def main() -> None:
-    """Main CLI entrypoint."""
+def build_parser() -> tuple[argparse.ArgumentParser, argparse._SubParsersAction, argparse._SubParsersAction]:
+    """Construct the CLI argument parser. Separated from `main()` so tests
+    (e.g. the MCP-11 CLI<->MCP parity test) can introspect the real,
+    live argparse tree instead of a hand-maintained duplicate."""
     parser = argparse.ArgumentParser(
         prog="anticharon",
         description="Anticharon — The ferryman who minimizes the fare instead of demanding toll."
@@ -564,9 +597,10 @@ def main() -> None:
 
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
 
-    # Command: run
-    run_parser = subparsers.add_parser("run", help="Fetch prices, update history, and display report")
-    run_parser.add_argument("--dry-run", action="store_true", help="Do not write updates to history.csv")
+    # Command: run (the only fetch-and-persist path, D-19)
+    run_parser = subparsers.add_parser("run", help="Fetch prices from OpenRouter, persist history/alerts, and display report")
+    run_parser.add_argument("--dry-run", action="store_true", help="Compute the full update without persisting anything")
+    run_parser.add_argument("--force", action="store_true", help="Re-fetch shortlisted models even if already updated today (same-day rule)")
     run_parser.add_argument("--json", action="store_true", help="Output results in JSON format")
     run_parser.add_argument("--model", dest="model_id", type=str, default=None, help="Update one exact model already in the shortlist")
     run_parser.add_argument("--hints", action="store_true", help="Include self-describing key hints in JSON output")
@@ -578,34 +612,30 @@ def main() -> None:
     run_parser.add_argument("--data-dir", type=str, default=None, help="Directory to store history.csv")
     run_parser.add_argument("--hermes-config", type=str, default=None, help="Path to custom Hermes config.yaml")
     run_parser.add_argument("--no-hermes", action="store_true", help="Disable Hermes auto-detection and run in standalone mode")
-    run_parser.add_argument("--zdr", action="store_true", help="Add a policy-constrained price (policy_price_1m) from Zero Data Retention-compliant endpoints; never restricts or replaces effective_price_1m")
+    run_parser.add_argument("--zdr", action="store_true", help="Add a policy-constrained price (policy_price_1m) from Zero Data Retention-compliant endpoints for this response only; never persisted (D-28)")
 
-    # Command: check (alias for run --dry-run)
-    check_parser = subparsers.add_parser("check", help="Check current prices without updating history.csv")
-    check_parser.add_argument("--dry-run", action="store_true", default=True, help="Do not write updates to history.csv")
+    # Command: check -- local-only latest-price + persisted-alerts read (D-19); no network
+    check_parser = subparsers.add_parser("check", help="Read the latest locally stored prices and persisted alerts (no network call)")
     check_parser.add_argument("--json", action="store_true", help="Output results in JSON format")
+    check_parser.add_argument("--model", dest="model_id", type=str, default=None, help="Read one exact model already in the shortlist")
     check_parser.add_argument("--hints", action="store_true", help="Include self-describing key hints in JSON output")
-    check_parser.add_argument("--profile", action="store_true", help="Display analytical model profiles and 30-day trajectory")
-    check_parser.add_argument("--analytics", action="store_true", help=argparse.SUPPRESS)
-    check_parser.add_argument("--history-csv", action="store_true", help="Output raw history.csv table to stdout")
-    check_parser.add_argument("--timeout", type=float, default=10.0, help="HTTP request timeout in seconds")
     check_parser.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")
-    check_parser.add_argument("--data-dir", type=str, default=None, help="Directory to store history.csv")
+    check_parser.add_argument("--data-dir", type=str, default=None, help="Directory to read history.csv/alerts.json from")
+    check_parser.add_argument("--history-csv", action="store_true", help="Output raw history.csv table to stdout")
     check_parser.add_argument("--hermes-config", type=str, default=None, help="Path to custom Hermes config.yaml")
     check_parser.add_argument("--no-hermes", action="store_true", help="Disable Hermes auto-detection and run in standalone mode")
-    check_parser.add_argument("--zdr", action="store_true", help="Add a policy-constrained price (policy_price_1m) from Zero Data Retention-compliant endpoints; never restricts or replaces effective_price_1m")
 
-    # Command: history
-    history_parser = subparsers.add_parser("history", help="Audit 30-day historical intelligence and export CSV")
-    history_parser.add_argument("--profile", action="store_true", default=True, help="Display analytical model profiles and trajectory")
+    # Command: history -- local-only 30-day analytics read (D-19); no network
+    history_parser = subparsers.add_parser("history", help="Audit 30-day historical intelligence and export CSV (no network call)")
+    history_parser.add_argument("--model", dest="model_id", type=str, default=None, help="Audit one exact model already in the shortlist")
+    history_parser.add_argument("--profile", action="store_true", default=True, help=argparse.SUPPRESS)
     history_parser.add_argument("--analytics", action="store_true", help=argparse.SUPPRESS)
     history_parser.add_argument("--csv", action="store_true", help="Output raw history.csv table to stdout")
     history_parser.add_argument("--history-csv", action="store_true", help=argparse.SUPPRESS)
     history_parser.add_argument("--json", action="store_true", help="Output results in JSON format")
     history_parser.add_argument("--hints", action="store_true", help="Include self-describing key hints in JSON output")
-    history_parser.add_argument("--timeout", type=float, default=10.0, help="HTTP request timeout in seconds")
     history_parser.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")
-    history_parser.add_argument("--data-dir", type=str, default=None, help="Directory to store history.csv")
+    history_parser.add_argument("--data-dir", type=str, default=None, help="Directory to read history.csv/effective_prices.json from")
     history_parser.add_argument("--hermes-config", type=str, default=None, help="Path to custom Hermes config.yaml")
     history_parser.add_argument("--no-hermes", action="store_true", help="Disable Hermes auto-detection")
 
@@ -714,6 +744,12 @@ def main() -> None:
     )
     help_parser.add_argument("target", nargs="*", help="Subcommand to display help for (e.g. 'run', 'model', 'model discover')")
 
+    return parser, subparsers, model_subparsers
+
+
+def main() -> None:
+    """Main CLI entrypoint."""
+    parser, subparsers, model_subparsers = build_parser()
     args = parser.parse_args()
 
     if args.command == "help":
@@ -722,8 +758,11 @@ def main() -> None:
     if args.test or args.command == "test":
         sys.exit(cmd_test(args))
 
-    if args.command in ("run", "check"):
+    if args.command == "run":
         sys.exit(cmd_run(args))
+
+    if args.command == "check":
+        sys.exit(cmd_check(args))
 
     if args.command == "history":
         sys.exit(cmd_history(args))

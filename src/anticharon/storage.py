@@ -129,6 +129,28 @@ def write_effective_prices(store: dict[str, Any], path: Path) -> None:
         json.dump(store, f, indent=2)
 
 
+def get_alerts_path(data_dir: Path) -> Path:
+    return data_dir / "alerts.json"
+
+
+def read_alerts(path: Path) -> dict[str, Any]:
+    """Read the persisted alerts store (D-22). Missing/corrupt file -> empty
+    store, same graceful-degradation contract as every other local read."""
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def write_alerts(alerts: dict[str, Any], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(alerts, f, indent=2)
+
+
 def is_model_backfill_stale(
     store: dict[str, Any],
     model_id: str,

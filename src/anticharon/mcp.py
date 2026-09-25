@@ -9,7 +9,6 @@ import json
 import logging
 import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -21,27 +20,12 @@ except ImportError:
 from mcp.types import CallToolResult, TextContent
 
 from anticharon import __version__
-from anticharon.analytics import calculate_model_analytics
-from anticharon.config import (
-    default_model,
-    get_config_path,
-    get_history_path,
-    load_config,
-)
+from anticharon.config import get_config_path, get_history_path, load_config
 from anticharon.discovery import fetch_catalog, filter_catalog
-from anticharon.hermes import (
-    build_hermes_import_payload,
-    get_hermes_models,
-    hermes_detection_messages,
-)
-from anticharon.models import ERROR_STATUSES, AgentMessage, ModelPrice, build_envelope
-from anticharon.storage import (
-    CSV_HEADER,
-    get_effective_prices_path,
-    read_effective_prices,
-    read_history,
-)
-from anticharon.tracker import run_tracker, tracking_days_elapsed
+from anticharon.hermes import build_hermes_import_payload, get_hermes_models
+from anticharon.models import ERROR_STATUSES, build_envelope
+from anticharon.storage import CSV_HEADER
+from anticharon.tracker import read_check_result, read_history_result, run_tracker
 
 # Initialize MCP Server instance
 server = MCPServer("anticharon")
@@ -73,28 +57,47 @@ def tool_result(envelope: dict[str, Any]) -> dict[str, Any] | CallToolResult:
 @server.tool(
     name="check_prices",
     description=(
-        "Fetches current OpenRouter model pricing for your monitored shortlist, calculates "
-        "calibrated blended price per 1M tokens, computes 7-day moving averages, evaluates "
-        "volatility alerts (PRICE_SPIKE, PRICE_DROP, BEST_OPTION_CHANGED), and attaches "
-        "30-day analytical intelligence profiles (STABLE, PROMO_ENDED, SUNSETTING, etc.). "
-        "Maintains a compact local shortlist.json and history.csv to help your agents switch "
-        "models seamlessly, optimize budgets, and minimize the ferryman's token toll."
+        "Local read (no network) of the latest normalized/blended price per your monitored "
+        "shortlist, computes 7-day moving averages, and shows price alerts (PRICE_SPIKE, "
+        "PRICE_DROP, BEST_OPTION_CHANGED) exactly as persisted by the last `run_prices` call -- "
+        "never recomputed here. Source: history.csv (compact summary) and alerts.json. Call "
+        "`run_prices` first to refresh; this tool never fetches from OpenRouter."
     )
 )
-def check_prices(
-    force_refresh: bool = False,
-    dry_run: bool = True,
-    include_analytics: bool = True,
-    zdr_only: bool = False
+def check_prices(model_id: str | None = None) -> dict[str, Any]:
+    """Local-only latest-price + persisted-alerts read (D-19)."""
+    started = time.perf_counter()
+    res = read_check_result(model_id=model_id, hints_enabled=True)
+    return tool_result(build_envelope(res.to_dict(), res.messages, started))
+
+
+@server.tool(
+    name="run_prices",
+    description=(
+        "Fetches current OpenRouter model pricing for your monitored shortlist, writes "
+        "history.csv and effective_prices.json, and pre-computes + persists price alerts "
+        "(PRICE_SPIKE, PRICE_DROP, BEST_OPTION_CHANGED) into alerts.json. Saves by default; "
+        "pass dry_run=true to compute without persisting. `model_id` exact-filters the "
+        "configured shortlist (refuses NOT_MONITORED for an absent slug, no catalog lookup); "
+        "without it, the whole shortlist is updated, skipping models already refreshed today "
+        "unless force=true. `zdr_only` adds a live, never-persisted Zero Data Retention policy "
+        "price for this response only (D-28)."
+    )
+)
+def run_prices(
+    model_id: str | None = None,
+    dry_run: bool = False,
+    force: bool = False,
+    zdr_only: bool = False,
 ) -> dict[str, Any]:
-    """Execute price monitoring check and return structured intelligence."""
+    """Execute the fetch-and-persist price update and return structured intelligence."""
     started = time.perf_counter()
     res = run_tracker(
         dry_run=dry_run,
-        enable_analytics=include_analytics,
+        model_id=model_id,
+        force=force,
+        zdr_only=zdr_only,
         hints_enabled=True,
-        timeout=10.0 if not force_refresh else 15.0,
-        zdr_only=zdr_only
     )
     return tool_result(build_envelope(res.to_dict(), res.messages, started))
 
@@ -102,10 +105,10 @@ def check_prices(
 @server.tool(
     name="get_model_history",
     description=(
-        "Audits 30-day historical price trajectories, statistical volatility (CV%), "
-        "directional trend sparklines, deterministic intelligence profiles, and sibling "
-        "alternative recommendations from local history.csv storage, giving your agent "
-        "the empirical intelligence to navigate price spikes and vendor rate increases."
+        "Local read (no network) of 30-day historical price trajectories, statistical "
+        "volatility (CV%), directional trend sparklines, deterministic intelligence profiles, "
+        "and sibling alternative recommendations, derived from history.csv's d1..d30 columns "
+        "(themselves derived from effective_prices.json by the last `run_prices` call)."
     )
 )
 def get_model_history(
@@ -114,17 +117,8 @@ def get_model_history(
 ) -> dict[str, Any]:
     """Return historical intelligence in JSON format or raw CSV table."""
     started = time.perf_counter()
-    hist_path = get_history_path()
-    if model_id:
-        target = model_id.strip()
-        cfg = load_config()
-        if target not in cfg.get("shortlist", []):
-            return tool_result(build_envelope({"status": "refused", "target_model": target}, [
-                AgentMessage("error", "NOT_MONITORED", f"Model '{target}' is not in the configured shortlist.",
-                    action={"mcp": "add_model(model_id)", "cli": f"anticharon model add {target}"}, model=target)
-            ], started))
-
     if format.lower() == "csv":
+        hist_path = get_history_path()
         content = hist_path.read_text(encoding="utf-8").strip() if hist_path.exists() else CSV_HEADER
         return tool_result(build_envelope({
             "status": "success",
@@ -133,57 +127,8 @@ def get_model_history(
             "data": content
         }, [], started))
 
-    cfg = load_config()
-    entries = cfg.get("_shortlist_entries", [])
-    shortlist = cfg.get("shortlist", [])
-    history = read_history(hist_path)
-    effective_store = read_effective_prices(get_effective_prices_path(hist_path.parent))
-    target = model_id.strip() if model_id else None
-    hermes_info = get_hermes_models(prompt_if_missing=False)
-    if hermes_info:
-        cfg = load_config(legacy_source="hermes")
-        entries = cfg.get("_shortlist_entries", [])
-        shortlist = cfg.get("shortlist", [])
-    messages = hermes_detection_messages(hermes_info, entries)
-    configured_default = default_model(entries)
-    if configured_default is None:
-        messages.append(AgentMessage("info", "NO_DEFAULT", "No default model is set; default-based alerts are off."))
-    candidates = {slug: record.effective_price_1m for slug, record in history.items() if slug in shortlist}
-    prices = []
-    for slug in ([target] if target else shortlist):
-        record = history.get(slug)
-        if record is None:
-            continue
-        analytics = calculate_model_analytics(
-            model_id=slug,
-            current_price=record.effective_price_1m,
-            history_prices=record.prices,
-            candidate_prices=candidates,
-            current_default=configured_default,
-            min_tracking_days_for_profile=cfg.get("min_tracking_days_for_profile", 14),
-            tracking_days_elapsed=tracking_days_elapsed(effective_store, slug, datetime.now(timezone.utc).date()),
-        )
-        entry = next((item for item in entries if item["model"] == slug), {})
-        prices.append(ModelPrice(
-            model=slug,
-            price_1m=record.effective_price_1m,
-            ma_7d=record.ma_7d,
-            ma_3d=record.ma_3d,
-            change_vs_7d_pct=((record.effective_price_1m - record.ma_7d) / record.ma_7d * 100) if record.ma_7d else 0.0,
-            analytics=analytics,
-            canonical_slug=(effective_store.get(slug) or {}).get("canonical_slug"),
-            source=entry.get("source"),
-            is_default=slug == configured_default,
-        ))
-    payload = {
-        "status": "success",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "target_model": target,
-        "prices_shortlist": [price.to_dict() for price in prices],
-        "storage_path": str(hist_path),
-        "config_path": str(get_config_path()),
-    }
-    return tool_result(build_envelope(payload, messages, started))
+    res = read_history_result(model_id=model_id, hints_enabled=True)
+    return tool_result(build_envelope(res.to_dict(), res.messages, started))
 
 
 @server.tool(

@@ -144,8 +144,8 @@ def test_monitored_history_reads_local_storage_without_tracker_or_catalog(tmp_pa
     path = tmp_path / "shortlist.json"
     path.write_text(json.dumps({"shortlist": [{"model": "p/known", "source": "manual"}]}), encoding="utf-8")
     monkeypatch.setenv("ANTICHARON_CONFIG", str(path))
-    monkeypatch.setattr(mcp, "get_hermes_models", lambda **kwargs: None)
-    monkeypatch.setattr(mcp, "read_history", lambda _: {"p/known": PriceRecord(
+    monkeypatch.setattr("anticharon.tracker.get_hermes_models", lambda **kwargs: None)
+    monkeypatch.setattr("anticharon.tracker.read_history", lambda _: {"p/known": PriceRecord(
         model="p/known", last_updated="2026-09-25", effective_price_1m=1.0,
         advertised_prompt_1m=0.5, advertised_completion_1m=2.0, ma_3d=1.0, ma_7d=1.0,
         prices=[1.0] * 9,

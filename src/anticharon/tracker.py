@@ -46,10 +46,13 @@ from anticharon.pricing import (
 )
 from anticharon.storage import (
     derive_history_window,
+    get_alerts_path,
     get_effective_prices_path,
     is_model_backfill_stale,
+    read_alerts,
     read_effective_prices,
     read_history,
+    write_alerts,
     write_effective_prices,
     write_history,
 )
@@ -72,6 +75,17 @@ API_FALLBACK_MESSAGE = AgentMessage(
     "OpenRouter API was unreachable; showing the last cached prices from history.csv.",
     action={"mcp": "retry check_prices later", "cli": "retry anticharon run later"},
 )
+DATA_STALE_MESSAGE = AgentMessage(
+    "warning", "DATA_STALE",
+    "The latest locally stored price observation is older than today; run to refresh.",
+    action={"mcp": "run_prices()", "cli": "anticharon run"},
+)
+# Alert types recomputed fresh on every read/write of alerts.json rather than
+# copied forward from a prior run: BEST_OPTION_CHANGED is cross-model and is
+# always rebuilt from the currently stored prices (D-22 rule 1); POLICY_* is
+# never persisted at all (D-28).
+_NEVER_PERSISTED_ALERT_TYPES = frozenset({"POLICY_UNROUTABLE", "POLICY_UNKNOWN"})
+_CROSS_MODEL_ALERT_TYPE = "BEST_OPTION_CHANGED"
 
 
 def fetch_openrouter_models(timeout: float = 10.0) -> dict[str, Any]:
@@ -316,6 +330,83 @@ def tracking_days_elapsed(store: dict[str, Any], model_id: str, today: date) -> 
     return (today - first_seen).days
 
 
+def _parse_record_date(last_updated: str) -> date | None:
+    try:
+        return datetime.fromisoformat(last_updated).date()
+    except (ValueError, TypeError):
+        return None
+
+
+def _price_record_row(rec: Any) -> list[Any]:
+    """Reconstruct a `write_history` row from a stored `PriceRecord`, so a
+    filtered/partial persist can carry forward every other model's row
+    unchanged (MCP-10: no shortlisted model's history is ever dropped)."""
+    return [
+        rec.model, rec.last_updated, rec.effective_price_1m, rec.advertised_prompt_1m,
+        rec.advertised_completion_1m, rec.ma_3d, rec.ma_7d, *rec.prices,
+    ]
+
+
+def _price_warning_from_dict(d: dict[str, Any]) -> PriceWarning:
+    return PriceWarning(
+        type=d["type"], message=d["message"], model=d.get("model"),
+        current_default=d.get("current_default"), suggested_cheapest=d.get("suggested_cheapest"),
+        policy=d.get("policy"), excluded_providers=d.get("excluded_providers"), reason=d.get("reason"),
+    )
+
+
+def _recompute_best_option_changed(price_map: dict[str, float], current_default: str | None) -> PriceWarning | None:
+    """Cross-model alert, always derived from the unconstrained effective price
+    (never a ZDR-ranked one -- D-28 policy prices are never persisted)."""
+    if not current_default or current_default not in price_map or not price_map:
+        return None
+    cheapest_model = min(price_map, key=price_map.get)
+    if cheapest_model == current_default:
+        return None
+    cheapest_price = price_map[cheapest_model]
+    return PriceWarning(
+        type=_CROSS_MODEL_ALERT_TYPE,
+        current_default=current_default,
+        suggested_cheapest=cheapest_model,
+        message=f"Model {cheapest_model} (${cheapest_price:.5f}/1M) is cheaper than configured default {current_default}.",
+    )
+
+
+def _persist_alerts(
+    warnings: list[PriceWarning],
+    records_by_model: dict[str, list[Any]],
+    full_shortlist: list[str],
+    current_default: str | None,
+    now_iso: str,
+    model_id: str | None,
+    alerts_path: Path,
+) -> None:
+    """Write alerts.json (D-22): the run's per-model alerts plus a freshly
+    recomputed cross-model `BEST_OPTION_CHANGED`. A filtered `run --model X`
+    replaces only X's per-model alerts and the cross-model alert, keeping
+    every other model's persisted alerts (Rule 1)."""
+    price_map = {m: records_by_model[m][2] for m in full_shortlist if m in records_by_model}
+    recomputed_best = _recompute_best_option_changed(price_map, current_default)
+    fresh_per_model = [w.to_dict() for w in warnings if w.type not in _NEVER_PERSISTED_ALERT_TYPES | {_CROSS_MODEL_ALERT_TYPE}]
+
+    if model_id is None:
+        price_warnings = fresh_per_model
+    else:
+        existing = read_alerts(alerts_path).get("price_warnings", [])
+        kept = [w for w in existing if w.get("type") != _CROSS_MODEL_ALERT_TYPE and w.get("model") != model_id]
+        price_warnings = kept + fresh_per_model
+
+    if recomputed_best is not None:
+        price_warnings.append(recomputed_best.to_dict())
+
+    write_alerts({
+        "timestamp": now_iso,
+        "default_model": current_default,
+        "data_source": "live_api",
+        "price_warnings": price_warnings,
+    }, alerts_path)
+
+
 def run_tracker(
     dry_run: bool = False,
     config_path: Path | None = None,
@@ -327,8 +418,13 @@ def run_tracker(
     hints_enabled: bool = False,
     zdr_only: bool = False,
     model_id: str | None = None,
+    force: bool = False,
 ) -> TrackerResult:
-    """Execute price tracker workflow."""
+    """Execute price tracker workflow (D-19 `run`/`run_prices`: the only
+    fetch-and-write path). `force` re-fetches shortlisted models even if
+    already updated today (D-3, D-18b); without it, a full-shortlist run
+    reuses today's already-persisted price for a model instead of refetching
+    it (same-day rule, D-18/MCP-10)."""
     cfg_path = config_path or get_config_path()
     cfg = load_config(cfg_path)
     if model_id is not None:
@@ -486,6 +582,52 @@ def run_tracker(
     warnings = []
 
     for tracked_model_id in shortlist:
+        existing_record = history.get(tracked_model_id)
+        reuse_existing = (
+            not force and not zdr_only and model_id is None
+            and existing_record is not None
+            and _parse_record_date(existing_record.last_updated) == today
+        )
+        if reuse_existing:
+            # Same-day rule (D-18/MCP-10): this model was already refreshed
+            # today -- reuse its persisted price instead of a fresh per-model
+            # endpoint fetch. It keeps its existing history.csv row (no entry
+            # in `updated_records`), but still counts toward this run's
+            # display and cross-model alert computation.
+            reuse_delta_7d_pct = (
+                (existing_record.effective_price_1m - existing_record.ma_7d) / existing_record.ma_7d * 100
+                if existing_record.ma_7d > 0 else 0.0
+            )
+            if reuse_delta_7d_pct >= threshold:
+                warnings.append(PriceWarning(
+                    type="PRICE_SPIKE", model=tracked_model_id,
+                    message=f"Model {tracked_model_id} price spiked +{reuse_delta_7d_pct:.1f}% vs 7-day MA. Current: ${existing_record.effective_price_1m:.5f}/1M."
+                ))
+            elif reuse_delta_7d_pct <= -threshold:
+                warnings.append(PriceWarning(
+                    type="PRICE_DROP", model=tracked_model_id,
+                    message=f"Model {tracked_model_id} price dropped {abs(reuse_delta_7d_pct):.1f}% vs 7-day MA. Current: ${existing_record.effective_price_1m:.5f}/1M."
+                ))
+            prices_shortlist.append(ModelPrice(
+                model=tracked_model_id,
+                price_1m=existing_record.effective_price_1m,
+                ma_7d=existing_record.ma_7d,
+                ma_3d=existing_record.ma_3d,
+                change_vs_7d_pct=reuse_delta_7d_pct,
+                prompt_price_raw=existing_record.advertised_prompt_1m,
+                completion_price_raw=existing_record.advertised_completion_1m,
+                price=PricePoint(
+                    advertised_prompt_1m=existing_record.advertised_prompt_1m,
+                    advertised_completion_1m=existing_record.advertised_completion_1m,
+                    effective_price_1m=existing_record.effective_price_1m,
+                    cache_hit_rate_used=cache_hit_rate,
+                ),
+                canonical_slug=(effective_store.get(tracked_model_id) or {}).get("canonical_slug"),
+                source=entry_by_model.get(tracked_model_id, {}).get("source"),
+                is_default=tracked_model_id == current_default,
+            ))
+            continue
+
         api_data = models_api.get(tracked_model_id)
         if not api_data:
             messages.append(AgentMessage("warning", "NO_EXACT_MATCH",
@@ -631,10 +773,20 @@ def run_tracker(
             slots["d15"], slots["d30"],
         ])
 
-    # Persist records unless dry_run
+    # Persist records unless dry_run. Merge onto every existing row (not just
+    # this run's `updated_records`) so a filtered `run --model` -- or a
+    # same-day reuse that skipped some models -- never drops another
+    # shortlisted model's history (MCP-10, D-18c).
     if not dry_run and updated_records:
-        write_history(updated_records, hist_path)
+        records_by_model = {rec.model: _price_record_row(rec) for rec in history.values()}
+        for row in updated_records:
+            records_by_model[row[0]] = row
+        write_history(list(records_by_model.values()), hist_path)
         write_effective_prices(effective_store, effective_prices_path)
+        _persist_alerts(
+            warnings, records_by_model, cfg.get("shortlist", []), current_default, now_iso, model_id,
+            get_alerts_path(hist_path.parent),
+        )
 
     # PE2-001/PE2-003 fix: rank by the policy-constrained price when a policy
     # filter is active. Three distinct cases per PLAN.md's graceful-degradation
@@ -707,6 +859,216 @@ def run_tracker(
         config_path=str(cfg_path),
         hermes_integration=hermes_status,
         analytics_mode=enable_analytics,
+        hints_enabled=hints_enabled,
+        messages=messages,
+    )
+
+
+def _not_monitored_result(target: str, cfg_path: Path, hist_path: Path) -> TrackerResult:
+    return TrackerResult(
+        status="refused", timestamp=datetime.now(timezone.utc).isoformat(),
+        config_path=str(cfg_path), storage_path=str(hist_path),
+        messages=[AgentMessage(
+            "error", "NOT_MONITORED", f"Model '{target}' is not in the configured shortlist.",
+            action={"mcp": "add_model(model_id)", "cli": f"anticharon model add {target}"}, model=target,
+        )],
+    )
+
+
+def _local_hermes_snapshot(
+    cfg_path: Path, cfg: dict[str, Any], hermes_config_path: str | Path | None, no_hermes: bool
+) -> tuple[dict[str, Any], HermesIntegrationStatus, list[AgentMessage]]:
+    """Local-only Hermes detection for `check`/`history`: no shortlist sync,
+    just the detection status line and divergence/incomplete/not-detected
+    messages (D-19 -- detection itself is a local subprocess/file read, not
+    an OpenRouter network call). On a detection, reloads `cfg` with
+    `legacy_source="hermes"` -- same as `run_tracker` -- so an untagged flat
+    shortlist is interpreted as Hermes-sourced for the divergence check."""
+    if no_hermes:
+        return cfg, HermesIntegrationStatus(detected=False, source=None, method="standalone", models_count=0), []
+    hermes_info = get_hermes_models(custom_path=hermes_config_path, prompt_if_missing=False)
+    if hermes_info:
+        cfg = load_config(cfg_path, legacy_source="hermes")
+        status = HermesIntegrationStatus(
+            detected=True, source=hermes_info.get("source"),
+            method=hermes_info.get("method", "file_grep"),
+            models_count=len(hermes_info.get("all_models", [])),
+        )
+    else:
+        status = HermesIntegrationStatus(detected=False, source=None, method="standalone", models_count=0)
+    messages = hermes_detection_messages(hermes_info, cfg.get("_shortlist_entries", []))
+    return cfg, status, messages
+
+
+def read_check_result(
+    config_path: Path | None = None,
+    history_path: Path | None = None,
+    hermes_config_path: str | Path | None = None,
+    no_hermes: bool = False,
+    hints_enabled: bool = False,
+    model_id: str | None = None,
+) -> TrackerResult:
+    """Local-only read of the latest persisted prices (D-19 `check`/`check_prices`):
+    source is `history.csv` (the compact summary) and the alerts persisted by the
+    last `run` in `alerts.json` -- never recomputed here (D-22). Makes no
+    OpenRouter network call."""
+    cfg_path = config_path or get_config_path()
+    cfg = load_config(cfg_path)
+    hist_path = history_path or get_history_path()
+
+    target = model_id.strip() if model_id else None
+    if target is not None and target not in cfg.get("shortlist", []):
+        return _not_monitored_result(target, cfg_path, hist_path)
+
+    cfg, hermes_status, messages = _local_hermes_snapshot(cfg_path, cfg, hermes_config_path, no_hermes)
+    current_default = default_model(cfg.get("_shortlist_entries", []))
+    if current_default is None:
+        messages.append(AgentMessage("info", "NO_DEFAULT",
+            "No default model is set; default-based alerts are off. Set one with model add --default."))
+
+    entry_by_model = {entry["model"]: entry for entry in cfg.get("_shortlist_entries", [])}
+    history = read_history(hist_path)
+    effective_store = read_effective_prices(get_effective_prices_path(hist_path.parent))
+    alerts_store = read_alerts(get_alerts_path(hist_path.parent))
+
+    shortlist = [target] if target else cfg.get("shortlist", [])
+    now = datetime.now(timezone.utc)
+    today = now.date()
+
+    prices_shortlist: list[ModelPrice] = []
+    latest_date: date | None = None
+    for slug in shortlist:
+        record = history.get(slug)
+        if record is None:
+            continue
+        rec_date = _parse_record_date(record.last_updated)
+        if rec_date is not None and (latest_date is None or rec_date > latest_date):
+            latest_date = rec_date
+        delta_7d_pct = ((record.effective_price_1m - record.ma_7d) / record.ma_7d) * 100 if record.ma_7d > 0 else 0.0
+        prices_shortlist.append(ModelPrice(
+            model=slug,
+            price_1m=record.effective_price_1m,
+            ma_7d=record.ma_7d,
+            ma_3d=record.ma_3d,
+            change_vs_7d_pct=delta_7d_pct,
+            prompt_price_raw=record.advertised_prompt_1m,
+            completion_price_raw=record.advertised_completion_1m,
+            price=PricePoint(
+                advertised_prompt_1m=record.advertised_prompt_1m,
+                advertised_completion_1m=record.advertised_completion_1m,
+                effective_price_1m=record.effective_price_1m,
+            ),
+            canonical_slug=(effective_store.get(slug) or {}).get("canonical_slug"),
+            source=entry_by_model.get(slug, {}).get("source"),
+            is_default=slug == current_default,
+        ))
+    prices_shortlist.sort(key=lambda p: p.price_1m)
+
+    if latest_date is None or latest_date < today:
+        messages.append(DATA_STALE_MESSAGE)
+
+    all_alerts = alerts_store.get("price_warnings", [])
+    if target:
+        alert_dicts = [w for w in all_alerts
+                       if w.get("model") == target or w.get("current_default") == target or w.get("suggested_cheapest") == target]
+    else:
+        alert_dicts = all_alerts
+
+    return TrackerResult(
+        status="success",
+        timestamp=now.isoformat(),
+        # Always a local-storage read, never a live call -- see D-19: `check`
+        # never attempts the OpenRouter API, so its data is definitionally
+        # "cached_history", not a fresh "live_api" observation.
+        fallback=True,
+        prices_shortlist=prices_shortlist,
+        price_warnings=[_price_warning_from_dict(w) for w in alert_dicts],
+        storage_path=str(hist_path),
+        config_path=str(cfg_path),
+        hermes_integration=hermes_status,
+        analytics_mode=False,
+        hints_enabled=hints_enabled,
+        messages=messages,
+    )
+
+
+def read_history_result(
+    config_path: Path | None = None,
+    history_path: Path | None = None,
+    hermes_config_path: str | Path | None = None,
+    no_hermes: bool = False,
+    hints_enabled: bool = False,
+    model_id: str | None = None,
+) -> TrackerResult:
+    """Local-only 30-day analytics read (D-19 `history`/`get_model_history`):
+    owns all analytics/profile classification. Source is history.csv's
+    already-derived d1..d30/MA columns (in turn derived from
+    effective_prices.json by the last `run`, §5.2). Makes no OpenRouter
+    network call."""
+    cfg_path = config_path or get_config_path()
+    hist_path = history_path or get_history_path()
+    cfg = load_config(cfg_path)
+
+    target = model_id.strip() if model_id else None
+    if target is not None and target not in cfg.get("shortlist", []):
+        return _not_monitored_result(target, cfg_path, hist_path)
+
+    cfg, hermes_status, messages = _local_hermes_snapshot(cfg_path, cfg, hermes_config_path, no_hermes)
+    entries = cfg.get("_shortlist_entries", [])
+    shortlist = cfg.get("shortlist", [])
+    history = read_history(hist_path)
+    effective_store = read_effective_prices(get_effective_prices_path(hist_path.parent))
+    configured_default = default_model(entries)
+    if configured_default is None:
+        messages.append(AgentMessage("info", "NO_DEFAULT", "No default model is set; default-based alerts are off."))
+
+    today = datetime.now(timezone.utc).date()
+    candidates = {slug: record.effective_price_1m for slug, record in history.items() if slug in shortlist}
+    prices: list[ModelPrice] = []
+    latest_date: date | None = None
+    for slug in ([target] if target else shortlist):
+        record = history.get(slug)
+        if record is None:
+            continue
+        rec_date = _parse_record_date(record.last_updated)
+        if rec_date is not None and (latest_date is None or rec_date > latest_date):
+            latest_date = rec_date
+        analytics = calculate_model_analytics(
+            model_id=slug,
+            current_price=record.effective_price_1m,
+            history_prices=record.prices,
+            candidate_prices=candidates,
+            current_default=configured_default,
+            min_tracking_days_for_profile=cfg.get("min_tracking_days_for_profile", 14),
+            tracking_days_elapsed=tracking_days_elapsed(effective_store, slug, today),
+        )
+        entry = next((item for item in entries if item["model"] == slug), {})
+        prices.append(ModelPrice(
+            model=slug,
+            price_1m=record.effective_price_1m,
+            ma_7d=record.ma_7d,
+            ma_3d=record.ma_3d,
+            change_vs_7d_pct=((record.effective_price_1m - record.ma_7d) / record.ma_7d * 100) if record.ma_7d else 0.0,
+            analytics=analytics,
+            canonical_slug=(effective_store.get(slug) or {}).get("canonical_slug"),
+            source=entry.get("source"),
+            is_default=slug == configured_default,
+        ))
+    prices.sort(key=lambda p: p.price_1m)
+
+    if latest_date is None or latest_date < today:
+        messages.append(DATA_STALE_MESSAGE)
+
+    return TrackerResult(
+        status="success",
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        fallback=True,
+        prices_shortlist=prices,
+        price_warnings=[],
+        storage_path=str(hist_path),
+        config_path=str(cfg_path),
+        hermes_integration=hermes_status,
+        analytics_mode=True,
         hints_enabled=hints_enabled,
         messages=messages,
     )
