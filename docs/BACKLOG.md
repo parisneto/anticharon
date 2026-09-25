@@ -4,6 +4,10 @@ This backlog tracks completed milestones, upcoming sprint priorities, and long-t
 
 ---
 
+## 🧭 Next Sprint: Ecosystem Ergonomics & MCP Discoverability
+
+- [ ] **Execution contract and issue map:** [`docs/plans/ecosystem-ergonomics/EXECUTION_CONTRACT.md`](docs/plans/ecosystem-ergonomics/EXECUTION_CONTRACT.md) and [`docs/plans/ecosystem-ergonomics/ISSUES_DRAFT.md`](docs/plans/ecosystem-ergonomics/ISSUES_DRAFT.md). Main themes: unified `messages` + MCP `isError`, local `check`/`history` and live `run`, exact model matching, CLI/MCP parity, calibration, conditional OpenClaw alpha import, experimental user-initiated self-update, and Beta release gates. Target `0.6.0` Beta. Remaining OPEN items are recorded in the contract.
+
 ## 🎯 Current Sprint (Ecosystem Expansion & Intelligence Engine)
 
 - [ ] **Resolve Legacy Lint Debt:** Actively tracked and auto-ratcheted dynamically in `docs/standards/lint_baseline_legacy.txt`. (See `.agents/skills/linting/SKILL.md` for policy).
