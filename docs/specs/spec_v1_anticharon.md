@@ -477,6 +477,22 @@ Anticharon natively exposes a standard Model Context Protocol (MCP) server over 
   - `zdr_only` (boolean, optional, default: `false`): Restrict `policy_price_1m` to Zero Data Retention-compliant endpoints (§3.2) and surface `POLICY_UNROUTABLE`/`POLICY_UNKNOWN` warnings.
 - **Return Payload:** Self-describing JSON dictionary containing `timestamp`, `data_source` (`live_api` or `cached_history`), `api_offline_fallback` (boolean), `prices_shortlist` (each entry carrying `effective_price_1m`, `advertised_prompt_1m`/`advertised_completion_1m`, and `policy_price_1m`/`is_policy_routable` when a policy filter is active), `priceWarnings`, `hermes_integration`, and in-band `_hints`.
 
+#### v0.6.0 exact shortlist selection contract (D-14, D-18c)
+
+`run` fetches prices for the configured shortlist. `run --model X` and its MCP
+equivalent `run_prices(model_id=X)` are exact filters over that shortlist. If
+X exactly matches a configured entry, only that model is fetched and persisted.
+If X is absent, the operation returns `status: "refused"` with a
+`NOT_MONITORED` message, MCP `isError: true` (or a nonzero CLI exit), and makes
+no catalog lookup or pricing request for X. Prefix and similar-slug matching
+are prohibited.
+
+Local `check` and `history` operations also make no network calls; an absent
+shortlist slug is reported as `NOT_MONITORED`. `add_model` is the separate
+network-backed catalog validation operation. It accepts only an exact catalog
+slug, returns `NO_EXACT_MATCH` for an invalid or nonexistent slug, and reports
+`CATALOG_UNAVAILABLE` when the catalog cannot be checked.
+
 #### 2. `get_model_history`
 - **Description:** Audits 30-day temporal price history, volatility coefficient of variation (CV%), directional trends, and deterministic intelligence profiles (STABLE, PROMO_ENDED, SUNSETTING, VOLATILE, DISCOUNTED, CREEPING_INFLATION, NEWLY_TRACKED).
 - **Parameters:**

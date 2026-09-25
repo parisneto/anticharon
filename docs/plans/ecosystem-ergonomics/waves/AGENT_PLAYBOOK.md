@@ -14,9 +14,9 @@
 - Work one wave and one implementation agent at a time. From W2 onward,
   read-only audits or pre-test reviews may run in parallel; they must not edit
   code, tests, or planning documents. There is no parallel test-writing lane.
-- GitHub issues must all exist before W1. Enter their real GitHub numbers in
-  ledger §10 and commit the issue register in one atomic commit before any
-  wave starts. Draft IDs in this playbook are not GitHub issue numbers.
+- Issue registration is complete: the actual GitHub numbers are recorded in
+  ledger §10 and the issue-register commit precedes Wave 1. Issue numbers in
+  this wave map are the actual GitHub issue numbers.
 - Before each wave, check issue-to-ledger-ID traceability, dependencies, OPEN
   decisions and scope against the ledger. Record the starting commit and the
   result in the ledger at closeout.
@@ -37,15 +37,15 @@
 
 ## 2. Seven-wave sequence
 
-| Wave | Issues (draft IDs only; actual numbers belong in ledger §10) | Ledger scope | Dependencies / gate | Suggested build and audit routing |
+| Wave | GitHub issues (IDs registered in ledger §10) | Ledger scope | Dependencies / gate | Suggested build and audit routing |
 |---|---|---|---|---|
-| **W1 Foundation** | 1, 11 | A2A-1…8, D-1…D-1d, F-1/14/17/20, DOC-6/8 | Issue register complete | Opus high implementation; independent audit after reviewable state |
-| **W2 Model identity** | 3, 4 | MCP-2/6/7/8, D-2/5/13/14/15/24/25, F-2/3/10/15/16/19, DOC-4 | W1 closed | Sonnet high implementation; parallel read-only audit allowed |
-| **W3 Command split** | 2 | MCP-10/11, D-3/4/18/18b/18c/19/22/28 | W1, W2 closed | Opus high implementation; parallel read-only audit allowed |
-| **W4 Tool surface** | 5 (excluding conditional OpenClaw), 6, 7 | MCP-1/3/4/5/9/12/13, §3f, D-6/12/17/23/29, §3b | W2, W3 closed; PO confirms §3f tolerance before build | Sonnet medium implementation; parallel read-only audit allowed |
-| **W5 Host integrations** | 9; 5 OpenClaw alpha (conditional) | SELFUP-0…2, E-1…E-4, D-9/9b/26/27, MCP-15 | W4 closed. OpenClaw version/schema/agent/acceptance remain OPEN; park importer absent evidence and PO acceptance. | Codex high implementation; PO live tests and independent audit |
-| **W6 Fallback alerts** | 8 | MCP-14, E-5, D-5 | W2, W3 closed; E-5 PO decision | Sonnet medium spike/implementation; parallel read-only audit allowed |
-| **W7 Docs & release** | 10, 12 | DOC-1/2/3/3a/5/7, D-7/8/27, MG-1/2/3 | All prior waves closed | Gemini Pro high docs; independent full-branch audit |
+| **W1 Foundation** | #12, #22 | A2A-1…8, D-1…D-1d, F-1/14/17/20, DOC-6/8 | Issue register complete | Opus high implementation; independent audit after reviewable state |
+| **W2 Model identity** | #14, #15 | MCP-2/6/7/8, D-2/5/13/14/15/24/25, F-2/3/10/15/16/19, DOC-4 | W1 closed | Sonnet high implementation; parallel read-only audit allowed |
+| **W3 Command split** | #13 | MCP-10/11, D-3/4/18/18b/18c/19/22/28 | W1, W2 closed | Opus high implementation; parallel read-only audit allowed |
+| **W4 Tool surface** | #16 (excluding conditional OpenClaw), #17, #18 | MCP-1/3/4/5/9/12/13, §3f, D-6/12/17/23/29, §3b | W2, W3 closed; PO confirms §3f tolerance before build | Sonnet medium implementation; parallel read-only audit allowed |
+| **W5 Host integrations** | #20; #16 OpenClaw alpha (conditional) | SELFUP-0…2, E-1…E-4, D-9/9b/26/27, MCP-15 | W4 closed. OpenClaw version/schema/agent/acceptance remain OPEN; park importer absent evidence and PO acceptance. | Codex high implementation; PO live tests and independent audit |
+| **W6 Fallback alerts** | #19 | MCP-14, E-5, D-5 | W2, W3 closed; E-5 PO decision | Sonnet medium spike/implementation; parallel read-only audit allowed |
+| **W7 Docs & release** | #21, #23 | DOC-1/2/3/3a/5/7, D-7/8/27, MG-1/2/3 | All prior waves closed | Gemini Pro high docs; independent full-branch audit |
 
 The fixed order is W1 → W2 → W3 → W4 → W5 → W6 → W7. Dependencies are
 rechecked in the pre-wave traceability gate. The two intentionally OPEN

@@ -6,7 +6,7 @@
 > wave close. Playbook: `../AGENT_PLAYBOOK.md`.
 
 ## Scope
-- **Draft issue IDs (not GitHub numbers):** #10 docs · #12 release
+- **GitHub issues:** #21 docs · #23 release
 - **Ledger IDs:** DOC-1, DOC-2, DOC-3, DOC-3a, DOC-5, DOC-7, D-7, D-8, D-27 · MG-1, MG-2, MG-3
 - **Depends on:** all
 - **Branch:** `codex/mcp-ecosystem-ergonomics` (continue from the current integrated HEAD)

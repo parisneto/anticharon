@@ -1,12 +1,11 @@
 # GitHub Issues Draft — Ecosystem Ergonomics & MCP Discoverability (v0.6.0 Beta)
 
 > Companion to [`EXECUTION_CONTRACT.md`](EXECUTION_CONTRACT.md) (scope closed
-> 2026-09-24). Each section below is one ready-to-paste GitHub issue. IDs in
-> brackets (`A2A-1`, `D-19`, `F-15`, …) refer to that ledger, which stays the
-> single source of truth — issues link to it rather than restating decisions.
-> Before Wave 1, create all issues, record their actual numbers in the
-> canonical ledger §10, and commit that register atomically. The `#` values
-> below are draft map IDs only; they are not GitHub issue numbers.
+> 2026-09-24). Each section is the issue body created on GitHub. Ledger IDs
+> (`A2A-1`, `D-19`, `F-15`, …) point to the canonical ledger. All 12 issues
+> were created before Wave 1; actual GitHub issue numbers are recorded in §10
+> of the ledger and in the final column of the map below. Draft IDs are stable
+> planning references, not GitHub issue numbers.
 
 Protocol baseline for every issue: MCP specification `2026-07-28`
 (https://modelcontextprotocol.io/specification/2026-07-28).
@@ -14,23 +13,23 @@ Protocol baseline for every issue: MCP specification `2026-07-28`
 ## Issue map & order
 
 The draft IDs below are stable planning references only. The execution control
-plane reads actual GitHub issue numbers from §10 of the canonical ledger after
-the pre-Wave-1 issue-registration commit.
+plane reads actual GitHub issue numbers from §10 of the canonical ledger; the
+issue-registration gate is complete.
 
-| Draft ID | Title | Labels | Depends on | GitHub issue # (OPEN until registered) |
+| Draft ID | Title | Labels | Depends on (draft IDs) | GitHub issue # |
 |---|---|---|---|---|
-| 1 | Unified agent message contract (`messages` + `isError`) | enhancement, a2a | — | |
-| 2 | Separate `check` / `history` / `run` with persisted alerts | enhancement, breaking | 1 | |
-| 3 | Source-tagged shortlist, Hermes order and explicit defaults | enhancement, bug | 1 | |
-| 4 | Exact-match slugs: no silent drops or substitutions | bug | 1 | |
-| 5 | CLI/MCP parity tools: shortlist, calibration, self-test, conditional OpenClaw import | enhancement | 1, 3 | |
-| 6 | MCP tool annotations, server identity and descriptions | enhancement, mcp | 2, 5 | |
-| 7 | Prompt parity on the CLI and prompt hardening | enhancement, docs | 5 | |
-| 8 | Fallback-aware alerts and fallback-order display (spike first) | enhancement | 2, 3 | |
-| 9 | Experimental self-update: `check_updates` + `run_update` | enhancement, experimental | 1 | |
-| 10 | Documentation truth pass: single `llms.txt`, install docs, Beta, agent skill | docs | 2–9 (content) | |
-| 11 | Governance: protocol-baseline rule, pre-work cleanup | docs, chore | — | |
-| 12 | Release v0.6.0 Beta: manual gates and sign-off | release | all | |
+| 1 | Unified agent message contract (`messages` + `isError`) | enhancement, a2a | — | #12 |
+| 2 | Separate `check` / `history` / `run` with persisted alerts | enhancement, breaking | 1 | #13 |
+| 3 | Source-tagged shortlist, Hermes order and explicit defaults | enhancement, bug | 1 | #14 |
+| 4 | Exact-match slugs: no silent drops or substitutions | bug | 1 | #15 |
+| 5 | CLI/MCP parity tools: shortlist, calibration, self-test, conditional OpenClaw import | enhancement | 1, 3 | #16 |
+| 6 | MCP tool annotations, server identity and descriptions | enhancement, mcp | 2, 5 | #17 |
+| 7 | Prompt parity on the CLI and prompt hardening | enhancement, docs | 5 | #18 |
+| 8 | Fallback-aware alerts and fallback-order display (spike first) | enhancement | 2, 3 | #19 |
+| 9 | Experimental self-update: `check_updates` + `run_update` | enhancement, experimental | 1 | #20 |
+| 10 | Documentation truth pass: single `llms.txt`, install docs, Beta, agent skill | docs | 1–9 (content) | #21 |
+| 11 | Governance: protocol-baseline rule, pre-work cleanup | docs, chore | — | #22 |
+| 12 | Release v0.6.0 Beta: manual gates and sign-off | release | all | #23 |
 
 ---
 
@@ -63,7 +62,7 @@ Foundation for every other issue: one agent-readable channel for all CLI
 
 ## 2. Separate `check` / `history` / `run` with persisted alerts
 
-**Labels:** enhancement, breaking · **Ledger:** MCP-10, MCP-11, D-3, D-4, D-18, D-18b, D-18c, D-19, D-22, D-28, §3a · **Depends on:** #1
+**Labels:** enhancement, breaking · **Ledger:** MCP-10, MCP-11, D-3, D-4, D-18, D-18b, D-18c, D-19, D-22, D-28, §3a · **Depends on:** #12
 
 **Scope**
 - `check` / `check_prices`: local read of latest prices (`history.csv`) and
@@ -86,7 +85,7 @@ reads; parity test).
 
 ## 3. Source-tagged shortlist, Hermes order and explicit defaults
 
-**Labels:** enhancement, bug · **Ledger:** MCP-7, D-2, D-5, D-13, D-15, D-24, D-25, F-2, F-10, F-19, DOC-4 · **Depends on:** #1
+**Labels:** enhancement, bug · **Ledger:** MCP-7, D-2, D-5, D-13, D-15, D-24, D-25, F-2, F-10, F-19, DOC-4 · **Depends on:** #12
 
 **Scope**
 - Shortlist entries `{"model", "source", "order"?}`; flat lists migrate on
@@ -107,7 +106,7 @@ reads; parity test).
 
 ## 4. Exact-match slugs: no silent drops or substitutions
 
-**Labels:** bug · **Ledger:** MCP-2, MCP-6, MCP-8, D-4b, D-14, F-3, F-15, F-16 · **Depends on:** #1
+**GitHub issue:** #15 · **Labels:** bug · **Ledger:** MCP-2, MCP-6, MCP-8, D-4b, D-14, F-3, F-15, F-16 · **Depends on:** #12
 
 **Scope**
 - Exact slug match in every major operation; fuzzy matching only in
@@ -116,22 +115,24 @@ reads; parity test).
 - The three silent skip paths emit per-model `NO_EXACT_MATCH` /
   `PRICE_UNAVAILABLE` / `PRICE_INVALID` (F-15).
 - `get_model_history` is local-only: exact slug absent from the shortlist
-  returns `NOT_MONITORED`; it does not query OpenRouter. A live `run --model`
-  exact-filters the shortlist and, if absent, checks catalog identity to
-  distinguish `NOT_MONITORED` (valid but unmonitored) from `NO_EXACT_MATCH`
-  (unknown). It refuses either case; neither path substitutes a similar
-  slug.
+  returns `NOT_MONITORED`; it does not query OpenRouter. `run --model` is an
+  exact filter over the configured shortlist: if absent, it refuses with
+  `NOT_MONITORED` and performs no catalog lookup or pricing fetch. `add_model`
+  is the separate exact catalog-validation operation; an invalid/nonexistent
+  slug returns `NO_EXACT_MATCH`. No path substitutes a similar slug.
 - Surface the already-stored `canonical_slug` from `effective_prices.json`
   in JSON (key = exact shortlist slug).
 
-**Acceptance:** fixture regression reproducing the fake-slug scenario;
-no model ever silently dropped or substituted.
+**Acceptance:** fixture regressions prove: a shortlisted exact `run --model`
+fetches only that model; an absent target is refused as `NOT_MONITORED` with no
+catalog/pricing network call; `add_model` refuses an invalid exact slug as
+`NO_EXACT_MATCH`; and no model is silently dropped or substituted.
 
 ---
 
 ## 5. CLI/MCP parity tools: shortlist, calibration, self-test, conditional OpenClaw import
 
-**Labels:** enhancement · **Ledger:** MCP-1, MCP-5, MCP-13, D-6, D-12, D-17, D-29, A-1 · **Depends on:** #1, #3
+**Labels:** enhancement · **Ledger:** MCP-1, MCP-5, MCP-13, D-6, D-12, D-17, D-29, A-1 · **Depends on:** #12, #14
 
 **Scope**
 - `add_model` / `remove_model` / `list_models` (wrap `manager`); defaults
@@ -163,7 +164,7 @@ importer as parked.
 
 ## 6. MCP tool annotations, server identity and descriptions
 
-**Labels:** enhancement, mcp · **Ledger:** MCP-3, MCP-4, MCP-9, §3b (ANN-1…4), D-17, D-23, F-6, F-18 · **Depends on:** #2, #5
+**Labels:** enhancement, mcp · **Ledger:** MCP-3, MCP-4, MCP-9, §3b (ANN-1…4), D-17, D-23, F-6, F-18 · **Depends on:** #13, #16
 
 **Scope**
 - All five `ToolAnnotations` fields on every tool, per the MCP-9 table
@@ -181,7 +182,7 @@ importer as parked.
 
 ## 7. Prompt parity on the CLI and prompt hardening
 
-**Labels:** enhancement, docs · **Ledger:** MCP-12, DOC-2, F-13 · **Depends on:** #5
+**Labels:** enhancement, docs · **Ledger:** MCP-12, DOC-2, F-13 · **Depends on:** #16
 
 **Scope**
 - Prompt templates in one shared module; CLI `anticharon prompt …` renders
@@ -196,7 +197,7 @@ importer as parked.
 
 ## 8. Fallback-aware alerts and fallback-order display (spike first)
 
-**Labels:** enhancement · **Ledger:** MCP-14, E-5, D-5 · **Depends on:** #2, #3
+**Labels:** enhancement · **Ledger:** MCP-14, E-5, D-5 · **Depends on:** #13, #14
 
 **Scope**
 - Spike E-5: prototype price order vs Hermes fallback order with real data;
@@ -210,7 +211,7 @@ importer as parked.
 
 ## 9. Experimental self-update: `check_updates` + `run_update`
 
-**Labels:** enhancement, experimental · **Ledger:** WS-SELFUP (SELFUP-0…2), E-1…E-4, D-9, D-9b, D-26, D-27 · **Depends on:** #1
+**Labels:** enhancement, experimental · **Ledger:** WS-SELFUP (SELFUP-0…2), E-1…E-4, D-9, D-9b, D-26, D-27 · **Depends on:** #12
 
 **Scope**
 - `check_updates` / `check-updates`: user-initiated only; installed
@@ -230,7 +231,7 @@ the default suite.
 
 ## 10. Documentation truth pass: single `llms.txt`, install docs, Beta, agent skill
 
-**Labels:** docs · **Ledger:** DOC-1, DOC-3, DOC-3a, DOC-5, DOC-7, D-7, D-8, D-27, F-7, F-8, F-9, F-11 · **Depends on:** content of #2–#9
+**GitHub issue:** #21 · **Labels:** docs · **Ledger:** DOC-1, DOC-3, DOC-3a, DOC-5, DOC-7, D-7, D-8, D-27, F-7, F-8, F-9, F-11 · **Depends on:** #12, #13, #14, #15, #16, #17, #18, #19, #20
 
 **Scope**
 - Single repo-root `llms.txt` shipped into the wheel
@@ -242,9 +243,18 @@ the default suite.
 - Beta declaration (README, `llms.txt`, CHANGELOG, release notes draft,
   `Development Status :: 4 - Beta` classifier).
 - Thin `.agents/skills/anticharon/SKILL.md` for agents installing Anticharon.
+- Optional advisory use of `scripts/supplemental_version_inventory.py`; its
+  generated report stays under `.local/`, is reviewed by a human, and is not a
+  CI gate.
+- Inventory version-like strings in user-facing documentation/discovery
+  surfaces; classify current, historical, dependency, and unrelated values.
+  Correct or explain confirmed stale claims; a regex match alone is not a
+  removal instruction.
 
 **Acceptance:** `llms.txt` version test; registry-vs-docs drift test; wheel
-check in CI.
+check in CI; every flagged user-facing version string has a disposition in the
+ledger before release. Historical and third-party versions are preserved
+unless there is a separate reason to change them.
 
 ---
 
@@ -262,7 +272,7 @@ check in CI.
 
 ## 12. Release v0.6.0 Beta: manual gates and sign-off
 
-**Labels:** release · **Ledger:** §6 Manual release gates, Release governance · **Depends on:** all
+**Labels:** release · **Ledger:** §6 Manual release gates, Release governance · **Depends on:** #12, #13, #14, #15, #16, #17, #18, #19, #20, #21, #22
 
 **Checklist**
 - [ ] `uv run pytest` green (< 30 s), lint gate per the linting skill.

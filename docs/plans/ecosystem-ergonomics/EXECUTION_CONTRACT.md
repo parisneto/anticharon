@@ -10,11 +10,11 @@
 > are settled by evidence gates or PO live tests, never guessed.
 
 Written by: parisneto (Product Owner) + planning agent
-Status: **SCOPE CLOSED — issue registration required before Wave 1** (PO refinement complete, 2026-09-24)
-Last synchronized: 2026-09-24 (canonical ledger integrated on `codex/mcp-ecosystem-ergonomics`; cross-section sanity pass)
+Status: **SCOPE CLOSED — issues registered; execution governed by §10** (PO refinement complete, 2026-09-24; issue register and D-14 clarified 2026-09-25)
+Last synchronized: 2026-09-25 (GitHub issues #12–#23 registered; D-14/D-18c clarified; version inventory helper recorded)
 Base commit: `main` @ `1a64782` (includes the `ci.yml` read-only-token change; no effect on scope)
 Target version: `0.6.0` — **Beta** (D-10, D-20); breaking interface changes are allowed until real users/feedback exist
-Tracking: Create all GitHub issues before Wave 1. Immediately record their actual GitHub issue numbers in §10 and commit that issue register atomically before implementation starts. Wave handoffs are routing notes; this ledger is authoritative.
+Tracking: GitHub issues #12–#23 are created and registered in §10. Formal blocker relationships are set on GitHub. Wave handoffs are routing notes; this ledger is authoritative.
 
 Protocol baseline: **MCP specification `2026-07-28`**
 (https://modelcontextprotocol.io/specification/2026-07-28 — schema
@@ -277,7 +277,9 @@ classes that also render CLI output. Contract approved as §3d (D-1).
   Fix spec §5 (three files, D-22), §6 (shortlist entry shape, D-15/D-5),
   §7 (CLI commands, D-19), §10 (tools, annotations, matching rule,
   `force` replacing `force_refresh`, no `--zdr` on `check`) and BACKLOG
-  Milestone 3 drift (F-9).
+  Milestone 3 drift (F-9). Perform a human-reviewed version-string inventory;
+  the optional helper is advisory only and its generated report remains in
+  `.local/` (DOC-9).
 - **DOC-2 Prompt hardening**: prompts reference MCP tools (`add_model`,
   `check_prices`) instead of CLI/Hermes commands where an MCP path exists
   (F-13); add the explicit instruction "call `check_prices` (or re-read
@@ -321,6 +323,13 @@ classes that also render CLI output. Contract approved as §3d (D-1).
   F-7), and add a short standing rule to `AGENTS.md` (Rule 4, planning
   stage): each sprint ledger records the protocol baseline and the result
   of the protocol-update check; PR descriptions cite the baseline.
+- **DOC-9 Version-string inventory (supporting, not a release gate):** review
+  version-like strings in user-facing documentation/discovery surfaces and
+  record dispositions for flagged current-version claims.
+  `scripts/supplemental_version_inventory.py` is an optional advisory helper;
+  it does not decide removals or run in CI. Its generated report stays under
+  `.local/`; the PO reviews the findings and records confirmed stale claims
+  or exceptions in the ledger before release.
 
 ### WS-SELFUP — Self-Update Infrastructure (user-initiated, experimental)
 
@@ -456,9 +465,9 @@ per-model messages). Top-level response keys: `status`, `messages`
 `error` · `refused` · `not_monitored`. **`isError: true` (MCP) / exit code 1
 (CLI) iff `status` ∈ {`error`, `refused`}** — the requested operation was
 not performed (§3c). `warning` and `not_monitored` are normal results;
-`not_monitored` is used only by local reads. A filtered live run that cannot
-proceed because its exact target is absent from the shortlist/catalog is
-`refused` and sets MCP `isError: true`.
+`not_monitored` is used only by local reads. A filtered live run whose exact target is absent from the shortlist is
+`refused` and sets MCP `isError: true`; it does not query the catalog or fetch
+prices for that target.
 
 | Code | Level | Emitted by | Meaning / `action` |
 |---|---|---|---|
@@ -467,8 +476,8 @@ proceed because its exact target is absent from the shortlist/catalog is
 | `PREVIEW_ONLY` | info | any `dry_run` | full work done, nothing persisted → rerun without `dry_run` |
 | `SHORTLIST_UPDATED` / `SHORTLIST_UNCHANGED` | info | `run`, sync/import, add/remove, calibrate | what was persisted |
 | `NO_DEFAULT` | info | `check`, `history`, `run` | no default set (D-24) → `import_hermes_models` / `add_model(default=true)` |
-| `NOT_MONITORED` | warning on local reads; error/refused for filtered live run | `history`, `run --model` | local means only “not in shortlist”; live run validates exact catalog slug; valid unmonitored target is refused → `add_model` |
-| `NO_EXACT_MATCH` | warning in full `run`; error/refused on filtered run/add | catalog-backed exact-match operations | catalog has no exact slug → `discover_models`; never emitted by local reads or `remove_model` |
+| `NOT_MONITORED` | warning on local reads; error/refused on filtered live run | `check`, `history`, `run --model` | exact target is absent from the Anticharon shortlist. Local reads make no network call; `run --model` refuses without catalog lookup or price fetch → `add_model` (which validates) |
+| `NO_EXACT_MATCH` | warning per model in full `run`; error/refused on `add_model` | catalog-backed exact-match operations only | catalog has no exact slug → `discover_models`; never emitted by local reads, `run --model`, or `remove_model` |
 | `PRICE_UNAVAILABLE` / `PRICE_INVALID` | warning | `run` (per model) | model skipped, reason stated (F-15) |
 | `API_FALLBACK` | warning | `run` | OpenRouter unreachable, cached history used (existing `api_offline_fallback`) |
 | `CATALOG_UNAVAILABLE` | error | `add_model` | catalog unreachable; external cause stated; not persisted → retry later (D-12) |
@@ -561,13 +570,13 @@ local paths stripped (Rule 4 / Rule 12). Screenshots are not required.
 | D-11 | Promote the private input documents | **DECIDED (PO, 2026-09-24)** — no | Fully incorporated into the ledger; promoting them would be bloat. |
 | D-12 | `add_model` when the catalog cannot be reached/confirmed | **DECIDED (PO, 2026-09-24)** | Do **not** persist. Return an error with a `CATALOG_UNAVAILABLE` message that clearly states the external problem (e.g. OpenRouter timeout / HTTP status) and the action "retry later". No unverified adds. |
 | D-13 | `remove_model` on a non-`manual` entry (`hermes`, future `import:<name>`) | **DECIDED (PO, 2026-09-24)** | Refused by policy (the entry would reappear on next sync). Response carries `status: "refused"` and a `SOURCE_MANAGED` message explaining why, naming the owning source and suggesting removal there (for Hermes: the exact config location / command). Anticharon never writes to the source. |
-| D-14 | Slug matching policy (F-16) | **DECIDED (PO, 2026-09-24)** | Exact matching only; never substitute a prefix/similar slug. Local `check` / `history` compare only with shortlist entries and report `NOT_MONITORED` if absent; they do not query the catalog. Live `run --model` first filters the shortlist by exact slug, then checks the live catalog only if absent to distinguish valid-but-unmonitored (`NOT_MONITORED`, refused) from unknown (`NO_EXACT_MATCH`, refused). `add_model` validates exact catalog identity before writing. `remove_model` matches the exact stored shortlist key and performs no catalog lookup, so stale/invalid entries remain removable. Fuzzy matching is limited to discovery/filter operations. The model's `canonical_slug` remains surfaced as specified in MCP-8; no prefix fallback. |
+| D-14 | Slug matching policy (F-16) | **DECIDED (PO, clarified 2026-09-25)** | Exact matching only; never substitute a prefix/similar slug. Local `check` / `history` compare only with shortlist entries and report `NOT_MONITORED` if absent; they do not query the catalog. `run --model X` is an exact filter over the configured shortlist: if X is absent, refuse with `NOT_MONITORED` / MCP `isError: true` / CLI nonzero exit and do not query the catalog or fetch prices. `add_model` validates exact catalog identity before writing; a missing exact catalog slug is `NO_EXACT_MATCH`, while catalog failure is `CATALOG_UNAVAILABLE`. `remove_model` matches the exact stored shortlist key and performs no catalog lookup, so stale/invalid entries remain removable. Fuzzy matching is limited to discovery/filter operations. The model's `canonical_slug` remains surfaced as specified in MCP-8; no prefix fallback. |
 | D-15 | `shortlist.json` shape for sources | **DECIDED (PO, 2026-09-24)** | Entries become objects `{"model": "<slug>", "source": "manual" \| "hermes" \| "import:<name>"}`, plus `order` for Hermes sequence / manual default (D-5, D-25). Legacy flat `[str]` lists are read as `hermes` when Hermes is detected, otherwise `manual`, and rewritten in the new shape on the next write. Exact field set may grow during implementation; spec §6 updated in the same change. |
 | D-16 | `canonical_slug` drift (same `id`, new dated `canonical_slug`) | **POLICY DECIDED, IMPLEMENTATION PARKED (PO, 2026-09-24)** — never observed by the PO; only related known risk is `*-latest` alias models (already a non-goal). Parked for investigation (see Deferred); this sprint only surfaces the already-stored `canonical_slug` (MCP-8). Policy if/when proven: | A new `canonical_slug` is a new model for data purposes: its data is refreshed (backfill against the new `permaslug`) and represented as that model. **No warning, no mixed-version history.** If the new canonical has no history, its profile labels change accordingly (e.g. `NEWLY_TRACKED`) — simple, direct, transparent. Price history is therefore keyed by `canonical_slug`; `id` stays the user-facing name. |
 | D-17 | MCP-9 annotation values per tool | **DECIDED (PO, 2026-09-24)** | Table in MCP-9 as proposed, except both calibration tools are non-destructive because they save the previous weights to a `.bak` before writing (MCP-5). Superseded detail: `check_prices` was first kept as one read/write tool (D-18); after D-19 it is a local read (`readOnlyHint: true`) and writing moved to `run_prices`. |
 | D-18 | Persist-on-observe rule for price checks | **DECIDED (PO, 2026-09-24)** | Whenever a price check obtains new prices (listed or history) for a shortlisted model (`manual` or `hermes`), they are **persisted** — including when only one model is checked. Mixed recency across the dataset is acceptable. On a full-shortlist update, the same-day rule lets execution skip models already refreshed that day. Implementation stays light. Follow-ups D-18b, D-18c decided. |
 | D-18b | `dry_run` semantics vs. defaults | **DECIDED (PO, 2026-09-24)** | `dry_run` keeps one meaning everywhere: *do the full work, persist nothing*. It is a switch; its **default** is a separate choice and becomes **save** (non-conservative) on every price-fetching surface — after D-19 that is `run` / `run_prices` (`dry_run=false` default; CLI persists unless `--dry-run`). Today's CLI `check` has `--dry-run` hard-wired to `True` (`store_true, default=True`, `src/anticharon/cli.py:602`), so it can never persist — removed by this decision. |
-| D-18c | Single-model live update | **DECIDED (PO, 2026-09-24)**; surface re-mapped by D-19 | `run --model` / `run_prices(model_id)` exact-filters the shortlist. If present, only that model is fetched and persisted. If absent, exact catalog lookup distinguishes valid but unmonitored (`NOT_MONITORED`) from unknown (`NO_EXACT_MATCH`); both are refused, MCP `isError: true`, and perform no pricing work. Without `--model`, update the full shortlist (same-day rule may skip refreshed entries). Never substitute a prefix match. |
+| D-18c | Single-model live update | **DECIDED (PO, clarified 2026-09-25); surface re-mapped by D-19** | `run --model` / `run_prices(model_id)` exact-filters the configured shortlist. If present, only that shortlisted model is fetched and persisted. If absent, return `NOT_MONITORED`, refuse the request (MCP `isError: true`, CLI nonzero exit), and do not query the catalog or fetch prices. Without `--model`, update the full shortlist (same-day rule may skip refreshed entries). Never substitute a prefix match. `add_model` remains the separate catalog-validation operation and uses `NO_EXACT_MATCH` for an invalid/nonexistent slug. |
 | D-19 | Command separation (surface-independent) | **DECIDED (PO, 2026-09-24)** | **`check`** = local read of the latest normalized/blended price per calibration (last price in Anticharon's memory, display only; source `history.csv`, the compact summary; no network) **including price alerts, which it reads as persisted — no recalculation** (no new data ⇒ nothing to recompute). **`history`** = local read like `check`, but over the long-term granular 30-day `effective_prices.json`; **analytics / model classification (profiles, CV%, trend, sibling alternatives) live inside `history`**, not in `check`. **`run`** = fetch from source and write **both `history.csv` and `effective_prices.json`**, respecting cache (same-day) rules, and **pre-computes the alerts at persist time** from the freshest observation plus the long-term series (`effective_prices.json` is therefore mandatory input for alerting). Today all three fetch live (`check` ≡ `run --dry-run`; `history` fetches and discards). Applies identically to CLI and MCP (D-20). |
 | D-20 | CLI ↔ MCP parity | **DECIDED (PO, 2026-09-24)** | Every CLI command/argument and MCP tool/parameter is **feature-identical**. Any asymmetry must be listed in the Parity Matrix (§3a) and signed off by the PO, and documented in plan, spec, code docstrings and user docs. MCP signatures may change freely now: the project is **Beta** until real users / third-party feedback exist (DOC-7). |
 | D-21 | Parity matrix sign-off | **DECIDED (PO, 2026-09-24)** except CLI prompt syntax (implementation detail, recorded when built) | `run_prices` name (A-8); A-2 withdrawn (prompt parity, MCP-12); A-3, A-4, A-5 signed off; A-6/A-7 withdrawn by adding `self_test` and `list_models` (MCP-13). Registered asymmetries: A-1, A-3, A-4, A-5, A-8. |
@@ -604,7 +613,10 @@ Decided during development (by design, not open scope): the final
   `alerts.json`; `check`/`check_prices` read persisted alerts without
   recalculation; ZDR results are never persisted (D-22, D-28).
 - No shortlisted model is ever dropped or substituted silently (F-15,
-  F-16): each skip emits a per-model message.
+  F-16): each skip emits a per-model message. `run --model` exact-filters the
+  configured shortlist and refuses an absent slug as `NOT_MONITORED` without
+  catalog or price network calls; `add_model` validates exact catalog identity
+  and emits `NO_EXACT_MATCH` for a nonexistent slug (D-14, D-18c).
 - The default is never inferred from list position (F-19); no default →
   `NO_DEFAULT`, no ★, no default-based alerts (D-24).
 - `get_model_history` on an unshortlisted model returns
@@ -625,6 +637,10 @@ Decided during development (by design, not open scope): the final
 - README shows, per host, the supported install modes (`uv tool install`, `pip install`; no `uvx`, D-27) with `~`/`$HOME` paths and how each is updated.
 - Built wheel contains `anticharon/llms.txt` from the single root file (D-7, CI check).
 - Divergence parity test passes (CLI and `--json` agree).
+- DOC-9 version-string inventory is human-reviewed before release; every
+  flagged user-facing current-version claim has a disposition in the ledger.
+  The optional inventory script is advisory, writes only to `.local/` when
+  asked to save, and is not a CI gate.
 
 ### WS-SELFUP
 - `check_updates` / `check-updates` never raises, respects its hard timeout,
@@ -835,26 +851,46 @@ tests, or the ledger. No deliberately failing tests are accepted.
 
 ### Issue registration gate — before Wave 1
 
-Create all GitHub issues represented by `ISSUES_DRAFT.md` before starting any
-wave. Fill in actual GitHub issue numbers below, update the issue draft
-companion, then make one atomic issue-registration commit. The control plane
-uses only the actual numbers recorded here; draft map numbers are not GitHub
-issue numbers. No wave starts while any in-scope issue is unregistered.
+All 12 GitHub issues represented by `ISSUES_DRAFT.md` were created before
+Wave 1. Their actual numbers are recorded below and in the issue-draft
+companion. The issue register is committed atomically before implementation.
+The control plane uses only the actual numbers recorded here; draft map IDs
+are not GitHub issue numbers. No wave starts while an in-scope issue is
+unregistered.
 
 | Draft ID | Issue title | GitHub issue | Registration status |
 |---|---|---:|---|
-| 1 | Unified agent message contract (`messages` + `isError`) | OPEN | Not created |
-| 2 | Separate `check` / `history` / `run` with persisted alerts | OPEN | Not created |
-| 3 | Source-tagged shortlist, Hermes order and explicit defaults | OPEN | Not created |
-| 4 | Exact-match slugs: no silent drops or substitutions | OPEN | Not created |
-| 5 | CLI/MCP parity tools: shortlist, calibration, self-test, conditional OpenClaw import | OPEN | Not created |
-| 6 | MCP tool annotations, server identity and descriptions | OPEN | Not created |
-| 7 | Prompt parity on the CLI and prompt hardening | OPEN | Not created |
-| 8 | Fallback-aware alerts and fallback-order display (spike first) | OPEN | Not created |
-| 9 | Experimental self-update: `check_updates` + `run_update` | OPEN | Not created |
-| 10 | Documentation truth pass: single `llms.txt`, install docs, Beta, agent skill | OPEN | Not created |
-| 11 | Governance: protocol-baseline rule, pre-work cleanup | OPEN | Not created |
-| 12 | Release v0.6.0 Beta: manual gates and sign-off | OPEN | Not created |
+| 1 | Unified agent message contract (`messages` + `isError`) | #12 | Registered |
+| 2 | Separate `check` / `history` / `run` with persisted alerts | #13 | Registered |
+| 3 | Source-tagged shortlist, Hermes order and explicit defaults | #14 | Registered |
+| 4 | Exact-match slugs: no silent drops or substitutions | #15 | Registered |
+| 5 | CLI/MCP parity tools: shortlist, calibration, self-test, conditional OpenClaw import | #16 | Registered |
+| 6 | MCP tool annotations, server identity and descriptions | #17 | Registered |
+| 7 | Prompt parity on the CLI and prompt hardening | #18 | Registered |
+| 8 | Fallback-aware alerts and fallback-order display (spike first) | #19 | Registered |
+| 9 | Experimental self-update: `check_updates` + `run_update` | #20 | Registered |
+| 10 | Documentation truth pass: single `llms.txt`, install docs, Beta, agent skill | #21 | Registered |
+| 11 | Governance: protocol-baseline rule, pre-work cleanup | #22 | Registered |
+| 12 | Release v0.6.0 Beta: manual gates and sign-off | #23 | Registered |
+
+Formal GitHub issue relationships mirror the dependency plan. `Blocked by` is
+set on the downstream issue; the shared sprint branch is not individually
+attached to each issue.
+
+| GitHub issue | Blocked by |
+|---:|---|
+| #12 | — |
+| #13 | #12 |
+| #14 | #12 |
+| #15 | #12 |
+| #16 | #12, #14 |
+| #17 | #13, #16 |
+| #18 | #16 |
+| #19 | #13, #14 |
+| #20 | #12 |
+| #21 | #12–#20 |
+| #22 | — |
+| #23 | #12–#22 |
 
 ### Wave order and traceability gates
 
@@ -894,10 +930,10 @@ recorded.
 
 | Wave | GitHub issues | Ledger IDs traced | Start commit | Atomic implementation commit(s) | Green verification (command/result) | Audit/review findings and disposition | Decisions / PO sign-off | Open questions / parked findings | Sidecar state transferred | Closeout commit | Next-wave handoff |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| W1 Foundation | OPEN | A2A-1…8, DOC-6, DOC-8 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
-| W2 Model identity | OPEN | MCP-2/6/7/8, D-2/5/13/14/15/24/25 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
-| W3 Command split | OPEN | MCP-10/11, D-3/4/18/18b/18c/19/22/28 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
-| W4 Tool surface | OPEN | MCP-1/3/4/5/9/12/13, §3f, §3b | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
-| W5 Host integrations | OPEN | SELFUP-0…2, MCP-15, E-1…E-4 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
-| W6 Fallback alerts | OPEN | MCP-14, E-5 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
-| W7 Docs & release | OPEN | DOC-1/2/3/3a/5/7, MG-1/2/3 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
+| W1 Foundation | #12, #22 | A2A-1…8, DOC-6, DOC-8 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
+| W2 Model identity | #14, #15 | MCP-2/6/7/8, D-2/5/13/14/15/24/25 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
+| W3 Command split | #13 | MCP-10/11, D-3/4/18/18b/18c/19/22/28 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
+| W4 Tool surface | #16, #17, #18 | MCP-1/3/4/5/9/12/13, §3f, §3b | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
+| W5 Host integrations | #16, #20 | SELFUP-0…2, MCP-15, E-1…E-4 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
+| W6 Fallback alerts | #19 | MCP-14, E-5 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
+| W7 Docs & release | #21, #23 | DOC-1/2/3/3a/5/7, MG-1/2/3 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |

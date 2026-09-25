@@ -6,7 +6,7 @@
 > wave close. Playbook: `../AGENT_PLAYBOOK.md`.
 
 ## Scope
-- **Draft issue IDs (not GitHub numbers):** #5 tools (OpenClaw part moved to W5) · #6 annotations · #7 prompts
+- **GitHub issues:** #16 tools (OpenClaw part moved to W5) · #17 annotations · #18 prompts
 - **Ledger IDs:** MCP-1, MCP-3, MCP-4, MCP-5, MCP-9, MCP-12, MCP-13, §3f, D-6, D-12, D-17, D-23, D-29, §3b
 - **Depends on:** W2, W3
 - **Branch:** `codex/mcp-ecosystem-ergonomics` (continue from the current integrated HEAD)

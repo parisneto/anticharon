@@ -6,9 +6,9 @@
 > wave close. Playbook: `../AGENT_PLAYBOOK.md`.
 
 ## Scope
-- **Draft issue IDs (not GitHub numbers):** #9 self-update · #5 OpenClaw alpha importer (MCP-15, conditional)
+- **GitHub issues:** #20 self-update · #16 OpenClaw alpha importer (MCP-15, conditional)
 - **Ledger IDs:** SELFUP-0, SELFUP-1, SELFUP-2, E-1, E-2, E-3, E-4, D-9, D-9b, D-26, D-27 · MCP-15 (see `docs/plans/ecosystem-ergonomics/openclaw_research.md`)
-- **Depends on:** W1 (OpenClaw also needs W2 shortlist shape) — runs alongside W2–W4
+- **Depends on:** W4 closed (OpenClaw also requires W2 shortlist shape)
 - **Branch:** `codex/mcp-ecosystem-ergonomics` (continue from the current integrated HEAD)
 - **PO-owned decisions inside this wave:** run_update final type set and mechanics (PO live tests); E-1…E-4 evidence; **OpenClaw: supported version, verified `models status --json` schema, selected-agent behavior, first acceptance fixture — or park**
 
