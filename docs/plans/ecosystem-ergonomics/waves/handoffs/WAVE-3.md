@@ -1,24 +1,26 @@
 # WAVE-3 Sidecar — Command split
 
-> PRIVATE handoff for W3. Updated by every agent at gates D, B, R. The ledger
-> (`docs/plans/ecosystem-ergonomics/EXECUTION_CONTRACT.md`) decides; this file
-> only records progress. Playbook: `../AGENT_PLAYBOOK.md`.
+> Working handoff for W3. Updated by every agent at gates D, B, R. The ledger
+> (`docs/plans/ecosystem-ergonomics/EXECUTION_CONTRACT.md`) decides. This file
+> is a temporary working note. Transfer its complete state to ledger §10 before
+> wave close. Playbook: `../AGENT_PLAYBOOK.md`.
 
 ## Scope
-- **Issues:** #2 check/history/run + alerts.json
+- **Draft issue IDs (not GitHub numbers):** #2 check/history/run + alerts.json
 - **Ledger IDs:** MCP-10, MCP-11, D-3, D-4, D-18, D-18b, D-18c, D-19, D-22, D-28
 - **Depends on:** W1, W2
-- **Base:** `codex/mcp-ecosystem-ergonomics` @ `ab41f72`
-- **Branch / worktree:** `codex/mcp-ecosystem-ergonomics-w3` · test lane: `codex/mcp-ecosystem-ergonomics-w3-tests`
+- **Branch:** `codex/mcp-ecosystem-ergonomics` (continue from the current integrated HEAD)
 - **PO-owned decisions inside this wave:** none
 
 ## Routing
-| Phase | Lane | Model / effort | Status |
+
+One implementation agent works this wave. There is no parallel test-writing lane. From Wave 2 onward, parallel work is limited to read-only audit/pre-test review. The test gate must be green before wave close.
+| Phase | Owner / activity | Status | Evidence / note |
 |---|---|---|---|
-| D Design | build | Opus high | ☐ |
-| B Build | build | Opus high | ☐ |
-| B Tests (parallel) | test | Sonnet med: zero-network tests for check/history, alerts.json rule 1 (single-model update + cross-model recompute), parity-test skeleton | ☐ |
-| R Review | review | /code-review high + Codex high | ☐ |
+| D Design | One implementation agent; ledger/spec traceability | ☐ | |
+| B Build + tests | Same agent and sprint branch; no intentional failing gate | ☐ | |
+| R Read-only audit/review | Independent audit after reviewable state; W2 onward may run audits in parallel | ☐ | |
+| Closeout | Transfer all handoff fields to ledger §10; record commit SHAs and results | ☐ | |
 
 ## Acceptance (from the ledger)
 - [ ] check/history make zero network calls
@@ -43,11 +45,11 @@
 - _none_
 
 ## Verify
+Run the required checks on the sprint branch. Do not close the wave unless all required gates pass.
 ```bash
 uv run pytest
 ```
 
 ## Next
-- **Next phase / lane:** D Design (build)
-- **Recommended model:** Opus high
-- **Continuation line:** "Read the WAVE-3 sidecar and the ledger IDs it cites. You are {model}/{effort} for W3 {lane}/{phase}. Do that phase only, update the sidecar, stop at its gate."
+Before starting the next wave, transfer all fields above into the corresponding ledger §10 closeout row, including commit SHAs and actual GitHub issue numbers.
+- **Suggested implementation model:** Opus high

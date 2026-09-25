@@ -1,24 +1,26 @@
-# WAVE-5 Sidecar — Host integrations (parallel)
+# WAVE-5 Sidecar — Host integrations
 
-> PRIVATE handoff for W5. Updated by every agent at gates D, B, R. The ledger
-> (`docs/plans/ecosystem-ergonomics/EXECUTION_CONTRACT.md`) decides; this file
-> only records progress. Playbook: `../AGENT_PLAYBOOK.md`.
+> Working handoff for W5. Updated by every agent at gates D, B, R. The ledger
+> (`docs/plans/ecosystem-ergonomics/EXECUTION_CONTRACT.md`) decides. This file
+> is a temporary working note. Transfer its complete state to ledger §10 before
+> wave close. Playbook: `../AGENT_PLAYBOOK.md`.
 
 ## Scope
-- **Issues:** #9 self-update · #5 OpenClaw alpha importer (MCP-15, conditional)
+- **Draft issue IDs (not GitHub numbers):** #9 self-update · #5 OpenClaw alpha importer (MCP-15, conditional)
 - **Ledger IDs:** SELFUP-0, SELFUP-1, SELFUP-2, E-1, E-2, E-3, E-4, D-9, D-9b, D-26, D-27 · MCP-15 (see `docs/plans/ecosystem-ergonomics/openclaw_research.md`)
 - **Depends on:** W1 (OpenClaw also needs W2 shortlist shape) — runs alongside W2–W4
-- **Base:** `codex/mcp-ecosystem-ergonomics` @ `ab41f72`
-- **Branch / worktree:** `codex/mcp-ecosystem-ergonomics-w5` · test lane: `codex/mcp-ecosystem-ergonomics-w5-tests`
+- **Branch:** `codex/mcp-ecosystem-ergonomics` (continue from the current integrated HEAD)
 - **PO-owned decisions inside this wave:** run_update final type set and mechanics (PO live tests); E-1…E-4 evidence; **OpenClaw: supported version, verified `models status --json` schema, selected-agent behavior, first acceptance fixture — or park**
 
 ## Routing
-| Phase | Lane | Model / effort | Status |
+
+One implementation agent works this wave. There is no parallel test-writing lane. From Wave 2 onward, parallel work is limited to read-only audit/pre-test review. The test gate must be green before wave close.
+| Phase | Owner / activity | Status | Evidence / note |
 |---|---|---|---|
-| D Design | build | Codex high (isolated update.py) | ☐ |
-| B Build | build | Codex high (isolated update.py) → PO live tests | ☐ |
-| B Tests (parallel) | test | Gemini: E-4 release-payload fixtures (current, newer, malformed, 403); OpenClaw fixtures only from verified real output | ☐ |
-| R Review | review | Claude /code-review high (other vendor than builder) | ☐ |
+| D Design | One implementation agent; ledger/spec traceability | ☐ | |
+| B Build + tests | Same agent and sprint branch; no intentional failing gate | ☐ | |
+| R Read-only audit/review | Independent audit after reviewable state; W2 onward may run audits in parallel | ☐ | |
+| Closeout | Transfer all handoff fields to ledger §10; record commit SHAs and results | ☐ | |
 
 ## Acceptance (from the ledger)
 - [ ] check_updates / check-updates: is_latest, ~2 s timeout, UPDATE_CHECK_FAILED + isError
@@ -43,11 +45,11 @@
 - _none_
 
 ## Verify
+Run the required checks on the sprint branch. Do not close the wave unless all required gates pass.
 ```bash
 uv run pytest
 ```
 
 ## Next
-- **Next phase / lane:** D Design (build)
-- **Recommended model:** Codex high (isolated update.py)
-- **Continuation line:** "Read the WAVE-5 sidecar and the ledger IDs it cites. You are {model}/{effort} for W5 {lane}/{phase}. Do that phase only, update the sidecar, stop at its gate."
+Before starting the next wave, transfer all fields above into the corresponding ledger §10 closeout row, including commit SHAs and actual GitHub issue numbers.
+- **Suggested implementation model:** Codex high

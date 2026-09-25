@@ -4,15 +4,20 @@
 > 2026-09-24). Each section below is one ready-to-paste GitHub issue. IDs in
 > brackets (`A2A-1`, `D-19`, `F-15`, …) refer to that ledger, which stays the
 > single source of truth — issues link to it rather than restating decisions.
-> After opening the issues, record their numbers in the table below and in
-> the ledger's `Tracking:` line.
+> Before Wave 1, create all issues, record their actual numbers in the
+> canonical ledger §10, and commit that register atomically. The `#` values
+> below are draft map IDs only; they are not GitHub issue numbers.
 
 Protocol baseline for every issue: MCP specification `2026-07-28`
 (https://modelcontextprotocol.io/specification/2026-07-28).
 
 ## Issue map & order
 
-| # | Title | Labels | Depends on | GH # |
+The draft IDs below are stable planning references only. The execution control
+plane reads actual GitHub issue numbers from §10 of the canonical ledger after
+the pre-Wave-1 issue-registration commit.
+
+| Draft ID | Title | Labels | Depends on | GitHub issue # (OPEN until registered) |
 |---|---|---|---|---|
 | 1 | Unified agent message contract (`messages` + `isError`) | enhancement, a2a | — | |
 | 2 | Separate `check` / `history` / `run` with persisted alerts | enhancement, breaking | 1 | |

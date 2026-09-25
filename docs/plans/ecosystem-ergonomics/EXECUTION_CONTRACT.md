@@ -10,11 +10,11 @@
 > are settled by evidence gates or PO live tests, never guessed.
 
 Written by: parisneto (Product Owner) + planning agent
-Status: **SCOPE CLOSED — ready for issues** (PO refinement complete, 2026-09-24)
+Status: **SCOPE CLOSED — issue registration required before Wave 1** (PO refinement complete, 2026-09-24)
 Last synchronized: 2026-09-24 (canonical ledger integrated on `codex/mcp-ecosystem-ergonomics`; cross-section sanity pass)
 Base commit: `main` @ `1a64782` (includes the `ci.yml` read-only-token change; no effect on scope)
 Target version: `0.6.0` — **Beta** (D-10, D-20); breaking interface changes are allowed until real users/feedback exist
-Tracking: GitHub issues are created **after** scope is closed in this ledger (PO decision, 2026-09-23)
+Tracking: Create all GitHub issues before Wave 1. Immediately record their actual GitHub issue numbers in §10 and commit that issue register atomically before implementation starts. Wave handoffs are routing notes; this ledger is authoritative.
 
 Protocol baseline: **MCP specification `2026-07-28`**
 (https://modelcontextprotocol.io/specification/2026-07-28 — schema
@@ -702,7 +702,7 @@ Decided during development (by design, not open scope): the final
   corrected; eval-harness link reworded (DOC-6); parked items from
   "Deferred" added; nothing else touched.
 - Release notes draft written to `.local/`.
-- GitHub issues opened from this ledger once scope is closed (PO).
+- GitHub issues are created before Wave 1; actual numbers are recorded in §10 and committed in one issue-registration commit before implementation.
 
 ---
 
@@ -820,3 +820,84 @@ Reactive to the two input documents only.
   history. Moved to `docs/BACKLOG.md` at sprint close.
 - Everything in §8 and the OUT rows of §1 remain in `docs/BACKLOG.md`,
   untouched by this sprint.
+
+
+---
+
+## 10. Wave Execution and Ledger Register
+
+This sprint runs on the single branch `codex/mcp-ecosystem-ergonomics`. There
+are no per-wave implementation branches, test branches, worktrees, or PRs.
+Only one implementation wave and one implementation agent are active at a
+time. From Wave 2 onward, independent review/audit or pre-test planning may
+run in parallel, but those activities are read-only and cannot modify code,
+tests, or the ledger. No deliberately failing tests are accepted.
+
+### Issue registration gate — before Wave 1
+
+Create all GitHub issues represented by `ISSUES_DRAFT.md` before starting any
+wave. Fill in actual GitHub issue numbers below, update the issue draft
+companion, then make one atomic issue-registration commit. The control plane
+uses only the actual numbers recorded here; draft map numbers are not GitHub
+issue numbers. No wave starts while any in-scope issue is unregistered.
+
+| Draft ID | Issue title | GitHub issue | Registration status |
+|---|---|---:|---|
+| 1 | Unified agent message contract (`messages` + `isError`) | OPEN | Not created |
+| 2 | Separate `check` / `history` / `run` with persisted alerts | OPEN | Not created |
+| 3 | Source-tagged shortlist, Hermes order and explicit defaults | OPEN | Not created |
+| 4 | Exact-match slugs: no silent drops or substitutions | OPEN | Not created |
+| 5 | CLI/MCP parity tools: shortlist, calibration, self-test, conditional OpenClaw import | OPEN | Not created |
+| 6 | MCP tool annotations, server identity and descriptions | OPEN | Not created |
+| 7 | Prompt parity on the CLI and prompt hardening | OPEN | Not created |
+| 8 | Fallback-aware alerts and fallback-order display (spike first) | OPEN | Not created |
+| 9 | Experimental self-update: `check_updates` + `run_update` | OPEN | Not created |
+| 10 | Documentation truth pass: single `llms.txt`, install docs, Beta, agent skill | OPEN | Not created |
+| 11 | Governance: protocol-baseline rule, pre-work cleanup | OPEN | Not created |
+| 12 | Release v0.6.0 Beta: manual gates and sign-off | OPEN | Not created |
+
+### Wave order and traceability gates
+
+Run waves serially in this order: W1 Foundation → W2 Model identity → W3
+Command split → W4 Tool surface → W5 Host integrations → W6 Fallback alerts
+→ W7 Docs & release. Each wave starts from the current integrated HEAD of
+the sprint branch, not a pinned base SHA.
+
+Before each wave starts, perform a brief ledger-to-wave traceability check:
+confirm every issue number is registered, each listed issue maps to the
+wave's ledger IDs, dependencies and OPEN decisions are understood, and scope
+contains no additions not approved by the PO. Record the starting commit and
+traceability result in that wave's closeout record below. Code agents may
+suggest new scope in chat; unapproved suggestions go only in the parked
+section and do not enter a wave.
+
+Each wave follows design → implementation with tests → audit/review. Tests
+are written and integrated on this same branch as part of the wave; the
+verification gate must be green before any wave-close commit. If a gate fails,
+fix it or stop the wave without marking it complete. A read-only audit may be
+parallel from W2 onward; no parallel implementation or test-writing lane.
+
+At wave end, transfer the complete sidecar state into this ledger before
+closing the wave. This includes progress/gates, done IDs and evidence, open
+questions and their status, out-of-scope findings, verification commands and
+results, decisions/PO responses, and next-wave resume context. Identify the
+atomic implementation and closeout commit SHAs and the actual GitHub issue
+numbers. Sidecars are handoff aids; after closeout this ledger is the durable
+record. Every change of scope or acceptance requires PO sign-off and a ledger
+update before implementation proceeds.
+
+### Wave closeout register
+
+Fill one record at each wave close. Do not mark a wave complete until all
+fields are transferred from its sidecar and the green verification result is
+recorded.
+
+| Wave | GitHub issues | Ledger IDs traced | Start commit | Atomic implementation commit(s) | Green verification (command/result) | Audit/review findings and disposition | Decisions / PO sign-off | Open questions / parked findings | Sidecar state transferred | Closeout commit | Next-wave handoff |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| W1 Foundation | OPEN | A2A-1…8, DOC-6, DOC-8 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
+| W2 Model identity | OPEN | MCP-2/6/7/8, D-2/5/13/14/15/24/25 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
+| W3 Command split | OPEN | MCP-10/11, D-3/4/18/18b/18c/19/22/28 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
+| W4 Tool surface | OPEN | MCP-1/3/4/5/9/12/13, §3f, §3b | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
+| W5 Host integrations | OPEN | SELFUP-0…2, MCP-15, E-1…E-4 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
+| W6 Fallback alerts | OPEN | MCP-14, E-5 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
+| W7 Docs & release | OPEN | DOC-1/2/3/3a/5/7, MG-1/2/3 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
