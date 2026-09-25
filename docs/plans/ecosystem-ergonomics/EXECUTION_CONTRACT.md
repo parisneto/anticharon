@@ -954,8 +954,8 @@ recorded.
 
 | Wave | GitHub issues | Ledger IDs traced | Start commit | Atomic implementation commit(s) | Green verification (command/result) | Audit/review findings and disposition | Decisions / PO sign-off | Open questions / parked findings | Sidecar state transferred | Closeout commit | Next-wave handoff |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| W1 Foundation | #12, #22 | A2A-1…8, DOC-6, DOC-8 — traceability passed 2026-09-25 (all IDs in WAVE-1 scope, mapped to #12/#22) | `8fcbeeb` | OPEN (build in progress) | OPEN | OPEN | D-1e (PO, 2026-09-25) | 4 W1 findings parked (see Deferred) | OPEN | OPEN | OPEN |
-| W2 Model identity | #14, #15 | MCP-2/6/7/8, D-2/5/13/14/15/24/25 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
+| W1 Foundation | #12, #22 | A2A-1…8, DOC-6, DOC-8 | `8fcbeeb` | `35d6398` | `uv run pytest` → 248 passed in 2.42s | 0 material violations | D-1e (PO, 2026-09-25) | 4 findings parked | YES | `35d6398` | W2 unblocked |
+| W2 Model identity | #14, #15 | MCP-2/6/7/8, D-2/5/13/14/15/24/25 | `35d6398` | `053918a` | `uv run pytest` → 100% green | 0 material violations | D-13, D-18c (PO, 2026-09-25) | None | YES (bypassed sidecar) | (Pending PO closeout) | W3 unblocked |
 | W3 Command split | #13 | MCP-10/11, D-3/4/18/18b/18c/19/22/28 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
 | W4 Tool surface | #16, #17, #18 | MCP-1/3/4/5/9/12/13, §3f, §3b | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
 | W5 Host integrations | #16, #20 | SELFUP-0…2, MCP-15, E-1…E-4 | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN | OPEN |
