@@ -578,6 +578,20 @@ local paths stripped (Rule 4 / Rule 12). Screenshots are not required.
   acceptance fixture remain OPEN. No importer or parser was shipped, rather
   than guessing at a partial shortlist write.
 
+### W6 evidence record — 2026-09-26
+
+- **E-5 — implementation prototype observation.** Price order remains the
+  clearest general comparison for the `check` table, TUI spectrum, and JSON
+  list: it identifies the least-cost model without implying Hermes will select
+  it on failover. Hermes order is essential only for the failover question,
+  because the immediate fallback can differ from the least-cost model. W6
+  therefore leaves those existing price-ordered surfaces unchanged and adds a
+  persisted `NEXT_FALLBACK_PRICE` alert that explicitly compares the default
+  with Hermes `order: 1`. Its deterministic fixture covers an unpriceable
+  immediate fallback with `NEXT_FALLBACK_UNAVAILABLE`, rather than silently
+  selecting a later fallback. The alert has no threshold: its role is to show
+  the known cost of the next failover, including a lower-cost fallback.
+
 ---
 
 ## 5. Decision Register

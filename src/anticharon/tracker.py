@@ -85,7 +85,7 @@ DATA_STALE_MESSAGE = AgentMessage(
 # always rebuilt from the currently stored prices (D-22 rule 1); POLICY_* is
 # never persisted at all (D-28).
 _NEVER_PERSISTED_ALERT_TYPES = frozenset({"POLICY_UNROUTABLE", "POLICY_UNKNOWN"})
-_CROSS_MODEL_ALERT_TYPE = "BEST_OPTION_CHANGED"
+_CROSS_MODEL_ALERT_TYPES = frozenset({"BEST_OPTION_CHANGED", "NEXT_FALLBACK_PRICE", "NEXT_FALLBACK_UNAVAILABLE"})
 
 
 def fetch_openrouter_models(timeout: float = 10.0) -> dict[str, Any]:
@@ -351,6 +351,7 @@ def _price_warning_from_dict(d: dict[str, Any]) -> PriceWarning:
     return PriceWarning(
         type=d["type"], message=d["message"], model=d.get("model"),
         current_default=d.get("current_default"), suggested_cheapest=d.get("suggested_cheapest"),
+        next_fallback=d.get("next_fallback"),
         policy=d.get("policy"), excluded_providers=d.get("excluded_providers"), reason=d.get("reason"),
     )
 
@@ -365,10 +366,61 @@ def _recompute_best_option_changed(price_map: dict[str, float], current_default:
         return None
     cheapest_price = price_map[cheapest_model]
     return PriceWarning(
-        type=_CROSS_MODEL_ALERT_TYPE,
+        type="BEST_OPTION_CHANGED",
         current_default=current_default,
         suggested_cheapest=cheapest_model,
         message=f"Model {cheapest_model} (${cheapest_price:.5f}/1M) is cheaper than configured default {current_default}.",
+    )
+
+
+def _recompute_next_fallback_alert(
+    price_map: dict[str, float], entries: list[dict[str, Any]], current_default: str | None,
+) -> PriceWarning | None:
+    """Describe the immediate Hermes failover cost without inferring an order.
+
+    Only Hermes has an ordered fallback chain. A manual default intentionally
+    has no implied fallback, even when other manual models are shortlisted.
+    """
+    if not current_default:
+        return None
+    default_entry = next((entry for entry in entries if entry["model"] == current_default), None)
+    if not default_entry or default_entry.get("source") != "hermes":
+        return None
+    fallback_entries = sorted(
+        (entry for entry in entries if entry.get("source") == "hermes" and entry.get("order", -1) > 0),
+        key=lambda entry: entry["order"],
+    )
+    if not fallback_entries:
+        return None
+
+    fallback_model = fallback_entries[0]["model"]
+    default_price = price_map.get(current_default)
+    fallback_price = price_map.get(fallback_model)
+    if default_price is None or fallback_price is None:
+        unavailable = current_default if default_price is None else fallback_model
+        return PriceWarning(
+            type="NEXT_FALLBACK_UNAVAILABLE",
+            model=unavailable,
+            current_default=current_default,
+            next_fallback=fallback_model,
+            message=(f"Hermes next fallback {fallback_model} cannot be compared with default "
+                     f"{current_default} because {unavailable} has no usable price."),
+        )
+    if default_price == 0:
+        comparison = f"costs ${fallback_price:.5f}/1M while default {current_default} is free"
+    else:
+        difference_pct = (fallback_price - default_price) / default_price * 100
+        comparison = (
+            f"is {difference_pct:.1f}% more expensive"
+            if difference_pct >= 0
+            else f"is {abs(difference_pct):.1f}% less expensive"
+        )
+    return PriceWarning(
+        type="NEXT_FALLBACK_PRICE",
+        model=fallback_model,
+        current_default=current_default,
+        next_fallback=fallback_model,
+        message=f"Hermes next fallback {fallback_model} {comparison} than default {current_default}.",
     )
 
 
@@ -376,6 +428,7 @@ def _persist_alerts(
     warnings: list[PriceWarning],
     records_by_model: dict[str, list[Any]],
     full_shortlist: list[str],
+    entries: list[dict[str, Any]],
     current_default: str | None,
     now_iso: str,
     model_id: str | None,
@@ -386,18 +439,22 @@ def _persist_alerts(
     replaces only X's per-model alerts and the cross-model alert, keeping
     every other model's persisted alerts (Rule 1)."""
     price_map = {m: records_by_model[m][2] for m in full_shortlist if m in records_by_model}
-    recomputed_best = _recompute_best_option_changed(price_map, current_default)
-    fresh_per_model = [w.to_dict() for w in warnings if w.type not in _NEVER_PERSISTED_ALERT_TYPES | {_CROSS_MODEL_ALERT_TYPE}]
+    recomputed_cross_model = [
+        alert for alert in (
+            _recompute_best_option_changed(price_map, current_default),
+            _recompute_next_fallback_alert(price_map, entries, current_default),
+        ) if alert is not None
+    ]
+    fresh_per_model = [w.to_dict() for w in warnings if w.type not in _NEVER_PERSISTED_ALERT_TYPES | _CROSS_MODEL_ALERT_TYPES]
 
     if model_id is None:
         price_warnings = fresh_per_model
     else:
         existing = read_alerts(alerts_path).get("price_warnings", [])
-        kept = [w for w in existing if w.get("type") != _CROSS_MODEL_ALERT_TYPE and w.get("model") != model_id]
+        kept = [w for w in existing if w.get("type") not in _CROSS_MODEL_ALERT_TYPES and w.get("model") != model_id]
         price_warnings = kept + fresh_per_model
 
-    if recomputed_best is not None:
-        price_warnings.append(recomputed_best.to_dict())
+    price_warnings.extend(alert.to_dict() for alert in recomputed_cross_model)
 
     write_alerts({
         "timestamp": now_iso,
@@ -784,7 +841,7 @@ def run_tracker(
         write_history(list(records_by_model.values()), hist_path)
         write_effective_prices(effective_store, effective_prices_path)
         _persist_alerts(
-            warnings, records_by_model, cfg.get("shortlist", []), current_default, now_iso, model_id,
+            warnings, records_by_model, cfg.get("shortlist", []), cfg.get("_shortlist_entries", []), current_default, now_iso, model_id,
             get_alerts_path(hist_path.parent),
         )
 
@@ -827,6 +884,13 @@ def run_tracker(
                 suggested_cheapest=cheapest.model,
                 message=f"Model {cheapest.model} (${cheapest_rank:.5f}/1M) is cheaper than configured default {current_default}."
             ))
+
+    live_price_map = {price.model: price.price_1m for price in prices_shortlist}
+    next_fallback_alert = _recompute_next_fallback_alert(
+        live_price_map, cfg.get("_shortlist_entries", []), current_default,
+    )
+    if next_fallback_alert is not None:
+        warnings.append(next_fallback_alert)
 
     if enable_analytics:
         if updated_records:

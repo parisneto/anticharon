@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **W6 fallback-aware alerts (#19):** `run`/`run_prices` now persist a
+  `NEXT_FALLBACK_PRICE` alert comparing the explicit Hermes default with its
+  immediate Hermes fallback in `alerts.json`. An unpriceable default or
+  fallback produces explicit `NEXT_FALLBACK_UNAVAILABLE` state; no
+  default-based fallback alert is emitted without an explicit default.
 - **W5 self-update tools (#20):** Added user-initiated `check_updates` / `anticharon check-updates` with a hard two-second GitHub Releases timeout and `is_latest`, plus experimental named `run_update` / `anticharon update --type` sequences. Update fallback always targets the running interpreter through `sys.executable -m pip`; no background checks or `uvx` support were added.
 - **W4 MCP tool surface (#16–#18):** Added model management and self-test tools, CSV and direct-weight calibration with pre-write `.bak` backup, calibration guidance resource, standard annotations on all tools, versioned server instructions, and a shared five-prompt registry exposed through `anticharon prompt`.
 - **Calibration normalization:** Direct weights accept sums within `0.000001` of 1, normalize by the supplied total, and round to six decimals.

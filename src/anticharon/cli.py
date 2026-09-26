@@ -122,6 +122,10 @@ def format_human_output(result: TrackerResult, messages: list[dict], local_read:
                 print(f"  🟢 [DROP]  {w.message}")
             elif w.type == "BEST_OPTION_CHANGED":
                 print(f"  💡 [TIP]   {w.message}")
+            elif w.type == "NEXT_FALLBACK_PRICE":
+                print(f"  🔁 [FAILOVER] {w.message}")
+            elif w.type == "NEXT_FALLBACK_UNAVAILABLE":
+                print(f"  ⚠️  [FAILOVER] {w.message}")
             elif w.type == "POLICY_UNROUTABLE":
                 print(f"  🚫 [POLICY] {w.message}")
             elif w.type == "POLICY_UNKNOWN":

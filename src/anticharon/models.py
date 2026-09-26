@@ -235,12 +235,13 @@ class ModelPrice:
 
 @dataclass
 class PriceWarning:
-    """Warning structure for volatility, cheapest-model, or policy-routability alerts."""
-    type: str  # 'PRICE_SPIKE', 'PRICE_DROP', 'BEST_OPTION_CHANGED', 'POLICY_UNROUTABLE'
+    """Warning structure for volatility, comparison, or policy-routability alerts."""
+    type: str
     message: str
     model: str | None = None
     current_default: str | None = None
     suggested_cheapest: str | None = None
+    next_fallback: str | None = None
     policy: str | None = None
     excluded_providers: list[str] | None = None
     reason: str | None = None
@@ -256,6 +257,8 @@ class PriceWarning:
             data["current_default"] = self.current_default
         if self.suggested_cheapest:
             data["suggested_cheapest"] = self.suggested_cheapest
+        if self.next_fallback:
+            data["next_fallback"] = self.next_fallback
         if self.policy:
             data["policy"] = self.policy
         if self.excluded_providers:

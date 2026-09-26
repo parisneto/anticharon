@@ -246,6 +246,12 @@ Same data directory as `history.csv`/`effective_prices.json`, same path-resoluti
 - `run --model X` / `run_prices(model_id=X)` replaces only `X`'s per-model alerts (`PRICE_SPIKE`/`PRICE_DROP`) and recomputes the cross-model `BEST_OPTION_CHANGED` alert from the currently stored price of every shortlisted model; every other model's persisted alert is kept unchanged (mixed recency, D-18 Rule 1).
 - A full (unfiltered) `run` replaces the whole `price_warnings` list.
 - **Policy (ZDR) results are never persisted** (D-28): `POLICY_UNROUTABLE`/`POLICY_UNKNOWN` and any ZDR-ranked `BEST_OPTION_CHANGED` exist only in that call's live response, never in `alerts.json`. The persisted `BEST_OPTION_CHANGED` is always derived from the unconstrained `effective_price_1m`.
+- `NEXT_FALLBACK_PRICE` compares the explicit Hermes default with its immediate
+  Hermes fallback (`order: 1`) using unconstrained effective prices. It carries
+  `current_default` and `next_fallback`, and is persisted alongside
+  `BEST_OPTION_CHANGED`; it does not treat a cheaper later fallback as the next
+  failover. If either price is unavailable, `NEXT_FALLBACK_UNAVAILABLE` is
+  persisted instead. Neither alert is produced without an explicit default.
 
 ---
 

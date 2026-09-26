@@ -134,6 +134,59 @@ def test_run_model_filter_replaces_only_target_alerts_and_recomputes_cross_model
     assert history["p/default"].effective_price_1m == pytest.approx(default_price_before)
 
 
+def test_run_persists_next_hermes_fallback_cost_alert(tmp_path, two_model_catalog):
+    """MCP-14: compare the first Hermes fallback, not the cheapest model."""
+    cfg_path = _write_shortlist(tmp_path, [
+        {"model": "p/alpha", "source": "hermes", "order": 0},
+        {"model": "p/beta", "source": "hermes", "order": 1},
+    ])
+    hist_path = tmp_path / "history.csv"
+
+    result = run_tracker(dry_run=False, config_path=cfg_path, history_path=hist_path, no_hermes=True)
+
+    live_alert = next(w for w in result.price_warnings if w.type == "NEXT_FALLBACK_PRICE")
+    assert live_alert.current_default == "p/alpha"
+    assert live_alert.next_fallback == "p/beta"
+    assert "more expensive" in live_alert.message
+    persisted_alerts = read_alerts(get_alerts_path(hist_path.parent))["price_warnings"]
+    assert any(alert["type"] == "NEXT_FALLBACK_PRICE" and alert["next_fallback"] == "p/beta"
+               for alert in persisted_alerts)
+
+
+def test_run_records_unpriceable_next_hermes_fallback_without_crashing(tmp_path, monkeypatch):
+    """MCP-14 explicitly records an unavailable first fallback rather than skipping it silently."""
+    cfg_path = _write_shortlist(tmp_path, [
+        {"model": "p/default", "source": "hermes", "order": 0},
+        {"model": "p/unpriceable", "source": "hermes", "order": 1},
+    ])
+    hist_path = tmp_path / "history.csv"
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {
+        "p/default": {"id": "p/default", "canonical_slug": "p/default", "pricing": {"prompt": "0.000001", "completion": "0.000002"}},
+    })
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **kw: [])
+    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", lambda *a, **kw: {})
+
+    result = run_tracker(dry_run=False, config_path=cfg_path, history_path=hist_path, no_hermes=True)
+
+    alert = next(w for w in result.price_warnings if w.type == "NEXT_FALLBACK_UNAVAILABLE")
+    assert alert.next_fallback == "p/unpriceable"
+    assert alert.model == "p/unpriceable"
+    persisted_alerts = read_alerts(get_alerts_path(hist_path.parent))["price_warnings"]
+    assert any(alert["type"] == "NEXT_FALLBACK_UNAVAILABLE" for alert in persisted_alerts)
+
+
+def test_run_suppresses_next_fallback_alert_without_explicit_default(tmp_path, two_model_catalog):
+    """D-24: Hermes fallbacks are not compared when the default is absent."""
+    cfg_path = _write_shortlist(tmp_path, [
+        {"model": "p/alpha", "source": "hermes", "order": 1},
+        {"model": "p/beta", "source": "hermes", "order": 2},
+    ])
+
+    result = run_tracker(dry_run=True, config_path=cfg_path, history_path=tmp_path / "history.csv", no_hermes=True)
+
+    assert not any(w.type.startswith("NEXT_FALLBACK") for w in result.price_warnings)
+
+
 def test_check_and_history_make_zero_network_calls(tmp_path, monkeypatch):
     """MCP-11 acceptance: check/check_prices and history/get_model_history
     make zero network calls, even with a live-looking shortlist and history."""
