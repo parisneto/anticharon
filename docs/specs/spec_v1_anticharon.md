@@ -477,7 +477,27 @@ anticharon help
 anticharon help run
 anticharon help model
 anticharon help model discover
+
+# 17. User-initiated self-update operations (experimental)
+anticharon check-updates [--json]
+anticharon update --type install_only [--json]
+# Numeric aliases 1–5 map to install_only, restart_host, phoenix,
+# phoenix_inverted, and reload_request respectively.
 ```
+
+`check-updates` uses GitHub Releases' `releases/latest` endpoint with a hard
+two-second timeout. It reports `is_latest` only when the installed version
+equals the release tag. It is user-initiated only: no background check, cache,
+or update notice is added to unrelated command responses. `uvx` is unsupported.
+
+`update` is always **EXPERIMENTAL** and offers named sequences
+`install_only`, `restart_host`, `phoenix`, `phoenix_inverted`, and
+`reload_request`. Reinstallation prefers `uv tool install --force` from the
+Git source; if `uv` is unavailable, it uses `sys.executable -m pip install
+--force-reinstall`, never a bare `pip`. A successful reinstall may still need
+a host restart. `phoenix` schedules the running server's termination for host
+respawn; `phoenix_inverted` schedules termination before a detached reinstall;
+`reload_request` asks the user to send `/reload-mcp`.
 
 ### JSON Output & Exit Codes
 Every `--json` output uses the §10.1a envelope (`status`, `messages`, `elapsed_ms`, then the payload), and human output renders the same `messages`. The exit code is `1` iff `status` is `error` or `refused` (the operation was not performed), otherwise `0`. `model sync` without a detectable Hermes config is `status: "warning"` with `HERMES_NOT_DETECTED` and exits `0`.
@@ -518,7 +538,7 @@ Anticharon natively exposes a standard Model Context Protocol (MCP) server over 
 
 ### 10.1a Response Envelope & Agent Messages (CLI `--json` and MCP)
 
-One contract for every JSON payload: every MCP tool result and every CLI `--json` output (`run`, `check`, `history`, `info`, `test`, `calibrate`, `model add|remove|list|discover|sync`). Raw CSV outputs (`--history-csv`, `history --csv`) are not JSON and are unchanged.
+One contract for every JSON payload: every MCP tool result and every CLI `--json` output (`run`, `check`, `history`, `info`, `test`, `calibrate`, `check-updates`, `update`, `model add|remove|list|discover|sync`). Raw CSV outputs (`--history-csv`, `history --csv`) are not JSON and are unchanged.
 
 - **Top-level keys, in this order:** `status`, `messages`, `elapsed_ms`, then the payload.
 - **`status`:** `success` · `warning` (done, with problems worth flagging) · `error` · `refused` · `not_monitored`. A target absent from the shortlist is `refused` (with a `NOT_MONITORED` message) only for a filtered *live* operation (`run --model`/`run_prices(model_id)`), which makes no catalog or price request for it; on a local read (`check`/`check_prices`, `history`/`get_model_history`) the same absent-target case is `status: "not_monitored"` — a normal result, not an error. `status` is set by the operation, not derived from message levels: a `warning`-level message can accompany `status: "success"` (e.g. standalone mode).
@@ -550,6 +570,11 @@ Codes emitted in 0.6.0 so far (the full catalog, including codes introduced by l
 | `SELF_TEST_FAILED` | error | `test` | one or more checks failed (`status: "error"`, exit 1); per-check `error` fields carry causes |
 | `CALIBRATION_INPUT_INVALID` | error | `calibrate` | activity CSV missing, unreadable or unparseable; weights unchanged (`status: "error"`, exit 1). Only invalid/unreadable input uses this code; other exceptions are internal failures and are not reported as invalid input |
 | `ZDR_LIVE_LIMITED` | warning | `model discover --zdr` | live ZDR results are limited: check capped at `max_zdr_check_count` (how many of how many) and/or compliance unknown for named models |
+| `UP_TO_DATE` / `UPDATE_AVAILABLE` | info | `check-updates` / `check_updates` | installed version equals / differs from GitHub's latest release; the latter points to `run_update` |
+| `UPDATE_CHECK_FAILED` | error | `check-updates` / `check_updates` | GitHub check failed within the hard timeout (`status: error`, MCP `isError: true`) |
+| `EXPERIMENTAL` | warning | `update` / `run_update` | always present: update may require manual intervention |
+| `UPDATE_INSTALLED` / `UPDATE_FAILED` | info / error | `update` / `run_update` | reinstall command outcome |
+| `RESTART_REQUIRED` | warning | `update` / `run_update` | updated process requires host restart, respawn, or `/reload-mcp` |
 
 ### 10.2 Exposed MCP Tools
 
@@ -612,6 +637,21 @@ slug, returns `NO_EXACT_MATCH` for an invalid or nonexistent slug, and reports
   - `hermes_untouched` (`true`): Confirms Hermes configuration was not mutated.
   - `messages` (§10.1a): `PREVIEW_ONLY` / `SHORTLIST_UPDATED` / `SHORTLIST_UNCHANGED` state preview vs persistence; `HERMES_INCOMPLETE` flags a protected shortlist; `HERMES_NOT_DETECTED` (with `status: "warning"`, never an error) when no Hermes config is found.
   - CLI `model sync` / `model import-hermes --json` returns the same payload and messages (one shared builder).
+
+#### 6. `check_updates` and `run_update` (experimental self-update)
+
+- `check_updates()` compares `anticharon.__version__` with GitHub Releases'
+  latest release using a hard two-second timeout. It is read-only, open-world,
+  idempotent, and returns `is_latest`. A failure returns `UPDATE_CHECK_FAILED`
+  with `status: error` and MCP `isError: true`.
+- `run_update(type="install_only")` is the only Anticharon tool that executes
+  commands. It is experimental, destructive, non-idempotent, and open-world.
+  The named enum is `install_only`, `restart_host`, `phoenix`,
+  `phoenix_inverted`, and `reload_request`; every response includes the
+  `EXPERIMENTAL` warning. It prefers `uv tool install --force` from the Git
+  source and otherwise invokes `sys.executable -m pip install --force-reinstall`.
+  The Phoenix variants schedule server termination for host respawn; a caller
+  must explicitly request them.
 
 ### 10.3 Exposed MCP Resources
 - `anticharon://llms.txt`: Machine-readable Agent-to-Agent operational briefing and schema definitions.

@@ -41,6 +41,9 @@ from anticharon.models import ERROR_STATUSES, AgentMessage, build_envelope
 from anticharon.prompts import PROMPTS, render_prompt
 from anticharon.storage import CSV_HEADER
 from anticharon.tracker import read_check_result, read_history_result, run_tracker
+from anticharon.updater import UpdateType
+from anticharon.updater import check_updates as check_for_updates
+from anticharon.updater import run_update as execute_update
 
 # Initialize MCP Server instance
 server = MCPServer(
@@ -379,6 +382,39 @@ def calibrate_fast(
     messages = [_message("info", "CALIBRATION_BACKUP", f"Previous token weights saved to {backup_path}.")] if backup_path else []
     messages.append(_message("info", "PREVIEW_ONLY" if dry_run else "SHORTLIST_UPDATED", "Normalized weights were computed; nothing was saved." if dry_run else "Normalized token weights were saved."))
     return tool_result(build_envelope({"status": "success", "weight_uncached_prompt": normalized[0], "weight_cached_prompt": normalized[1], "weight_completion": normalized[2], "sum": sum(normalized), "dry_run": dry_run, "config_path": str(cfg_path), "backup_path": str(backup_path) if backup_path else None}, messages, started))
+
+
+@server.tool(
+    name="check_updates",
+    annotations=_annotations("Check for updates", True, False, True, True),
+    description=(
+        "User-initiated check of the installed Anticharon version against GitHub's latest release. "
+        "Uses a hard two-second timeout and never runs automatically. Returns is_latest; failures "
+        "return UPDATE_CHECK_FAILED as an MCP error. See anticharon://llms.txt for the operational glossary."
+    ),
+)
+def check_updates() -> dict[str, Any]:
+    """Check GitHub Releases for an update without modifying this installation."""
+    started = time.perf_counter()
+    payload, messages = check_for_updates(__version__)
+    return tool_result(build_envelope(payload, messages, started))
+
+
+@server.tool(
+    name="run_update",
+    annotations=_annotations("Run experimental update", False, True, False, True),
+    description=(
+        "EXPERIMENTAL. Reinstalls Anticharon from its Git source using one named sequence: "
+        "install_only, restart_host, phoenix, phoenix_inverted, or reload_request. The operation "
+        "may require manual intervention such as `hermes gateway restart`; it is the only Anticharon "
+        "tool that executes commands. See anticharon://llms.txt for the operational glossary."
+    ),
+)
+def run_update(type: UpdateType = UpdateType.INSTALL_ONLY) -> dict[str, Any]:
+    """Run an experimental named update sequence; use only with explicit user intent."""
+    started = time.perf_counter()
+    payload, messages = execute_update(type)
+    return tool_result(build_envelope(payload, messages, started))
 
 
 # ==============================================================================

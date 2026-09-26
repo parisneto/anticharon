@@ -549,6 +549,33 @@ server-local CSV path; full CSV content is not sent over MCP (A-1).
 Evidence findings and any necessary sample payloads are recorded here with
 local paths stripped (Rule 4 / Rule 12). Screenshots are not required.
 
+### W5 evidence record — 2026-09-26
+
+- **E-1 — pending PO host verification.** This implementation workspace has
+  no configured Claude Desktop, Hermes, Cursor, or MCP Inspector target. The
+  required sentinel/model observation therefore cannot be truthfully recorded
+  here. Verify all four hosts before release; do not infer model visibility
+  from MCP server metadata alone.
+- **E-2 — pending PO install-matrix verification.** The requested three-mode
+  install/upgrade experiment needs disposable user installations and a local
+  newer tag. It was not run against an operator installation. The shipped
+  fallback is deterministic: if `uv` is unavailable, updates invoke
+  `sys.executable -m pip`, and `uvx` remains unsupported (D-27).
+- **E-3 — pending PO host-respawn verification.** No target MCP host is
+  connected to this workspace, so stdio respawn behavior after process exit
+  is not observable. The experimental Phoenix sequences surface a restart
+  requirement and must be exercised only in the host matrix.
+- **E-4 — passed implementation/API evidence.** On 2026-09-26, GitHub
+  `repos/parisneto/anticharon/releases/latest` returned HTTP 200 with
+  `tag_name: v0.5.5` and an unauthenticated-compatible rate-limit response
+  header set. Deterministic tests cover equal-version, timeout/error, and MCP
+  `isError` behavior. The endpoint is an appropriate current-version source;
+  release-vs-tag gaps remain an acknowledged limitation of `releases/latest`.
+- **MCP-15 — parked.** OpenClaw's supported version, observed
+  `models status --json` schema, selected-agent behavior, and first
+  acceptance fixture remain OPEN. No importer or parser was shipped, rather
+  than guessing at a partial shortlist write.
+
 ---
 
 ## 5. Decision Register

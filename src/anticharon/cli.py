@@ -38,6 +38,9 @@ from anticharon.models import (
 from anticharon.prompts import PROMPTS, render_prompt
 from anticharon.tester import run_self_test
 from anticharon.tracker import read_check_result, read_history_result, run_tracker
+from anticharon.updater import UPDATE_TYPE_ALIASES, UpdateType
+from anticharon.updater import check_updates as check_for_updates
+from anticharon.updater import run_update as execute_update
 
 
 def _exit_code(status: str) -> int:
@@ -282,6 +285,32 @@ def cmd_check(args) -> int:
         model_id=getattr(args, "model_id", None),
     )
     return _emit_tracker_result(res, started, args.json, False, local_read=True)
+
+
+def cmd_check_updates(args) -> int:
+    """Handle the user-initiated GitHub release check."""
+    started = time.perf_counter()
+    payload, messages = check_for_updates(__version__)
+    envelope = build_envelope(payload, messages, started)
+    if args.json:
+        print(json.dumps(envelope, indent=2))
+    else:
+        render_messages(envelope["messages"])
+        if payload.get("latest_version"):
+            print(f"Installed: {payload['installed_version']}\nLatest:    {payload['latest_version']}")
+    return _exit_code(envelope["status"])
+
+
+def cmd_update(args) -> int:
+    """Handle an experimental named update sequence."""
+    started = time.perf_counter()
+    payload, messages = execute_update(args.type)
+    envelope = build_envelope(payload, messages, started)
+    if args.json:
+        print(json.dumps(envelope, indent=2))
+    else:
+        render_messages(envelope["messages"])
+    return _exit_code(envelope["status"])
 
 
 def cmd_history(args) -> int:
@@ -681,6 +710,18 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse._SubParsersAction,
     calib_parser.add_argument("--config", type=str, default=None, help="Path to custom shortlist.json")
     calib_parser.add_argument("--json", action="store_true", help="Output results in JSON format")
 
+    check_updates_parser = subparsers.add_parser("check-updates", help="Check GitHub Releases for an Anticharon update")
+    check_updates_parser.add_argument("--json", action="store_true", help="Output the response envelope as JSON")
+
+    update_parser = subparsers.add_parser("update", help="EXPERIMENTAL: reinstall Anticharon from Git source")
+    update_parser.add_argument(
+        "--type",
+        default=UpdateType.INSTALL_ONLY.value,
+        choices=[*UPDATE_TYPE_ALIASES, *(item.value for item in UpdateType)],
+        help="Update sequence: 1/install_only, 2/restart_host, 3/phoenix, 4/phoenix_inverted, or 5/reload_request",
+    )
+    update_parser.add_argument("--json", action="store_true", help="Output the response envelope as JSON")
+
     # Command: model (add, remove, list, discover, sync)
     model_parser = subparsers.add_parser("model", help="Manage shortlisted models and discover OpenRouter catalog")
     model_subparsers = model_parser.add_subparsers(dest="model_action", help="Model actions")
@@ -797,6 +838,12 @@ def main() -> None:
 
     if args.command == "calibrate":
         sys.exit(cmd_calibrate(args))
+
+    if args.command == "check-updates":
+        sys.exit(cmd_check_updates(args))
+
+    if args.command == "update":
+        sys.exit(cmd_update(args))
 
     if args.command == "model":
         sys.exit(cmd_model(args))

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **W5 self-update tools (#20):** Added user-initiated `check_updates` / `anticharon check-updates` with a hard two-second GitHub Releases timeout and `is_latest`, plus experimental named `run_update` / `anticharon update --type` sequences. Update fallback always targets the running interpreter through `sys.executable -m pip`; no background checks or `uvx` support were added.
 - **W4 MCP tool surface (#16–#18):** Added model management and self-test tools, CSV and direct-weight calibration with pre-write `.bak` backup, calibration guidance resource, standard annotations on all tools, versioned server instructions, and a shared five-prompt registry exposed through `anticharon prompt`.
 - **Calibration normalization:** Direct weights accept sums within `0.000001` of 1, normalize by the supplied total, and round to six decimals.
 - **W4 audit follow-up:** Linked every MCP tool description to the authoritative glossary, included Hermes checks in `self_test`, and registered `calibrate_fast` explicitly as MCP-only under asymmetry A-1.
