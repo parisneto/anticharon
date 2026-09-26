@@ -135,14 +135,13 @@ def test_run_update_phoenix_sequences_are_mocked_and_named(monkeypatch):
     monkeypatch.setattr("anticharon.updater._schedule_parent_termination", lambda command=None: scheduled.append(command))
 
     phoenix, _ = run_update("phoenix")
-    inverted, _ = run_update("4")
+    reload, _ = run_update("4")
 
     assert phoenix["type"] == "phoenix"
     assert phoenix["restart_scheduled"] is True
-    assert scheduled[0] is None
-    assert inverted["type"] == "phoenix_inverted"
-    assert inverted["restart_scheduled"] is True
-    assert scheduled[1] == ["uv", "tool", "install", "--force", "git+https://github.com/parisneto/anticharon.git"]
+    assert scheduled == [None]
+    assert reload["type"] == "reload_request"
+    assert "restart_scheduled" not in reload
 
 
 def test_cli_update_commands_preserve_envelope_parity(monkeypatch, capsys):

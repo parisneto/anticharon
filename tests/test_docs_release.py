@@ -43,7 +43,7 @@ def test_install_docs_are_beta_and_do_not_advertise_ephemeral_execution():
     ]
     text = "\n".join(path.read_text(encoding="utf-8") for path in docs)
 
-    assert "v0.6.0 Beta" in text
+    assert f"v{__version__} Beta" in text
     assert "uv tool install git+https://github.com/parisneto/anticharon.git" in text
     assert "pip install git+https://github.com/parisneto/anticharon.git" in text
     assert "uvx" not in text

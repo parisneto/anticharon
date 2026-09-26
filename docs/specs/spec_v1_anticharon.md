@@ -490,8 +490,8 @@ anticharon help model discover
 # 17. User-initiated self-update operations (experimental)
 anticharon check-updates [--json]
 anticharon update --type install_only [--json]
-# Numeric aliases 1–5 map to install_only, restart_host, phoenix,
-# phoenix_inverted, and reload_request respectively.
+# Numeric aliases 1–4 map to install_only, restart_host, phoenix,
+# and reload_request respectively.
 ```
 
 `check-updates` uses GitHub Releases' `releases/latest` endpoint with a hard
@@ -500,13 +500,12 @@ equals the release tag. It is user-initiated only: no background check, cache,
 or update notice is added to unrelated command responses.
 
 `update` is always **EXPERIMENTAL** and offers named sequences
-`install_only`, `restart_host`, `phoenix`, `phoenix_inverted`, and
-`reload_request`. Reinstallation prefers `uv tool install --force` from the
+`install_only`, `restart_host`, `phoenix`, and `reload_request`.
+Reinstallation prefers `uv tool install --force` from the
 Git source; if `uv` is unavailable, it uses `sys.executable -m pip install
 --force-reinstall`, never a bare `pip`. A successful reinstall may still need
 a host restart. `phoenix` schedules the running server's termination for host
-respawn; `phoenix_inverted` schedules termination before a detached reinstall;
-`reload_request` asks the user to send `/reload-mcp`.
+respawn; `reload_request` asks the user to send `/reload-mcp`.
 
 ### JSON Output & Exit Codes
 Every `--json` output uses the §10.1a envelope (`status`, `messages`, `elapsed_ms`, then the payload), and human output renders the same `messages`. The exit code is `1` iff `status` is `error` or `refused` (the operation was not performed), otherwise `0`. `model sync` without a detectable Hermes config is `status: "warning"` with `HERMES_NOT_DETECTED` and exits `0`.
@@ -656,11 +655,11 @@ slug, returns `NO_EXACT_MATCH` for an invalid or nonexistent slug, and reports
 - `run_update(type="install_only")` is the only Anticharon tool that executes
   commands. It is experimental, destructive, non-idempotent, and open-world.
   The named enum is `install_only`, `restart_host`, `phoenix`,
-  `phoenix_inverted`, and `reload_request`; every response includes the
+  and `reload_request`; every response includes the
   `EXPERIMENTAL` warning. It prefers `uv tool install --force` from the Git
   source and otherwise invokes `sys.executable -m pip install --force-reinstall`.
-  The Phoenix variants schedule server termination for host respawn; a caller
-  must explicitly request them.
+  The Phoenix variant schedules server termination for host respawn; a caller
+  must explicitly request it.
 
 ### 10.3 Exposed MCP Resources
 - `anticharon://llms.txt`: Machine-readable Agent-to-Agent operational briefing and schema definitions. The repository-root `llms.txt` is the only source; Hatch's wheel `force-include` maps it to `anticharon/llms.txt`.

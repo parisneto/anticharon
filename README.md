@@ -1,6 +1,6 @@
-# Anticharon 🪙⚖️ (v0.6.0 Beta)
+# Anticharon 🪙⚖️ (v0.6.1 Beta)
 
-[![Version](https://img.shields.io/badge/version-0.6.0--beta-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.1--beta-blue.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/parisneto/anticharon/actions/workflows/ci.yml/badge.svg)](https://github.com/parisneto/anticharon/actions)
 

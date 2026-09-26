@@ -722,7 +722,7 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse._SubParsersAction,
         "--type",
         default=UpdateType.INSTALL_ONLY.value,
         choices=[*UPDATE_TYPE_ALIASES, *(item.value for item in UpdateType)],
-        help="Update sequence: 1/install_only, 2/restart_host, 3/phoenix, 4/phoenix_inverted, or 5/reload_request",
+        help="Update sequence: 1/install_only, 2/restart_host, 3/phoenix, or 4/reload_request",
     )
     update_parser.add_argument("--json", action="store_true", help="Output the response envelope as JSON")
 
