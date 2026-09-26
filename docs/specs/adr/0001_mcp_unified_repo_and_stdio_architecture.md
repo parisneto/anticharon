@@ -47,7 +47,7 @@ LLM tool callers operate on semantic interpretations of JSON keys. In agentic pi
 ## Consequences
 - **Positive:**
   - Zero code duplication; single source of truth for pricing math, moving averages, and catalog discovery.
-  - Zero-configuration deployment: `uvx --from git+https://github.com/parisneto/anticharon.git anticharon mcp` runs immediately in Claude Desktop and Hermes.
+  - Persistent deployment: install from Git with `uv tool install` or `pip install`, then configure the installed `anticharon mcp` command in the MCP host.
   - Stdio safety guarantees zero connection drops.
   - Full compliance with both human CLI and autonomous agent orchestration needs.
 - **Negative / Trade-offs:**

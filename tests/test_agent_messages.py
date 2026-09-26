@@ -474,4 +474,7 @@ def test_every_emitted_code_is_documented_in_llms_txt_and_spec():
     for code in sorted(codes):
         assert f"`{code}`" in llms, f"{code} missing from llms.txt"
         assert f"`{code}`" in spec_10, f"{code} missing from spec §10"
-    assert (root / "src" / "anticharon" / "llms.txt").read_text(encoding="utf-8") == llms
+    from anticharon.mcp import resource_llms_txt
+
+    assert not (root / "src" / "anticharon" / "llms.txt").exists()
+    assert resource_llms_txt() == llms.strip()

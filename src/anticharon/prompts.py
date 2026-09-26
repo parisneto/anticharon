@@ -19,9 +19,10 @@ def cost_spike_triage(model_id: str, current_price: float, ma_7d: float) -> str:
         f"Current Price per 1M tokens: ${current_price:.5f}\n"
         f"7-Day Moving Average: ${ma_7d:.5f}\n\n"
         "Please analyze this price jump:\n"
-        "1. Check if an introductory promotion ended or vendor raised rates.\n"
-        "2. Use tool `discover_models` or `check_prices` to identify cheaper alternatives in the same family.\n"
-        "3. Recommend whether to switch Hermes default model or reorder fallback_providers."
+        "1. Call `check_prices` (or re-read `anticharon://llms.txt`) before trusting a remembered default model.\n"
+        "2. Check whether an introductory promotion ended or the vendor raised rates.\n"
+        "3. Use `discover_models` to identify cheaper alternatives in the same family.\n"
+        "4. If the user approves a change, use `add_model` to validate and add the exact slug."
     )
 
 
@@ -30,9 +31,9 @@ def model_migration_advisor(legacy_model: str, recommended_model: str) -> str:
         f"Anticharon flagged model '{legacy_model}' with a SUNSETTING profile.\n"
         f"A newer version in the same model family ('{recommended_model}') is available at an equal or lower cost.\n\n"
         "Please formulate an action plan:\n"
-        f"1. Compare performance characteristics of '{recommended_model}' vs '{legacy_model}'.\n"
-        f"2. Validate that '{recommended_model}' is compatible with active agent tool schemas.\n"
-        f'3. Provide the exact Hermes CLI command to switch the default model: `hermes config set model.default "{recommended_model}"`.'
+        "1. Call `check_prices` (or re-read `anticharon://llms.txt`) before trusting a remembered default model.\n"
+        f"2. Compare performance characteristics of '{recommended_model}' vs '{legacy_model}'.\n"
+        f"3. Validate and add '{recommended_model}' with `add_model(model_id=..., default=true)` only with user approval."
     )
 
 
@@ -43,10 +44,8 @@ def family_upgrade_discover(model_or_family: str) -> str:
         f'1. Run tool `discover_models(query="{model_or_family}")` to find all active catalog models in this family.\n'
         "2. Identify newer generations or sibling variants (e.g. 3.8 vs 3.7, flash vs flash-lite, coder vs chat).\n"
         "3. Compare calibrated blended pricing per 1M tokens against current rates.\n"
-        "4. If a newer model is cheaper or equal in cost, formulate an upgrade recommendation:\n"
-        "   - Compare context windows and benchmark strengths.\n"
-        f'   - Provide the CLI command: `hermes config set model.default "<new_model_slug>"`.\n'
-        f'   - Offer to add it to shortlist: `anticharon model add "<new_model_slug>"`.'
+        "4. Call `check_prices` (or re-read `anticharon://llms.txt`) before trusting a remembered default model.\n"
+        "5. If a newer model is cheaper or equal in cost, formulate an upgrade recommendation and, with user approval, call `add_model` with the exact slug."
     )
 
 
@@ -73,8 +72,9 @@ def budget_optimization_audit() -> str:
         "   - Identify models classified as 🛡️ STABLE (low budget risk).\n"
         "   - Flag models classified as 📈 PROMO_ENDED or ⚠️ SUNSETTING.\n"
         "   - Flag models with high CV% volatility (⚡ VOLATILE).\n"
-        "3. For any expensive or sunsetting model, run `discover_models` to find drop-in replacements.\n"
-        "4. Recommend optimal Hermes `fallback_providers` ordering (cheapest reliable providers first)."
+        "3. For any expensive or sunsetting model, call `discover_models` to find drop-in replacements.\n"
+        "4. Call `check_prices` (or re-read `anticharon://llms.txt`) before trusting a remembered default model.\n"
+        "5. Recommend a shortlist change; use `add_model` or `remove_model` only with user approval."
     )
 
 

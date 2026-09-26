@@ -6,7 +6,7 @@ This backlog tracks completed milestones, upcoming sprint priorities, and long-t
 
 ## 🧭 Next Sprint: Ecosystem Ergonomics & MCP Discoverability
 
-- [ ] **Execution contract and issue map:** [`docs/plans/ecosystem-ergonomics/EXECUTION_CONTRACT.md`](docs/plans/ecosystem-ergonomics/EXECUTION_CONTRACT.md) and [`docs/plans/ecosystem-ergonomics/ISSUES_DRAFT.md`](docs/plans/ecosystem-ergonomics/ISSUES_DRAFT.md). Main themes: unified `messages` + MCP `isError`, local `check`/`history` and live `run`, exact model matching, CLI/MCP parity, calibration, conditional OpenClaw alpha import, experimental user-initiated self-update, and Beta release gates. Target `0.6.0` Beta. Remaining OPEN items are recorded in the contract.
+- [ ] **Execution contract and issue map:** [`docs/plans/ecosystem-ergonomics/EXECUTION_CONTRACT.md`](docs/plans/ecosystem-ergonomics/EXECUTION_CONTRACT.md) and [`docs/plans/ecosystem-ergonomics/ISSUES_DRAFT.md`](docs/plans/ecosystem-ergonomics/ISSUES_DRAFT.md). Main themes: unified `messages` + MCP `isError`, local `check`/`history` and live `run`, exact model matching, CLI/MCP parity, calibration, conditional OpenClaw alpha import, experimental user-initiated self-update, and v0.6.0 Beta release gates. Remaining PO-owned manual gates are recorded in the contract.
 
 ## 🎯 Current Sprint (Ecosystem Expansion & Intelligence Engine)
 
@@ -83,10 +83,10 @@ This backlog tracks completed milestones, upcoming sprint priorities, and long-t
 ### Milestone 3: Model Context Protocol (MCP) Server (v0.4.0)
 - [x] FastMCP stdio server architecture (`anticharon mcp`).
 - [x] Strict stdio isolation (all human formatting routed to stderr; pure JSON-RPC on stdout).
-- [x] 4 MCP Tools (`check_prices`, `get_model_history`, `discover_models`, `import_hermes_models`).
-- [x] 3 MCP Resources (`anticharon://llms.txt`, `anticharon://shortlist`, `anticharon://profiles`).
-- [x] 5 MCP Prompts (daily briefing, alternative finding, volatility auditing, family discovery, Gemini 3.7 vs 3.8 case study).
-- [x] MCP Inspector test launcher (`scripts/inspect_mcp.sh`) and Cursor IDE integration.
+- [x] Initial 4 MCP tools (`check_prices`, `get_model_history`, `discover_models`, `import_hermes_models`), expanded in v0.6.0 Beta with `run_prices`, shortlist management, calibration, self-test, and user-initiated update tools.
+- [x] Native MCP resources: `anticharon://llms.txt`, `anticharon://history.csv`, `anticharon://shortlist.json`, and `anticharon://calibration-details`.
+- [x] Five MCP prompts: `cost_spike_triage`, `model_migration_advisor`, `family_upgrade_discover`, `daily_cost_briefing`, and `budget_optimization_audit`.
+- [x] MCP Inspector test launcher (`scripts/inspect_mcp.sh`) and host configuration documentation.
 
 ### Milestone 2: Activity Log Calibration & Analytics (v0.2.0 - v0.3.0)
 - [x] OpenRouter activity log parser (`anticharon calibrate`) calculating exact empirical token mixes.

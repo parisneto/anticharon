@@ -431,9 +431,7 @@ def resource_llms_txt() -> str:
         pass
 
     candidates = [
-        Path(__file__).resolve().parent / "llms.txt",
         Path(__file__).resolve().parent.parent.parent / "llms.txt",
-        Path.home() / ".anticharon" / "llms.txt"
     ]
     for c in candidates:
         if c.exists():

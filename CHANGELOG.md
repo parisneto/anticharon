@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-26
+
 ### Added
 - **W6 fallback-aware alerts (#19):** `run`/`run_prices` now persist a
   `NEXT_FALLBACK_PRICE` alert comparing the explicit Hermes default with its
@@ -17,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **W4 MCP tool surface (#16–#18):** Added model management and self-test tools, CSV and direct-weight calibration with pre-write `.bak` backup, calibration guidance resource, standard annotations on all tools, versioned server instructions, and a shared five-prompt registry exposed through `anticharon prompt`.
 - **Calibration normalization:** Direct weights accept sums within `0.000001` of 1, normalize by the supplied total, and round to six decimals.
 - **W4 audit follow-up:** Linked every MCP tool description to the authoritative glossary, included Hermes checks in `self_test`, and registered `calibrate_fast` explicitly as MCP-only under asymmetry A-1.
+- **W7 documentation and release gates (#21, #23):** Consolidated the MCP
+  briefing into the root `llms.txt`, shipped it into the wheel, aligned the
+  README/spec/backlog with the live MCP surface, and added the thin Anticharon
+  agent skill.
 - **Command separation & parity (#13, W3) (`src/anticharon/tracker.py`, `storage.py`, `mcp.py`, `cli.py`):**
   - New third data file `alerts.json` (same data directory as `history.csv`/`effective_prices.json`): the price alerts (`PRICE_SPIKE`, `PRICE_DROP`, `BEST_OPTION_CHANGED`) computed and persisted by the last `run`/`run_prices`, plus run context (`timestamp`, `default_model`, `data_source`).
   - New MCP tool `run_prices(model_id, dry_run, force, zdr_only)`: the only fetch-and-persist tool, mirroring CLI `run`.
@@ -25,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New code `DATA_STALE` (warning): emitted by `check`/`check_prices` and `history`/`get_model_history` when the latest locally stored price observation is older than today.
 
 ### Changed
+- **Beta status:** v0.6.0 is a Beta release. Interfaces may change without
+  deprecation until real-user and third-party feedback establishes stability.
 - **Breaking: `check`/`check_prices` and `history`/`get_model_history` are now pure local reads (#13, W3, D-19):** neither makes an OpenRouter network call anymore, or triggers a Hermes shortlist sync. `check_prices` reads `history.csv` and the alerts `run_prices` last persisted to `alerts.json`, shown verbatim (never recomputed); `get_model_history` reads `history.csv`'s already-derived 30-day columns and owns all analytics/profile classification. `run`/`run_prices` is now the only command/tool that fetches from OpenRouter and writes `history.csv`/`effective_prices.json`/`alerts.json`.
 - A filtered `run --model X` (and a same-day-skipped model within a full `run`) no longer overwrites `history.csv` with only the models it actually re-fetched; every other shortlisted model's existing row is preserved (previously, persisting `run --model X` silently discarded every other model's history).
 - Store shortlist entries with their source and explicit order; preserve manual entries across Hermes synchronization and refuse removal of source-managed models.

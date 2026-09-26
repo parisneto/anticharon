@@ -592,6 +592,19 @@ local paths stripped (Rule 4 / Rule 12). Screenshots are not required.
   selecting a later fallback. The alert has no threshold: its role is to show
   the known cost of the next failover, including a lower-cost fallback.
 
+### W7 release-gate record — 2026-09-26
+
+- **MG-1 MCP Inspector ritual — pending PO execution.** This workspace has no
+  configured MCP Inspector target, so the following checklist is intentionally
+  recorded as pending rather than inferred from automated tests. Run it against
+  the W7 documentation commit and replace each result with pass or fail plus a
+  one-line observation. No screenshots are required.
+- **MG-3 Hermes host test — pending PO execution.** Run `hermes mcp test
+  anticharon` after installing the release candidate; record the tool count,
+  connect time, date, and W7 documentation commit below.
+- **MG-2 PO sign-off — awaiting MG-1, MG-3, and the green automated gate.**
+  No tag or push to `main` is authorized until explicit PO approval is recorded.
+
 ---
 
 ## 5. Decision Register
@@ -722,29 +735,29 @@ Decided during development (by design, not open scope): the final
 
   | Kind | Item | Result | Note |
   |---|---|---|---|
-  | Tool | `check_prices` | | |
-  | Tool | `run_prices` | | |
-  | Tool | `get_model_history` | | |
-  | Tool | `discover_models` | | |
-  | Tool | `add_model` | | |
-  | Tool | `remove_model` | | |
-  | Tool | `list_models` | | |
-  | Tool | `import_hermes_models` | | |
-  | Tool | `import_openclaw_models` (if shipped) | | |
-  | Tool | `calibrate_token_weights` | | |
-  | Tool | `calibrate_fast` | | |
-  | Tool | `self_test` | | |
-  | Tool | `check_updates` | | |
-  | Tool | `run_update` (experimental; safe type or skipped with reason) | | |
-  | Resource | `anticharon://llms.txt` | | |
-  | Resource | `anticharon://history.csv` | | |
-  | Resource | `anticharon://shortlist.json` | | |
-  | Resource | calibration details (if shipped) | | |
-  | Prompt | `cost_spike_triage` | | |
-  | Prompt | `model_migration_advisor` | | |
-  | Prompt | `family_upgrade_discover` | | |
-  | Prompt | `daily_cost_briefing` | | |
-  | Prompt | `budget_optimization_audit` | | |
+  | Tool | `check_prices` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
+  | Tool | `run_prices` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
+  | Tool | `get_model_history` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
+  | Tool | `discover_models` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
+  | Tool | `add_model` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
+  | Tool | `remove_model` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
+  | Tool | `list_models` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
+  | Tool | `import_hermes_models` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
+  | Tool | `import_openclaw_models` (if shipped) | Not shipped | Parked in W5 (2026-09-26) |
+  | Tool | `calibrate_token_weights` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
+  | Tool | `calibrate_fast` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
+  | Tool | `self_test` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
+  | Tool | `check_updates` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
+  | Tool | `run_update` (experimental; safe type or skipped with reason) | Pending | PO Inspector run required; safe type or a skip reason (2026-09-26; W7 documentation commit pending) |
+  | Resource | `anticharon://llms.txt` | Pending | PO Inspector read required (2026-09-26; W7 documentation commit pending) |
+  | Resource | `anticharon://history.csv` | Pending | PO Inspector read required (2026-09-26; W7 documentation commit pending) |
+  | Resource | `anticharon://shortlist.json` | Pending | PO Inspector read required (2026-09-26; W7 documentation commit pending) |
+  | Resource | calibration details (if shipped) | Pending | PO Inspector read required (2026-09-26; W7 documentation commit pending) |
+  | Prompt | `cost_spike_triage` | Pending | PO Inspector render required (2026-09-26; W7 documentation commit pending) |
+  | Prompt | `model_migration_advisor` | Pending | PO Inspector render required (2026-09-26; W7 documentation commit pending) |
+  | Prompt | `family_upgrade_discover` | Pending | PO Inspector render required (2026-09-26; W7 documentation commit pending) |
+  | Prompt | `daily_cost_briefing` | Pending | PO Inspector render required (2026-09-26; W7 documentation commit pending) |
+  | Prompt | `budget_optimization_audit` | Pending | PO Inspector render required (2026-09-26; W7 documentation commit pending) |
 - **MG-3 Hermes host test:** after the upgrade, `hermes mcp test anticharon`
   run on the PO's Hermes host; tool count and connect time recorded here.
   Baseline (v0.5.5, PO, 2026-09-24): transport stdio →

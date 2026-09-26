@@ -1,8 +1,11 @@
 # Technical Specification: Anticharon (v1)
 
 **Document Version:** 1.1.0
-**Status:** Approved
+**Status:** Approved — v0.6.0 Beta
 **Language:** English
+
+Anticharon is in Beta. Its public interfaces may change without deprecation
+until real-user and third-party feedback establish stable expectations.
 
 ---
 
@@ -494,7 +497,7 @@ anticharon update --type install_only [--json]
 `check-updates` uses GitHub Releases' `releases/latest` endpoint with a hard
 two-second timeout. It reports `is_latest` only when the installed version
 equals the release tag. It is user-initiated only: no background check, cache,
-or update notice is added to unrelated command responses. `uvx` is unsupported.
+or update notice is added to unrelated command responses.
 
 `update` is always **EXPERIMENTAL** and offers named sequences
 `install_only`, `restart_host`, `phoenix`, `phoenix_inverted`, and
@@ -660,7 +663,7 @@ slug, returns `NO_EXACT_MATCH` for an invalid or nonexistent slug, and reports
   must explicitly request them.
 
 ### 10.3 Exposed MCP Resources
-- `anticharon://llms.txt`: Machine-readable Agent-to-Agent operational briefing and schema definitions.
+- `anticharon://llms.txt`: Machine-readable Agent-to-Agent operational briefing and schema definitions. The repository-root `llms.txt` is the only source; Hatch's wheel `force-include` maps it to `anticharon/llms.txt`.
 - `anticharon://history.csv`: Raw 30-day sliding history table (`model,last_updated,effective_price_1m,advertised_prompt_1m,advertised_completion_1m,ma_3d,ma_7d,d1..d7,d15,d30`).
 - `anticharon://shortlist.json`: Active model shortlist and token weight configuration.
 - `anticharon://calibration-details`: Definitions and derivation guidance for the three token weights, sample values, the server-local CSV workflow, and the local CLI fallback.
@@ -685,26 +688,31 @@ The five prompt templates are single-sourced in `anticharon.prompts` and are exp
 
 ### 10.5 Host Configuration Integration
 
+Supported persistent install modes are `uv tool install git+https://github.com/parisneto/anticharon.git` and `pip install git+https://github.com/parisneto/anticharon.git`. A contributor checkout may run `uv run --directory $HOME/src/anticharon anticharon mcp`. Users inspect a persistent install with `check_updates`; `run_update` is experimental and may require a host restart.
+
 #### Hermes Agent (`~/.hermes/config.yaml`):
 ```yaml
 mcp_servers:
   anticharon:
-    command: "uvx"
-    args: ["--from", "git+https://github.com/parisneto/anticharon.git", "anticharon", "mcp"]
+    command: "~/.local/bin/anticharon"
+    args: ["mcp"]
 ```
-*(Or locally installed: `command: "anticharon"`, `args: ["mcp"]`)*
 
 #### Claude Desktop (`claude_desktop_config.json`):
 ```json
 {
   "mcpServers": {
     "anticharon": {
-      "command": "uvx",
-      "args": ["--from", "git+https://github.com/parisneto/anticharon.git", "anticharon", "mcp"]
+      "command": "$HOME/.local/bin/anticharon",
+      "args": ["mcp"]
     }
   }
 }
 ```
+
+Hermes expands `~`. Expansion of `$HOME` in other host configuration files is
+pending E-2 host-install verification; configure the resolved installed-binary
+path if the host does not expand it.
 
 ### 10.6 Real-World Empirical Case Study: Gemini 3.7 vs 3.8 Migration
 

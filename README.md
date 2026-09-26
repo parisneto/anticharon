@@ -1,6 +1,6 @@
-# Anticharon 🪙⚖️ (v0.5.5)
+# Anticharon 🪙⚖️ (v0.6.0 Beta)
 
-[![Version](https://img.shields.io/badge/version-0.5.5-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.0--beta-blue.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/parisneto/anticharon/actions/workflows/ci.yml/badge.svg)](https://github.com/parisneto/anticharon/actions)
 
@@ -10,6 +10,9 @@
 
 > **The ferryman who minimizes the fare instead of demanding toll.**
 > An ultra-lightweight, resilient OpenRouter API price tracker, volatility detector, and token cost optimizer for **Hermes Agent** and automated LLM workflows.
+
+> **Status: Beta.** Interfaces may change without deprecation until the project
+> has real-user and third-party feedback.
 
 ---
 
@@ -84,8 +87,8 @@ uv sync
 # Standard run: auto-detects Hermes models, fetches OpenRouter, updates history, prints report & ASCII price chart
 uv run anticharon run
 
-# Dry-run / Check: calculates prices without saving to disk
-uv run anticharon check --dry-run
+# Check: local read of persisted prices and alerts; never fetches
+uv run anticharon check
 
 # Explicit Hermes config path or standalone mode without Hermes
 uv run anticharon run --hermes-config /path/to/hermes/config.yaml
@@ -200,12 +203,20 @@ Run Anticharon daily via cron to alert Hermes or generate reports:
 Anticharon natively exposes an MCP server over `stdio` for **Hermes Agent**, **Claude Desktop**, and any standard MCP client.
 
 ### MCP Tools:
-- `check_prices`: Fetches live OpenRouter prices for your shortlist, calculates weighted blended rates, 7-day moving averages, alerts (`PRICE_SPIKE`, `PRICE_DROP`, `BEST_OPTION_CHANGED`), and attaches 30-day intelligence profiles. Automatically maintains a compact local `shortlist.json` and `history.csv` of your favorite models, empowering agents to switch smoothly, eliminate cost anxiety, and dodge the ferryman's toll!
-- `get_model_history`: Audits 30-day historical trajectories, CV% volatility, and trend sparklines from your local storage (JSON or raw CSV).
-- `discover_models`: Live multi-criteria catalog search across ~417+ models with real-world blended pricing.
-- `add_model`, `remove_model`, `list_models`, `self_test`: Manage the local shortlist or run diagnostics through MCP.
-- `calibrate_token_weights`, `calibrate_fast`: Calibrate from a server-local CSV or host-derived weights; writes save by default and preserve the previous configuration in `.bak`.
-- `import_hermes_models`: Imports active default and fallback models from Hermes `config.yaml` into Anticharon's shortlist. Strictly read-only on Hermes. Saves to the Anticharon shortlist by default; pass `dry_run=true` to preview without writing.
+
+- `check_prices`: Local read of persisted prices and alerts; never fetches.
+- `run_prices`: The only fetch-and-persist operation; writes price history and
+  alerts. It saves by default; `dry_run=true` previews a write.
+- `get_model_history`: Local 30-day trajectories, CV%, and recommendations.
+- `discover_models`: Live multi-criteria OpenRouter catalog search.
+- `add_model`, `remove_model`, `list_models`, `self_test`: Manage the local
+  shortlist or run diagnostics through MCP.
+- `calibrate_token_weights`, `calibrate_fast`: Calibrate from a server-local
+  CSV or host-derived weights. Writes save by default and retain a `.bak`.
+- `import_hermes_models`: One-way, read-only-on-Hermes import into Anticharon's
+  shortlist; `dry_run=true` previews the write.
+- `check_updates`, `run_update`: User-initiated release check and experimental
+  update operation. `run_update` may require a host restart.
 
 The five MCP prompts are also available on the CLI: `anticharon prompt` lists them, and `anticharon prompt <name> --arg KEY=VALUE` renders one.
 
@@ -239,56 +250,52 @@ During live MCP Inspector validation across 30 days of price data:
 
 ### Host Configuration:
 
+Install Anticharon first with one persistent mode:
+
+```bash
+uv tool install git+https://github.com/parisneto/anticharon.git
+# or
+pip install git+https://github.com/parisneto/anticharon.git
+```
+
+Use `check_updates` to inspect the installed version. Use experimental
+`run_update` only with explicit user intent; a host restart can still be
+required. For a source checkout, contributors may use `uv run --directory
+$HOME/src/anticharon anticharon mcp`.
+
 #### Hermes Agent (`~/.hermes/config.yaml`):
 ```yaml
 mcp_servers:
   anticharon:
-    command: "uvx"
-    args: ["--from", "git+https://github.com/parisneto/anticharon.git", "anticharon", "mcp"]
+    command: "~/.local/bin/anticharon"
+    args: ["mcp"]
 ```
-*For local dev within repo clone:*
-```yaml
-mcp_servers:
-  anticharon:
-    command: "uv"
-    args: ["--directory", "/path/to/anticharon", "run", "anticharon", "mcp"]
-```
-
 #### Cursor IDE & Antigravity (`.cursor/mcp.json` or `~/.gemini/config/mcp_config.json`):
 ```json
 {
   "mcpServers": {
     "anticharon": {
-      "command": "uvx",
-      "args": ["--from", "git+https://github.com/parisneto/anticharon.git", "anticharon", "mcp"]
+      "command": "$HOME/.local/bin/anticharon",
+      "args": ["mcp"]
     }
   }
 }
 ```
-*For local development in a repository clone (no global installation required):*
-```json
-{
-  "mcpServers": {
-    "anticharon": {
-      "command": "uv",
-      "args": ["--directory", "/path/to/anticharon", "run", "anticharon", "mcp"]
-    }
-  }
-}
-```
-*(Or via direct virtual environment: `"command": "/path/to/anticharon/.venv/bin/python"`, `"args": ["-m", "anticharon", "mcp"]`)*
-
 #### Claude Desktop (`claude_desktop_config.json`):
 ```json
 {
   "mcpServers": {
     "anticharon": {
-      "command": "uvx",
-      "args": ["--from", "git+https://github.com/parisneto/anticharon.git", "anticharon", "mcp"]
+      "command": "$HOME/.local/bin/anticharon",
+      "args": ["mcp"]
     }
   }
 }
 ```
+
+Hermes expands `~` in its configuration. Expansion of `$HOME` in other host
+configuration files remains pending the E-2 host-install verification; replace
+it with the resolved path to your installed `anticharon` binary if needed.
 
 #### In-Band A2A Semantics (`_hints`):
 Tool responses include an in-band `_hints` dictionary declaring key definitions:
