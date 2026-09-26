@@ -19,18 +19,19 @@ One implementation agent works this wave. There is no parallel test-writing lane
 |---|---|---|---|
 | D Design | One implementation agent; ledger/spec traceability | ☑ | #19 maps to MCP-14, E-5, D-5; E-5 observations recorded in ledger §4. |
 | B Build + tests | Same agent and sprint branch; no intentional failing gate | ☑ | `uv run pytest` → 298 passed, 3 deselected in 2.36s. |
-| R Read-only audit/review | Independent audit after reviewable state; W2 onward may run audits in parallel | ☐ | |
-| Closeout | Transfer all handoff fields to ledger §10; record commit SHAs and results | ☐ | |
+| R Read-only audit/review | Independent audit after reviewable state; W2 onward may run audits in parallel | ☑ | Gate R verified PASS at a3f983d (1 HIGH finding resolved). 298 passed. |
+| Closeout | Transfer all handoff fields to ledger §10; record commit SHAs and results | ☑ | State transferred to ledger §10 by P.O. |
 
 ## Acceptance (from the ledger)
-- [ ] E-5 evidence + PO decision recorded in the ledger
-- [ ] Next-fallback alert persisted in alerts.json; suppressed with no default
-- [ ] Unpriceable fallbacks handled explicitly
+- [x] E-5 evidence + PO decision recorded in the ledger
+- [x] Next-fallback alert persisted in alerts.json; suppressed with no default
+- [x] Unpriceable fallbacks handled explicitly
 
 ## Progress log
 | Date | Gate | Agent / model | Usage % before → after | Summary |
 |---|---|---|---|---|
-| | | | | |
+| 2026-09-26 | B | Code Agent | - | Implemented fallback-aware alerts and fallback-order display (13ea277) |
+| 2026-09-26 | R | Claude Code Sonnet 5 | - | Gate R: 1 HIGH finding on filtered run. Remediation confirmed at a3f983d. 298 passed. |
 
 ## Done (ledger ID → evidence)
 | ID | Evidence (test name / file:line) |
