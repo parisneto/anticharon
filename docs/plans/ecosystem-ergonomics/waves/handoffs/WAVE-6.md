@@ -18,7 +18,7 @@ One implementation agent works this wave. There is no parallel test-writing lane
 | Phase | Owner / activity | Status | Evidence / note |
 |---|---|---|---|
 | D Design | One implementation agent; ledger/spec traceability | ☑ | #19 maps to MCP-14, E-5, D-5; E-5 observations recorded in ledger §4. |
-| B Build + tests | Same agent and sprint branch; no intentional failing gate | ☑ | `uv run pytest` → 297 passed, 3 deselected in 2.43s. |
+| B Build + tests | Same agent and sprint branch; no intentional failing gate | ☑ | `uv run pytest` → 298 passed, 3 deselected in 2.36s. |
 | R Read-only audit/review | Independent audit after reviewable state; W2 onward may run audits in parallel | ☐ | |
 | Closeout | Transfer all handoff fields to ledger §10; record commit SHAs and results | ☐ | |
 
@@ -35,7 +35,7 @@ One implementation agent works this wave. There is no parallel test-writing lane
 ## Done (ledger ID → evidence)
 | ID | Evidence (test name / file:line) |
 |---|---|
-| MCP-14 | `test_run_persists_next_hermes_fallback_cost_alert` / `tests/test_alerts_and_same_day.py:137`; `test_run_records_unpriceable_next_hermes_fallback_without_crashing` / `tests/test_alerts_and_same_day.py:156` |
+| MCP-14 | `test_run_persists_next_hermes_fallback_cost_alert` / `tests/test_alerts_and_same_day.py:137`; `test_run_records_unpriceable_next_hermes_fallback_without_crashing` / `tests/test_alerts_and_same_day.py:156`; `test_filtered_run_returns_the_same_next_fallback_alert_it_persists` / `tests/test_alerts_and_same_day.py:178` |
 | E-5 | Prototype observation / `docs/plans/ecosystem-ergonomics/EXECUTION_CONTRACT.md:581` |
 | D-5 | Hermes-order assertion / `tests/test_alerts_and_same_day.py:137` |
 

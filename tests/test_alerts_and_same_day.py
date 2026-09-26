@@ -175,6 +175,38 @@ def test_run_records_unpriceable_next_hermes_fallback_without_crashing(tmp_path,
     assert any(alert["type"] == "NEXT_FALLBACK_UNAVAILABLE" for alert in persisted_alerts)
 
 
+def test_filtered_run_returns_the_same_next_fallback_alert_it_persists(tmp_path, monkeypatch):
+    """D-22: a filtered refresh still compares the stored default and fallback."""
+    cfg_path = _write_shortlist(tmp_path, [
+        {"model": "p/alpha", "source": "hermes", "order": 0},
+        {"model": "p/beta", "source": "hermes", "order": 1},
+        {"model": "p/gamma", "source": "manual"},
+    ])
+    hist_path = tmp_path / "history.csv"
+    catalog = {
+        "p/alpha": {"id": "p/alpha", "canonical_slug": "p/alpha", "pricing": {"prompt": "0.000001", "completion": "0.000002"}},
+        "p/beta": {"id": "p/beta", "canonical_slug": "p/beta", "pricing": {"prompt": "0.000005", "completion": "0.000010"}},
+        "p/gamma": {"id": "p/gamma", "canonical_slug": "p/gamma", "pricing": {"prompt": "0.000003", "completion": "0.000006"}},
+    }
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: catalog)
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **kw: [])
+    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", lambda *a, **kw: {})
+
+    run_tracker(dry_run=False, config_path=cfg_path, history_path=hist_path, no_hermes=True)
+    result = run_tracker(
+        dry_run=False, config_path=cfg_path, history_path=hist_path,
+        no_hermes=True, model_id="p/gamma", force=True,
+    )
+
+    live_alert = next(w for w in result.price_warnings if w.type.startswith("NEXT_FALLBACK"))
+    persisted_alert = next(
+        alert for alert in read_alerts(get_alerts_path(hist_path.parent))["price_warnings"]
+        if alert["type"].startswith("NEXT_FALLBACK")
+    )
+    assert live_alert.to_dict() == persisted_alert
+    assert live_alert.type == "NEXT_FALLBACK_PRICE"
+
+
 def test_run_suppresses_next_fallback_alert_without_explicit_default(tmp_path, two_model_catalog):
     """D-24: Hermes fallbacks are not compared when the default is absent."""
     cfg_path = _write_shortlist(tmp_path, [

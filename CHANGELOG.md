@@ -31,6 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Require exact model slugs, report per-model pricing omissions, and refuse `run --model` targets outside the shortlist before network access.
 - Use explicit shortlist defaults and surface stored canonical slugs in price JSON.
 
+### Fixed
+- **W6 filtered fallback alerts (#19):** `run --model` / `run_prices(model_id=...)`
+  now derives its returned next-fallback alert from the same merged price set
+  written to `alerts.json`, avoiding a false unavailable-default alert when a
+  different model alone is refreshed.
+
 ### Removed
 - **Breaking: `force_refresh` removed from `check_prices`** (#13, W3, D-3): its only effect was a longer timeout; the meaningful switch is now `run`/`run_prices`'s `--force`/`force`.
 - **Breaking: `--zdr`/`zdr_only` removed from `check`/`check_prices`** (#13, W3, D-28): ZDR policy pricing is live-only and exists only on `run`/`run_prices`; it is never persisted to `alerts.json`/`history.csv`.

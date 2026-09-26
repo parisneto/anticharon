@@ -834,10 +834,10 @@ def run_tracker(
     # this run's `updated_records`) so a filtered `run --model` -- or a
     # same-day reuse that skipped some models -- never drops another
     # shortlisted model's history (MCP-10, D-18c).
+    records_by_model = {rec.model: _price_record_row(rec) for rec in history.values()}
+    for row in updated_records:
+        records_by_model[row[0]] = row
     if not dry_run and updated_records:
-        records_by_model = {rec.model: _price_record_row(rec) for rec in history.values()}
-        for row in updated_records:
-            records_by_model[row[0]] = row
         write_history(list(records_by_model.values()), hist_path)
         write_effective_prices(effective_store, effective_prices_path)
         _persist_alerts(
@@ -885,7 +885,9 @@ def run_tracker(
                 message=f"Model {cheapest.model} (${cheapest_rank:.5f}/1M) is cheaper than configured default {current_default}."
             ))
 
-    live_price_map = {price.model: price.price_1m for price in prices_shortlist}
+    # D-22 cross-model alerts must describe the same merged price set in the
+    # live response as in alerts.json, including on a filtered `run --model`.
+    live_price_map = {model: row[2] for model, row in records_by_model.items()}
     next_fallback_alert = _recompute_next_fallback_alert(
         live_price_map, cfg.get("_shortlist_entries", []), current_default,
     )
