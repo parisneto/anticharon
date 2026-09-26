@@ -7,6 +7,7 @@ A2A-6 (Hermes divergence outside `test`), A2A-7 (dry-run wording) and the
 PO-approved D-1e codes. Deterministic: every network call is patched.
 """
 
+import ast
 import asyncio
 import json
 import re
@@ -461,13 +462,45 @@ def test_render_messages_prints_code_text_and_cli_action(capsys):
 # --- Acceptance (ledger §6 WS-A2A): every emitted code is documented ---------
 
 
+def _string_literals(node):
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return {node.value}
+    if isinstance(node, ast.IfExp):
+        return _string_literals(node.body) | _string_literals(node.orelse)
+    return set()
+
+
+def _emitted_agent_message_codes(source):
+    tree = ast.parse(source)
+    bindings = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            value = _string_literals(node.value)
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Name) and value:
+                    bindings[target.id] = value
+
+    codes = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name) or node.func.id != "AgentMessage":
+            continue
+        code_node = node.args[1] if len(node.args) > 1 else next(
+            (keyword.value for keyword in node.keywords if keyword.arg == "code"), None
+        )
+        codes |= _string_literals(code_node)
+        if isinstance(code_node, ast.Name):
+            codes |= bindings.get(code_node.id, set())
+    return codes
+
+
 def test_every_emitted_code_is_documented_in_llms_txt_and_spec():
     from pathlib import Path
 
     root = Path(__file__).parent.parent
     source = "\n".join(p.read_text(encoding="utf-8") for p in (root / "src" / "anticharon").glob("*.py"))
-    codes = set(re.findall(r'AgentMessage\(\s*(?:level=)?"\w+",\s*(?:code=)?"([A-Z_]+)"', source))
-    assert {"COMPLETED", "PREVIEW_ONLY", "HERMES_DIVERGENT", "ZDR_LIVE_LIMITED"} <= codes  # regex sanity
+    codes = _emitted_agent_message_codes(source)
+    assert {"COMPLETED", "PREVIEW_ONLY", "HERMES_DIVERGENT", "UP_TO_DATE", "UPDATE_AVAILABLE", "ZDR_LIVE_LIMITED"} <= codes
     llms = (root / "llms.txt").read_text(encoding="utf-8")
     spec = (root / "docs" / "specs" / "spec_v1_anticharon.md").read_text(encoding="utf-8")
     spec_10 = spec[spec.index("## 10. Model Context Protocol"):]

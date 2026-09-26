@@ -19,7 +19,7 @@ One implementation agent works this wave. There is no parallel test-writing lane
 |---|---|---|---|
 | D Design | One implementation agent; ledger/spec traceability | ☑ | W7 IDs map only to registered #21 and #23; all dependencies closed at `95528e0`. |
 | B Build + tests | Same agent and sprint branch; no intentional failing gate | ☑ | `uv run pytest` → 302 passed, 3 deselected in 1.27s. |
-| R Read-only audit/review | Independent audit after reviewable state; W2 onward may run audits in parallel | ☐ | |
+| R Read-only audit/review | Independent audit after reviewable state; W2 onward may run audits in parallel | ☑ | Gate R found missing `UP_TO_DATE` coverage; remediation adds the code and AST-based conditional-code extraction. |
 | Closeout | Transfer all handoff fields to ledger §10; record commit SHAs and results | ☐ | |
 
 ## Acceptance (from the ledger)
@@ -32,11 +32,12 @@ One implementation agent works this wave. There is no parallel test-writing lane
 |---|---|---|---|---|
 | 2026-09-26 | D | Code Agent | - | Confirmed W7 traceability: DOC-1/2/3/3a/5/7, D-7/8/27 map to #21; MG-1/2/3 map to #23. |
 | 2026-09-26 | B | Code Agent | - | Consolidated root llms.txt, installation/status docs, agent skill, prompt parity, and wheel packaging; 302 passed, 3 deselected. |
+| 2026-09-26 | R | Independent audit / Code Agent | - | Resolved the confirmed `UP_TO_DATE` briefing omission and false-positive literal-only message-code test. |
 
 ## Done (ledger ID → evidence)
 | ID | Evidence (test name / file:line) |
 |---|---|
-| DOC-1 / D-7 | `test_root_llms_is_the_single_source_and_matches_the_mcp_resource` / `tests/test_docs_release.py:12`; `test_llms_lists_every_registered_mcp_surface_and_wheel_mapping` / `tests/test_docs_release.py:21`; `test_every_emitted_code_is_documented_in_llms_txt_and_spec` / `tests/test_agent_messages.py:464` |
+| DOC-1 / D-7 | `test_root_llms_is_the_single_source_and_matches_the_mcp_resource` / `tests/test_docs_release.py:12`; `test_llms_lists_every_registered_mcp_surface_and_wheel_mapping` / `tests/test_docs_release.py:21`; `test_every_emitted_code_is_documented_in_llms_txt_and_spec` / `tests/test_agent_messages.py:497` |
 | DOC-2 / DOC-5 | `test_prompts_use_mcp_actions_and_guard_remembered_defaults` / `tests/test_docs_release.py:52` |
 | DOC-3 / DOC-3a / D-27 | `test_install_docs_are_beta_and_do_not_advertise_ephemeral_execution` / `tests/test_docs_release.py:37` |
 | DOC-7 / D-8 | `test_install_docs_are_beta_and_do_not_advertise_ephemeral_execution` / `tests/test_docs_release.py:37`; `test_root_llms_is_the_single_source_and_matches_the_mcp_resource` / `tests/test_docs_release.py:12` |

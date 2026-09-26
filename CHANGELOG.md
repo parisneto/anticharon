@@ -40,6 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use explicit shortlist defaults and surface stored canonical slugs in price JSON.
 
 ### Fixed
+- **W7 audit remediation (#21):** Document `UP_TO_DATE` in the root MCP
+  briefing and make the A2A documentation-contract test discover conditional
+  literal message codes such as `UP_TO_DATE` / `UPDATE_AVAILABLE`.
 - **W6 filtered fallback alerts (#19):** `run --model` / `run_prices(model_id=...)`
   now derives its returned next-fallback alert from the same merged price set
   written to `alerts.json`, avoiding a false unavailable-default alert when a
