@@ -568,8 +568,10 @@ local paths stripped (Rule 4 / Rule 12). Screenshots are not required.
 - **E-4 — passed implementation/API evidence.** On 2026-09-26, GitHub
   `repos/parisneto/anticharon/releases/latest` returned HTTP 200 with
   `tag_name: v0.5.5` and an unauthenticated-compatible rate-limit response
-  header set. Deterministic tests cover equal-version, timeout/error, and MCP
-  `isError` behavior. The endpoint is an appropriate current-version source;
+  header set. The recorded response is
+  `tests/fixtures/github_releases_latest.json`; deterministic tests cover
+  equal-version, timeout/error, and MCP `isError` behavior. The endpoint is
+  an appropriate current-version source;
   release-vs-tag gaps remain an acknowledged limitation of `releases/latest`.
 - **MCP-15 — parked.** OpenClaw's supported version, observed
   `models status --json` schema, selected-agent behavior, and first

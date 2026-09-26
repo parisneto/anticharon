@@ -108,15 +108,15 @@ def _schedule_parent_termination(install_command: list[str] | None = None) -> No
 
 def run_update(update_type: UpdateType | str | int) -> tuple[dict[str, Any], list[AgentMessage]]:
     """Run one experimental update sequence; callers must surface the warning."""
+    messages = [AgentMessage("warning", "EXPERIMENTAL", "This experimental feature may require manual intervention, for example `hermes gateway restart`.")]
     try:
         selected = parse_update_type(update_type)
     except ValueError:
         return (
             {"status": "error", "type": str(update_type)},
-            [AgentMessage("error", "UPDATE_FAILED", "Unknown update type; choose install_only, restart_host, phoenix, phoenix_inverted, or reload_request.")],
+            [*messages, AgentMessage("error", "UPDATE_FAILED", "Unknown update type; choose install_only, restart_host, phoenix, phoenix_inverted, or reload_request.")],
         )
 
-    messages = [AgentMessage("warning", "EXPERIMENTAL", "This experimental feature may require manual intervention, for example `hermes gateway restart`.")]
     command = _install_command()
 
     if selected is UpdateType.PHOENIX_INVERTED:
