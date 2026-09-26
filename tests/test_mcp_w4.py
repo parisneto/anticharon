@@ -123,7 +123,14 @@ def test_self_test_wraps_json_diagnostics_without_stdout(monkeypatch, capsys):
 
     report = {"status": "error", "python": {"supported": False}, "all_passed": False,
               "messages": [{"level": "error", "code": "SELF_TEST_FAILED", "text": "failure details"}]}
-    monkeypatch.setattr(tester, "run_self_test", lambda **kwargs: (print(json.dumps(report)) or False))
+    called = {}
+
+    def fake_run_self_test(**kwargs):
+        called.update(kwargs)
+        print(json.dumps(report))
+        return False
+
+    monkeypatch.setattr(tester, "run_self_test", fake_run_self_test)
 
     result = mcp.self_test()
 
@@ -131,4 +138,6 @@ def test_self_test_wraps_json_diagnostics_without_stdout(monkeypatch, capsys):
     payload = _read(result)
     assert payload["python"] == {"supported": False}
     assert payload["messages"][0]["code"] == "SELF_TEST_FAILED"
+    assert called.get("no_hermes", False) is False
+    assert called["json_mode"] is True
     assert capsys.readouterr().out == ""

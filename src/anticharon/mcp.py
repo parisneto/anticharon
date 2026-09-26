@@ -101,7 +101,8 @@ def tool_result(envelope: dict[str, Any]) -> dict[str, Any] | CallToolResult:
         "shortlist, computes 7-day moving averages, and shows price alerts (PRICE_SPIKE, "
         "PRICE_DROP, BEST_OPTION_CHANGED) exactly as persisted by the last `run_prices` call -- "
         "never recomputed here. Source: history.csv (compact summary) and alerts.json. Call "
-        "`run_prices` first to refresh; this tool never fetches from OpenRouter."
+        "`run_prices` first to refresh; this tool never fetches from OpenRouter. See "
+        "anticharon://llms.txt for the authoritative glossary."
     )
 )
 def check_prices(model_id: str | None = None) -> dict[str, Any]:
@@ -122,7 +123,7 @@ def check_prices(model_id: str | None = None) -> dict[str, Any]:
         "configured shortlist (refuses NOT_MONITORED for an absent slug, no catalog lookup); "
         "without it, the whole shortlist is updated, skipping models already refreshed today "
         "unless force=true. `zdr_only` adds a live, never-persisted Zero Data Retention policy "
-        "price for this response only (D-28)."
+        "price for this response only (D-28). See anticharon://llms.txt for the authoritative glossary."
     )
 )
 def run_prices(
@@ -150,7 +151,8 @@ def run_prices(
         "Local read (no network) of 30-day historical price trajectories, statistical "
         "volatility (CV%), directional trend sparklines, deterministic intelligence profiles, "
         "and sibling alternative recommendations, derived from history.csv's d1..d30 columns "
-        "(themselves derived from effective_prices.json by the last `run_prices` call)."
+        "(themselves derived from effective_prices.json by the last `run_prices` call). See "
+        "anticharon://llms.txt for the authoritative glossary."
     )
 )
 def get_model_history(
@@ -179,7 +181,8 @@ def get_model_history(
     description=(
         "Queries and filters OpenRouter's live catalog (~417+ models) using multi-criteria "
         "keywords, promotional/free flags (:free, $0.00), output modality, and price ceiling "
-        "expressions, calculating real-world blended prices per 1M tokens."
+        "expressions, calculating real-world blended prices per 1M tokens. See "
+        "anticharon://llms.txt for the authoritative glossary."
     )
 )
 def discover_models(
@@ -234,7 +237,8 @@ def discover_models(
         "Imports active default and fallback models from Hermes Agent configuration "
         "(~/.hermes/config.yaml or $HERMES_HOME) into Anticharon's shortlist. "
         "READ-ONLY ON HERMES: Never modifies Hermes configuration. "
-        "Saves to Anticharon shortlist.json by default; pass dry_run=true to preview without writing."
+        "Saves to Anticharon shortlist.json by default; pass dry_run=true to preview without writing. "
+        "See anticharon://llms.txt for the authoritative glossary."
     )
 )
 def import_hermes_models(
@@ -254,7 +258,8 @@ def import_hermes_models(
     description=(
         "Validates an exact model slug against OpenRouter's live catalog and adds it to "
         "shortlist.json. Saves by default; pass dry_run=true to preview. If the catalog "
-        "is unavailable, nothing is saved and CATALOG_UNAVAILABLE asks you to retry later."
+        "is unavailable, nothing is saved and CATALOG_UNAVAILABLE asks you to retry later. "
+        "See anticharon://llms.txt for the authoritative glossary."
     ),
 )
 def add_model(model_id: str, dry_run: bool = False, default: bool = False) -> dict[str, Any]:
@@ -268,7 +273,8 @@ def add_model(model_id: str, dry_run: bool = False, default: bool = False) -> di
     annotations=_annotations("Remove model", False, True, True, False),
     description=(
         "Removes a manually managed model from shortlist.json. Saves by default; "
-        "pass dry_run=true to preview. Hermes-managed models are refused with SOURCE_MANAGED."
+        "pass dry_run=true to preview. Hermes-managed models are refused with SOURCE_MANAGED. "
+        "See anticharon://llms.txt for the authoritative glossary."
     ),
 )
 def remove_model(model_id: str, dry_run: bool = False) -> dict[str, Any]:
@@ -280,7 +286,8 @@ def remove_model(model_id: str, dry_run: bool = False) -> dict[str, Any]:
 @server.tool(
     name="list_models",
     annotations=_annotations("List models", True, False, True, False),
-    description="Reads the local shortlist and returns each model's source, default status, and known canonical slug.",
+    description=("Reads the local shortlist and returns each model's source, default status, and known canonical slug. "
+                 "See anticharon://llms.txt for the authoritative glossary."),
 )
 def list_models() -> dict[str, Any]:
     started = time.perf_counter()
@@ -291,7 +298,8 @@ def list_models() -> dict[str, Any]:
 @server.tool(
     name="self_test",
     annotations=_annotations("Run self test", False, False, True, True),
-    description="Runs Anticharon's deterministic math, storage, configuration, and optional connectivity self-checks.",
+    description=("Runs the same diagnostics as `anticharon test`, including Hermes integration and optional connectivity. "
+                 "See anticharon://llms.txt for the authoritative glossary."),
 )
 def self_test() -> dict[str, Any]:
     from anticharon.tester import run_self_test
@@ -299,7 +307,7 @@ def self_test() -> dict[str, Any]:
     started = time.perf_counter()
     captured = io.StringIO()
     with contextlib.redirect_stdout(captured):
-        ok = run_self_test(no_hermes=True, json_mode=True)
+        ok = run_self_test(json_mode=True)
     try:
         report = json.loads(captured.getvalue())
     except json.JSONDecodeError:
@@ -318,7 +326,8 @@ def self_test() -> dict[str, Any]:
     description=(
         "Reads an activity CSV path accessible to the MCP server and derives the three token "
         "weights locally. Saves by default, first copying shortlist.json to shortlist.json.bak; "
-        "pass dry_run=true to compute without saving. CSV bytes are never uploaded through MCP."
+        "pass dry_run=true to compute without saving. CSV bytes are never uploaded through MCP. "
+        "See anticharon://llms.txt for the authoritative glossary."
     ),
 )
 def calibrate_token_weights(csv_path: str, dry_run: bool = False) -> dict[str, Any]:
@@ -344,7 +353,8 @@ def calibrate_token_weights(csv_path: str, dry_run: bool = False) -> dict[str, A
     description=(
         "Saves host-derived uncached prompt, cached prompt, and completion weights after finite "
         "[0, 1] and sum validation. Totals within 0.000001 of 1 are normalized and rounded to "
-        "six decimals. Saves by default with a .bak copy; pass dry_run=true to preview."
+        "six decimals. Saves by default with a .bak copy; pass dry_run=true to preview. "
+        "See anticharon://llms.txt for the authoritative glossary."
     ),
 )
 def calibrate_fast(

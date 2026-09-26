@@ -57,6 +57,10 @@ REGISTERED_ASYMMETRIES = {
     "A-8": "flat MCP tool names use domain suffixes while CLI commands are namespaced",
 }
 
+# MCP-only public tools must still be explicitly tied to their approved ledger
+# asymmetry, so the parity registry cannot silently omit one.
+MCP_ONLY_ASYMMETRIES = {"calibrate_fast": "A-1"}
+
 
 def _mcp_tool_params(name: str) -> set[str]:
     return set(inspect.signature(getattr(mcp, name)).parameters)
@@ -75,9 +79,10 @@ def test_check_history_run_mcp_tools_are_registered():
     """New tool added to mcp.py without a PARITY_ROWS entry should fail here,
     not slip through silently."""
     covered = {row[1] for row in PARITY_ROWS}
-    required = {"check_prices", "run_prices", "get_model_history", "add_model", "remove_model", "list_models", "self_test", "calibrate_token_weights", "import_hermes_models"}
-    assert covered == required
+    required = {"check_prices", "run_prices", "get_model_history", "add_model", "remove_model", "list_models", "self_test", "calibrate_token_weights", "calibrate_fast", "import_hermes_models"}
+    assert covered | set(MCP_ONLY_ASYMMETRIES) == required
     assert set(REGISTERED_ASYMMETRIES) == {"A-1", "A-3", "A-4", "A-5", "A-8"}
+    assert all(asymmetry in REGISTERED_ASYMMETRIES for asymmetry in MCP_ONLY_ASYMMETRIES.values())
 
 
 @pytest.mark.parametrize("cli_command,mcp_tool,cli_only,mcp_only,renames", PARITY_ROWS)
@@ -108,6 +113,7 @@ def test_every_registered_tool_declares_all_five_annotations():
         assert tool.annotations.destructive_hint is not None
         assert tool.annotations.idempotent_hint is not None
         assert tool.annotations.open_world_hint is not None
+        assert "anticharon://llms.txt" in tool.description, tool.name
 
 
 def test_prompt_registry_covers_five_mcp_prompts():

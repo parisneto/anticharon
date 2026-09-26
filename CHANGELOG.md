@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **W4 MCP tool surface (#16–#18):** Added model management and self-test tools, CSV and direct-weight calibration with pre-write `.bak` backup, calibration guidance resource, standard annotations on all tools, versioned server instructions, and a shared five-prompt registry exposed through `anticharon prompt`.
 - **Calibration normalization:** Direct weights accept sums within `0.000001` of 1, normalize by the supplied total, and round to six decimals.
+- **W4 audit follow-up:** Linked every MCP tool description to the authoritative glossary, included Hermes checks in `self_test`, and registered `calibrate_fast` explicitly as MCP-only under asymmetry A-1.
 - **Command separation & parity (#13, W3) (`src/anticharon/tracker.py`, `storage.py`, `mcp.py`, `cli.py`):**
   - New third data file `alerts.json` (same data directory as `history.csv`/`effective_prices.json`): the price alerts (`PRICE_SPIKE`, `PRICE_DROP`, `BEST_OPTION_CHANGED`) computed and persisted by the last `run`/`run_prices`, plus run context (`timestamp`, `default_model`, `data_source`).
   - New MCP tool `run_prices(model_id, dry_run, force, zdr_only)`: the only fetch-and-persist tool, mirroring CLI `run`.

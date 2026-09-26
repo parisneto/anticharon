@@ -46,6 +46,7 @@ One implementation agent works this wave. There is no parallel test-writing lane
 | MCP-9 / D-23 / §3b | `test_every_registered_tool_declares_all_five_annotations`, `tests/test_command_parity.py:98` |
 | MCP-12 | `test_prompt_registry_covers_five_mcp_prompts`, `tests/test_command_parity.py:112`; `test_cli_prompt_registry_lists_and_renders`, `tests/test_mcp_w4.py:99` |
 | MCP-13 | W4 tool parameter rows and registration assertion, `tests/test_command_parity.py:73`; `test_self_test_wraps_json_diagnostics_without_stdout`, `tests/test_mcp_w4.py:121` |
+| Audit follow-up | `test_every_registered_tool_declares_all_five_annotations`, `tests/test_command_parity.py:98`; MCP-only registration and A-1 tie checked by `test_check_history_run_mcp_tools_are_registered`, `tests/test_command_parity.py:73`; `test_self_test_wraps_json_diagnostics_without_stdout`, `tests/test_mcp_w4.py:121` |
 | D-29 | `test_import_hermes_tool_defaults_to_persist`, `tests/test_mcp_w4.py:68` |
 | Calibration resource | `test_calibration_details_resource_is_registered_and_actionable`, `tests/test_mcp_w4.py:60` |
 
@@ -60,7 +61,7 @@ Run the required checks on the sprint branch. Do not close the wave unless all r
 ```bash
 uv run pytest
 ```
-Result: **287 passed, 3 live tests deselected, 0.72s**. Changed-line lint gate passed against the W4 baseline SHA.
+Result: **287 passed, 3 live tests deselected, 0.78s**. Changed-line lint gate passed against the W4 baseline SHA.
 
 ## Next
 Before starting the next wave, transfer all fields above into the corresponding ledger §10 closeout row, including commit SHAs and actual GitHub issue numbers.
