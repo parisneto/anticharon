@@ -24,7 +24,6 @@ class UpdateType(str, Enum):
     INSTALL_ONLY = "install_only"
     RESTART_HOST = "restart_host"
     PHOENIX = "phoenix"
-    PHOENIX_INVERTED = "phoenix_inverted"
     RELOAD_REQUEST = "reload_request"
 
 
@@ -32,8 +31,7 @@ UPDATE_TYPE_ALIASES = {
     "1": UpdateType.INSTALL_ONLY,
     "2": UpdateType.RESTART_HOST,
     "3": UpdateType.PHOENIX,
-    "4": UpdateType.PHOENIX_INVERTED,
-    "5": UpdateType.RELOAD_REQUEST,
+    "4": UpdateType.RELOAD_REQUEST,
 }
 
 
@@ -123,15 +121,10 @@ def run_update(update_type: UpdateType | str | int) -> tuple[dict[str, Any], lis
     except ValueError:
         return (
             {"status": "error", "type": str(update_type)},
-            [*messages, AgentMessage("error", "UPDATE_FAILED", "Unknown update type; choose install_only, restart_host, phoenix, phoenix_inverted, or reload_request.")],
+            [*messages, AgentMessage("error", "UPDATE_FAILED", "Unknown update type; choose install_only, restart_host, phoenix, or reload_request.")],
         )
 
     command = _install_command()
-
-    if selected is UpdateType.PHOENIX_INVERTED:
-        _schedule_parent_termination(command)
-        messages.append(AgentMessage("warning", "RESTART_REQUIRED", "Anticharon is terminating before reinstalling; the host must respawn the server."))
-        return {"status": "success", "type": selected.value, "update_command": command, "restart_scheduled": True}, messages
 
     completed = subprocess.run(command, capture_output=True, text=True, timeout=120.0, check=False)
     if completed.returncode != 0:

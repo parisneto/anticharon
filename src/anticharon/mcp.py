@@ -406,14 +406,12 @@ def check_updates() -> dict[str, Any]:
     annotations=_annotations("Run experimental update", False, True, False, True),
     description=(
         "EXPERIMENTAL. WARNING: Executes shell commands directly on the host environment. "
-        "Reinstalls Anticharon from Git source using one of five named sequences:\n"
+        "Reinstalls Anticharon from Git source using one of four named sequences:\n"
         "- install_only: Reinstalls via uv/pip; requires manual host restart.\n"
         "- restart_host: Reinstalls and runs `hermes gateway restart`.\n"
         "- phoenix: Reinstalls, then terminates this MCP server process for host respawn.\n"
-        "- phoenix_inverted: Terminates this MCP server first, reinstalling in a detached background process.\n"
         "- reload_request: Reinstalls and prompts the user to send `/reload-mcp` in host chat.\n"
         "May require manual intervention. See anticharon://llms.txt for the operational glossary."
-        
     ),
 )
 def run_update(type: UpdateType = UpdateType.INSTALL_ONLY) -> dict[str, Any]:

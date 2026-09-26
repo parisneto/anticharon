@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-26
+
+### Removed
+- **`phoenix_inverted` sequence:** Dropped the inverted phoenix update sequence from `run_update` and CLI `--type` options following empirical host testing on Hermes VM. The remaining four sequences (`install_only`, `restart_host`, `phoenix`, `reload_request`) ensure that new binaries are safely installed before any server termination or reload signals are dispatched.
+
+### Changed
+- **Update sequence aliases:** Numeric update aliases are now `1–4` mapping to `install_only`, `restart_host`, `phoenix`, and `reload_request`.
+- **Docs & MCP surface alignment:** Synchronized `llms.txt`, MCP tool documentation, CLI choices, and regression test suites to reflect the 4 update sequences and `v0.6.1 Beta`.
+
 ## [0.6.0] - 2026-09-26
 
 ### Added
