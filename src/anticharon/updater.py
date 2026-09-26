@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -46,6 +47,11 @@ def parse_update_type(value: UpdateType | str | int) -> UpdateType:
     return UpdateType(normalized)
 
 
+def _parse_version(version: str) -> tuple[int, ...]:
+    """Extract numeric components for SemVer comparison."""
+    return tuple(int(x) for x in re.findall(r"\d+", str(version)))
+
+
 def check_updates(installed_version: str, timeout: float = UPDATE_TIMEOUT_SECONDS) -> tuple[dict[str, Any], list[AgentMessage]]:
     """Compare an installed version to GitHub's latest release with a hard timeout."""
     try:
@@ -66,13 +72,16 @@ def check_updates(installed_version: str, timeout: float = UPDATE_TIMEOUT_SECOND
             [AgentMessage("error", "UPDATE_CHECK_FAILED", f"Could not check GitHub releases ({type(exc).__name__}); retry later.")],
         )
 
-    is_latest = installed_version == latest_version
+    installed_parsed = _parse_version(installed_version)
+    latest_parsed = _parse_version(latest_version)
+    is_latest = installed_parsed >= latest_parsed
     code = "UP_TO_DATE" if is_latest else "UPDATE_AVAILABLE"
-    text = (
-        f"Anticharon {installed_version} is the latest GitHub release."
-        if is_latest
-        else f"Anticharon {latest_version} is available; run the experimental update tool to install it."
-    )
+    if installed_parsed > latest_parsed:
+        text = f"Anticharon {installed_version} is ahead of the latest GitHub release ({latest_version})."
+    elif is_latest:
+        text = f"Anticharon {installed_version} is the latest GitHub release."
+    else:
+        text = f"Anticharon {latest_version} is available; run the experimental update tool to install it."
     return (
         {
             "status": "success",

@@ -8,7 +8,6 @@ from anticharon import mcp
 from anticharon.cli import cmd_check_updates, cmd_update
 from anticharon.updater import UpdateType, check_updates, run_update
 
-
 LATEST_RELEASE_FIXTURE = Path(__file__).parent / "fixtures" / "github_releases_latest.json"
 
 
@@ -46,6 +45,34 @@ def test_check_updates_reports_is_latest_with_two_second_timeout(monkeypatch):
     assert messages[0].code == "UP_TO_DATE"
     assert seen["timeout"] == 2.0
     assert payload["release_url"] == "https://github.com/parisneto/anticharon/releases/tag/v0.5.5"
+
+
+def test_check_updates_ahead_of_latest_reports_is_latest_true(monkeypatch):
+    monkeypatch.setattr(
+        "anticharon.updater.requests.get",
+        lambda *args, **kwargs: _Response(payload=json.loads(LATEST_RELEASE_FIXTURE.read_text(encoding="utf-8"))),
+    )
+    payload, messages = check_updates("0.6.0")
+
+    assert payload["is_latest"] is True
+    assert payload["latest_version"] == "0.5.5"
+    assert messages[0].code == "UP_TO_DATE"
+    assert "ahead of the latest GitHub release" in messages[0].text
+    assert messages[0].action is None
+
+
+def test_check_updates_behind_latest_reports_update_available(monkeypatch):
+    monkeypatch.setattr(
+        "anticharon.updater.requests.get",
+        lambda *args, **kwargs: _Response(payload=json.loads(LATEST_RELEASE_FIXTURE.read_text(encoding="utf-8"))),
+    )
+    payload, messages = check_updates("0.5.4")
+
+    assert payload["is_latest"] is False
+    assert payload["latest_version"] == "0.5.5"
+    assert messages[0].code == "UPDATE_AVAILABLE"
+    assert messages[0].action is not None
+
 
 
 def test_check_updates_failure_is_an_error_and_mcp_is_error(monkeypatch):

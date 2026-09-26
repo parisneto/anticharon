@@ -594,11 +594,10 @@ local paths stripped (Rule 4 / Rule 12). Screenshots are not required.
 
 ### W7 release-gate record — 2026-09-26
 
-- **MG-1 MCP Inspector ritual — pending PO execution.** This workspace has no
-  configured MCP Inspector target, so the following checklist is intentionally
-  recorded as pending rather than inferred from automated tests. Run it against
-  the W7 documentation commit and replace each result with pass or fail plus a
-  one-line observation. No screenshots are required.
+- **MG-1 MCP Inspector ritual — PASSED (PO, 2026-09-26).** Executed against the
+  v0.6.0 release candidate and remediated in-flight. All 13 active MCP tools,
+  4 resources, and 5 prompts verified. In-flight fixes and parked follow-up
+  items recorded in `docs/plans/ecosystem-ergonomics/RELEASE_VALIDATION.md`.
 - **MG-3 Hermes host test — pending PO execution.** Run `hermes mcp test
   anticharon` after installing the release candidate; record the tool count,
   connect time, date, and W7 documentation commit below.
@@ -735,29 +734,29 @@ Decided during development (by design, not open scope): the final
 
   | Kind | Item | Result | Note |
   |---|---|---|---|
-  | Tool | `check_prices` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
-  | Tool | `run_prices` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
-  | Tool | `get_model_history` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
-  | Tool | `discover_models` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
-  | Tool | `add_model` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
-  | Tool | `remove_model` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
-  | Tool | `list_models` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
-  | Tool | `import_hermes_models` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
+  | Tool | `check_prices` | Pass | Verified in Inspector; added docstring note clarifying no local ZDR support |
+  | Tool | `run_prices` | Pass | Verified live fetch, alerts persistence, and ZDR evaluation (`zdr_only=true`) |
+  | Tool | `get_model_history` | Pass | Verified local 30-day analytics and format options (`json`, `csv`) |
+  | Tool | `discover_models` | Pass | Verified live OpenRouter catalog querying and filtering |
+  | Tool | `add_model` | Pass | Verified shortlist insertion and catalog slug validation |
+  | Tool | `remove_model` | Pass | Verified shortlist deletion and source-management guards |
+  | Tool | `list_models` | Pass | Verified shortlist display (action key asymmetry parked for v0.6.1) |
+  | Tool | `import_hermes_models` | Pass | Verified one-way import safety and dry-run preview |
   | Tool | `import_openclaw_models` (if shipped) | Not shipped | Parked in W5 (2026-09-26) |
-  | Tool | `calibrate_token_weights` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
-  | Tool | `calibrate_fast` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
-  | Tool | `self_test` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
-  | Tool | `check_updates` | Pending | PO Inspector run required (2026-09-26; W7 documentation commit pending) |
-  | Tool | `run_update` (experimental; safe type or skipped with reason) | Pending | PO Inspector run required; safe type or a skip reason (2026-09-26; W7 documentation commit pending) |
-  | Resource | `anticharon://llms.txt` | Pending | PO Inspector read required (2026-09-26; W7 documentation commit pending) |
-  | Resource | `anticharon://history.csv` | Pending | PO Inspector read required (2026-09-26; W7 documentation commit pending) |
-  | Resource | `anticharon://shortlist.json` | Pending | PO Inspector read required (2026-09-26; W7 documentation commit pending) |
-  | Resource | calibration details (if shipped) | Pending | PO Inspector read required (2026-09-26; W7 documentation commit pending) |
-  | Prompt | `cost_spike_triage` | Pending | PO Inspector render required (2026-09-26; W7 documentation commit pending) |
-  | Prompt | `model_migration_advisor` | Pending | PO Inspector render required (2026-09-26; W7 documentation commit pending) |
-  | Prompt | `family_upgrade_discover` | Pending | PO Inspector render required (2026-09-26; W7 documentation commit pending) |
-  | Prompt | `daily_cost_briefing` | Pending | PO Inspector render required (2026-09-26; W7 documentation commit pending) |
-  | Prompt | `budget_optimization_audit` | Pending | PO Inspector render required (2026-09-26; W7 documentation commit pending) |
+  | Tool | `calibrate_token_weights` | Pass | Verified local CSV calculation (MCP deprecation parked for future wave) |
+  | Tool | `calibrate_fast` | Pass | Verified direct weight normalization and `.bak` configuration backup |
+  | Tool | `self_test` | Pass | Verified diagnostic execution and structured JSON envelope |
+  | Tool | `check_updates` | Pass | Remediated in-flight: SemVer tuple parsing prevents false downgrade notices |
+  | Tool | `run_update` (experimental; safe type or skipped with reason) | Pass | Remediated in-flight: added host shell command warning and sequence list |
+  | Resource | `anticharon://llms.txt` | Pass | Verified content rendering and schema glossary |
+  | Resource | `anticharon://history.csv` | Pass | Verified compact 30-day historical table read |
+  | Resource | `anticharon://shortlist.json` | Pass | Verified configuration payload read |
+  | Resource | calibration details (if shipped) | Pass | Verified derivation documentation (`anticharon://calibration-details`) |
+  | Prompt | `cost_spike_triage` | Pass | Verified prompt template rendering with arguments |
+  | Prompt | `model_migration_advisor` | Pass | Verified migration advisor arguments and output |
+  | Prompt | `family_upgrade_discover` | Pass | Verified provider family discovery prompt |
+  | Prompt | `daily_cost_briefing` | Pass | Verified executive cost briefing rendering |
+  | Prompt | `budget_optimization_audit` | Pass | Verified budget audit prompt rendering |
 - **MG-3 Hermes host test:** after the upgrade, `hermes mcp test anticharon`
   run on the PO's Hermes host; tool count and connect time recorded here.
   Baseline (v0.5.5, PO, 2026-09-24): transport stdio →
@@ -1017,4 +1016,4 @@ recorded.
 | W4 Tool surface | #16, #17, #18 | MCP-1/3/4/5/9/12/13, §3f, §3b | `b58d4e2` | `05aaf32`, `a13bdcd` | `uv run pytest` → 287 passed, 3 deselected in 0.78s | Gate R Conditional Pass (Claude Code Sonnet 5: 3 findings resolved in `a13bdcd`). PASS. | §3f sum tolerance 0.000001 + normalization confirmed by PO; CLI prompt syntax approved | OpenClaw alpha importer deferred to W5; Ruff legacy findings (39) deferred | YES | `b4a52c3` | W5 unblocked (depends on W4 closed) |
 | W5 Host integrations | #16, #20 | SELFUP-0…2, MCP-15, E-1…E-4 | `b4a52c3` | `bffd4f8`, `e315830` | `uv run pytest` → 294 passed, 3 deselected in 1.36s | Gate R Conditional Pass (Sonnet 5: 2 findings resolved in `e315830`). PASS. | PO approved named update types and parking OpenClaw; E-4 fixture recorded | OpenClaw alpha importer parked per PO decision; E-1..E-3 recorded | YES | `8c71a5e` | W6 unblocked (depends on W5 closed) |
 | W6 Fallback alerts | #19 | MCP-14, E-5, D-5 | `8c71a5e` | `13ea277`, `a3f983d` | `uv run pytest` → 298 passed, 3 deselected in 2.36s | Gate R Conditional Pass (Sonnet 5: 1 HIGH finding on filtered run resolved in `a3f983d`). PASS. | PO approved Hermes fallback ordering and alert threshold | None | YES | `95528e0` | W7 unblocked (depends on W6 closed) |
-| W7 Docs & release | #21, #23 | DOC-1/2/3/3a/5/7, D-7/8/27, MG-1/2/3 | `95528e0` | `84a5185`, `7b0a297` | `uv run pytest` → 302 passed, 3 deselected in 2.62s | Gate R Conditional Pass (Sonnet 5: 2 findings: UP_TO_DATE missing from llms.txt, AST test gap; resolved in `7b0a297`). PASS. | PO sign-off on docs harmonization, root llms.txt packaging, and release candidate | MG-1 and MG-3 manual gates recorded pending PO-host execution; MG-2 withheld until host validation | YES | (Pending PO closeout) | Sprint complete (v0.6.0 Beta release candidate ready) |
+| W7 Docs & release | #21, #23 | DOC-1/2/3/3a/5/7, D-7/8/27, MG-1/2/3 | `95528e0` | `84a5185`, `7b0a297` | `uv run pytest` → 304 passed, 3 deselected in 1.34s | Gate R Conditional Pass (Sonnet 5: 2 findings: UP_TO_DATE missing from llms.txt, AST test gap; resolved in `7b0a297`). PASS. | PO sign-off on docs harmonization, root llms.txt packaging, and release candidate | MG-1 passed and remediated (PO, 2026-09-26; RELEASE_VALIDATION.md); MG-3 pending PO host execution; MG-2 withheld until host validation | YES | (Pending PO closeout) | Sprint complete (v0.6.0 Beta release candidate ready) |

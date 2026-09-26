@@ -105,7 +105,8 @@ def tool_result(envelope: dict[str, Any]) -> dict[str, Any] | CallToolResult:
         "PRICE_DROP, BEST_OPTION_CHANGED) exactly as persisted by the last `run_prices` call -- "
         "never recomputed here. Source: history.csv (compact summary) and alerts.json. Call "
         "`run_prices` first to refresh; this tool never fetches from OpenRouter. See "
-        "anticharon://llms.txt for the authoritative glossary."
+        "anticharon://llms.txt for the authoritative glossary.\n"
+        "## IMPORTANT : NO ZDR support in this endpoint. It needs live data as provider availability changes. Use run_prices with zdr_only=true to get latest ZDR information for your entire shortlist or for a single model_id."
     )
 )
 def check_prices(model_id: str | None = None) -> dict[str, Any]:
@@ -404,10 +405,15 @@ def check_updates() -> dict[str, Any]:
     name="run_update",
     annotations=_annotations("Run experimental update", False, True, False, True),
     description=(
-        "EXPERIMENTAL. Reinstalls Anticharon from its Git source using one named sequence: "
-        "install_only, restart_host, phoenix, phoenix_inverted, or reload_request. The operation "
-        "may require manual intervention such as `hermes gateway restart`; it is the only Anticharon "
-        "tool that executes commands. See anticharon://llms.txt for the operational glossary."
+        "EXPERIMENTAL. WARNING: Executes shell commands directly on the host environment. "
+        "Reinstalls Anticharon from Git source using one of five named sequences:\n"
+        "- install_only: Reinstalls via uv/pip; requires manual host restart.\n"
+        "- restart_host: Reinstalls and runs `hermes gateway restart`.\n"
+        "- phoenix: Reinstalls, then terminates this MCP server process for host respawn.\n"
+        "- phoenix_inverted: Terminates this MCP server first, reinstalling in a detached background process.\n"
+        "- reload_request: Reinstalls and prompts the user to send `/reload-mcp` in host chat.\n"
+        "May require manual intervention. See anticharon://llms.txt for the operational glossary."
+        
     ),
 )
 def run_update(type: UpdateType = UpdateType.INSTALL_ONLY) -> dict[str, Any]:
