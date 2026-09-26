@@ -757,19 +757,16 @@ Decided during development (by design, not open scope): the final
   | Prompt | `family_upgrade_discover` | Pass | Verified provider family discovery prompt |
   | Prompt | `daily_cost_briefing` | Pass | Verified executive cost briefing rendering |
   | Prompt | `budget_optimization_audit` | Pass | Verified budget audit prompt rendering |
-- **MG-3 Hermes host test:** after the upgrade, `hermes mcp test anticharon`
-  run on the PO's Hermes host; tool count and connect time recorded here.
-  Baseline (v0.5.5, PO, 2026-09-24): transport stdio →
-  `~/.local/bin/anticharon`, auth none, connected in 2441 ms, **4 tools
-  discovered** (`check_prices`, `get_model_history`, `discover_models`,
-  `import_hermes_models`). Expected after this sprint: every tool in the
-  §3a parity matrix discovered (including `run_prices`, `add_model`,
-  `remove_model`, `list_models`, both calibration tools, `self_test`,
-  conditional `import_openclaw_models`, `check_updates`, `run_update`); any
-  connect-time regression explained.
-- **MG-2 Product Owner sign-off:** explicit PO approval in chat after MG-1,
-  MG-3 and the automated gate pass; recorded here with date and commit. No tag or push
-  to `main` before MG-2 (Rule 11).
+- **MG-3 Hermes host test:** passed (PO, 2026-09-26, commit `f652e48`).
+  Host: Linux 6.8.0-1067-gcp (x86_64). Transport: stdio → `~/.local/bin/anticharon`.
+  Connected in 8943 ms. **13 tools discovered** (up from 4 in v0.5.5 baseline; all 13 tools present:
+  `check_prices`, `run_prices`, `get_model_history`, `discover_models`, `import_hermes_models`,
+  `add_model`, `remove_model`, `list_models`, `self_test`, `calibrate_token_weights`,
+  `calibrate_fast`, `check_updates`, `run_update`). All self-test core diagnostics passed (6 models
+  shortlisted, Hermes integration detected, storage writable, API reachable with 458 models / 339ms latency).
+  `anticharon check-updates` correctly verified `[UP_TO_DATE]` ahead of GitHub release 0.5.5.
+- **MG-2 Product Owner sign-off:** explicit PO approval granted in chat (PO, 2026-09-26, commit `f652e48`).
+  MG-1, MG-3, and automated gates passed. Approved for PR integration and closing issues #12–#23.
 
 ### Release governance (Rule 11)
 - Version bump across `pyproject.toml`, `src/anticharon/__init__.py`,
@@ -1016,4 +1013,4 @@ recorded.
 | W4 Tool surface | #16, #17, #18 | MCP-1/3/4/5/9/12/13, §3f, §3b | `b58d4e2` | `05aaf32`, `a13bdcd` | `uv run pytest` → 287 passed, 3 deselected in 0.78s | Gate R Conditional Pass (Claude Code Sonnet 5: 3 findings resolved in `a13bdcd`). PASS. | §3f sum tolerance 0.000001 + normalization confirmed by PO; CLI prompt syntax approved | OpenClaw alpha importer deferred to W5; Ruff legacy findings (39) deferred | YES | `b4a52c3` | W5 unblocked (depends on W4 closed) |
 | W5 Host integrations | #16, #20 | SELFUP-0…2, MCP-15, E-1…E-4 | `b4a52c3` | `bffd4f8`, `e315830` | `uv run pytest` → 294 passed, 3 deselected in 1.36s | Gate R Conditional Pass (Sonnet 5: 2 findings resolved in `e315830`). PASS. | PO approved named update types and parking OpenClaw; E-4 fixture recorded | OpenClaw alpha importer parked per PO decision; E-1..E-3 recorded | YES | `8c71a5e` | W6 unblocked (depends on W5 closed) |
 | W6 Fallback alerts | #19 | MCP-14, E-5, D-5 | `8c71a5e` | `13ea277`, `a3f983d` | `uv run pytest` → 298 passed, 3 deselected in 2.36s | Gate R Conditional Pass (Sonnet 5: 1 HIGH finding on filtered run resolved in `a3f983d`). PASS. | PO approved Hermes fallback ordering and alert threshold | None | YES | `95528e0` | W7 unblocked (depends on W6 closed) |
-| W7 Docs & release | #21, #23 | DOC-1/2/3/3a/5/7, D-7/8/27, MG-1/2/3 | `95528e0` | `84a5185`, `7b0a297` | `uv run pytest` → 304 passed, 3 deselected in 1.34s | Gate R Conditional Pass (Sonnet 5: 2 findings: UP_TO_DATE missing from llms.txt, AST test gap; resolved in `7b0a297`). PASS. | PO sign-off on docs harmonization, root llms.txt packaging, and release candidate | MG-1 passed and remediated (PO, 2026-09-26; RELEASE_VALIDATION.md); MG-3 pending PO host execution; MG-2 withheld until host validation | YES | (Pending PO closeout) | Sprint complete (v0.6.0 Beta release candidate ready) |
+| W7 Docs & release | #21, #23 | DOC-1/2/3/3a/5/7, D-7/8/27, MG-1/2/3 | `95528e0` | `84a5185`, `7b0a297`, `f652e48` | `uv run pytest` → 304 passed, 3 deselected in 1.37s | Gate R Conditional Pass (Sonnet 5: 2 findings resolved in `7b0a297`). PASS. | PO sign-off on docs harmonization, root llms.txt packaging, and release candidate | MG-1 and MG-3 passed and verified on Hermes host (PO, 2026-09-26; RELEASE_VALIDATION.md); MG-2 approved for PR integration | YES | (Pending PO closeout) | Sprint complete — Release candidate validated on Hermes host |
