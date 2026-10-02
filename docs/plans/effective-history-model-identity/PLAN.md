@@ -13,18 +13,19 @@ EH-7 is P2. Acceptance groups retain the exact EH-n/issue associations.
 
 1. Reconcile the active specification's analytics section with shipped
    `effective_prices.json` backfill behavior.
-2. Resolve D-1/D-2 for AC-1: explicit observation-coverage maturity and
-   configuration semantics, without a `first_seen`-only rule or slot-count guess.
+2. D-1/D-2 (resolved, see contract): analytics read only dated
+   `effective_prices.json` observations; maturity is the distinct observed-day
+   count against `min_tracking_days_for_profile`, with no `first_seen` role.
 3. Implement EH-1 with fixture-driven regression tests; prove E-2 using
    mature day-0, insufficient, and gapped real-history cases.
-4. Resolve D-3 for AC-2 without silently choosing manual/Hermes precedence.
-   Implement EH-2 through the existing ownership model; prove E-3 by comparing
+4. D-3 (resolved, see contract): Hermes owns the effective default while a
+   manual preference is preserved. Implement EH-2 through the existing ownership model; prove E-3 by comparing
    persisted shortlist metadata with `model list --json`, including unchanged
    sequences, repeated syncs, and manual retention/default precedence.
 
 ### Wave 2 — Propagate trustworthy analytics
 
-1. Add structured evidence fields to the analytics result.
+1. Evidence fields already exist on the analytics result (Wave 1); propagate them.
 2. Make `run`, `history`, MCP, and agent prompts consume the same result (AC-3).
 3. Prove E-4 with CLI/MCP analytics parity tests; update the active spec.
 
@@ -65,11 +66,10 @@ acceptance changes still require PO approval before implementation.
 
 ## Protocol baseline check
 
-Recorded planning finding (2026-10-02): official MCP sources report
-`2026-12-15` not ready and the pinned `2026-07-28` revision current. E-1
-retains this finding pending its exact primary-source reference and checked
-revision; it is not a verified PASS. Source the check before scope closes.
-The baseline URL remains in the contract under AGENTS.md Rule 4.
+Finding (2026-10-02): the official [MCP versioning page](https://modelcontextprotocol.io/specification/versioning)
+lists `2026-07-28` as the current revision; the pinned baseline is unchanged.
+No newer revision is marked current. The baseline URL remains in the contract
+under AGENTS.md Rule 4.
 
 ## Evidence and verification inputs
 
