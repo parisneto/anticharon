@@ -1,14 +1,31 @@
 """Tests for anticharon.analytics: profile classification, sibling detection,
-and the elapsed-days NEWLY_TRACKED threshold (PLAN.md "Analytics" section --
-`tracking_days_elapsed < min_tracking_days_for_profile` drives NEWLY_TRACKED,
-not a slot count, since backfill can leave gaps).
+and the observed-days NEWLY_TRACKED threshold. Analytics read dated observations
+(the `effective_prices.json` shape); maturity is the count of distinct valid
+observed calendar days, with no dependence on `first_seen`.
 """
+
+from datetime import date, timedelta
 
 from anticharon.analytics import (
     calculate_model_analytics,
     find_sibling_alternatives,
     parse_model_family,
+    valid_observations,
 )
+
+TODAY = date(2026, 10, 1)
+
+
+def obs(price_by_days_ago):
+    """Observation dicts from {days_ago: price} (or a callable over 1..30)."""
+    return [
+        {"date": (TODAY - timedelta(days=n)).isoformat(), "effective_price_1m": p}
+        for n, p in sorted(price_by_days_ago.items())
+    ]
+
+
+def run(model, current, price_by_days_ago, **kwargs):
+    return calculate_model_analytics(model, current, obs(price_by_days_ago), TODAY, **kwargs)
 
 
 def test_parse_model_family():
@@ -31,144 +48,150 @@ def test_find_sibling_alternatives_newer_version():
     assert sibs[0].relation == "newer_version"
 
 
-# All classification tests below pass tracking_days_elapsed=30 (>= the 14-day
-# default threshold) so they exercise the CV/trend-based classifications rather
-# than being short-circuited by NEWLY_TRACKED.
+
+# Classification series have 30 real observations, past the 14-day default
+# threshold, so they exercise the CV/trend classifications.
 
 def test_promo_ended_and_sunsetting_classification():
-    candidates = {
-        "google/gemini-3.7-flash": 0.75881,
-        "google/gemini-3.8-flash": 0.75881,
-    }
-    hist_promo = [0.75881] * 4 + [0.37941] * 5
-    an_promo = calculate_model_analytics(
-        "google/gemini-3.7-flash", 0.75881, hist_promo, candidates, tracking_days_elapsed=30
-    )
-    assert an_promo.profile == "PROMO_ENDED"
-    assert "PROMO_ENDED" in an_promo.badge
-    assert an_promo.secondary_badge == "⚠️ SUNSETTING"
-    assert round(an_promo.change_vs_30d_pct, 1) == 100.0
+    candidates = {"google/gemini-3.7-flash": 0.75881, "google/gemini-3.8-flash": 0.75881}
+    series = {n: (0.75881 if n <= 7 else 0.37941) for n in range(1, 31)}
+    an = run("google/gemini-3.7-flash", 0.75881, series, candidate_prices=candidates)
+    assert an.profile == "PROMO_ENDED"
+    assert "PROMO_ENDED" in an.badge
+    assert an.secondary_badge == "⚠️ SUNSETTING"
+    assert round(an.change_vs_30d_pct, 1) == 100.0
 
 
 def test_stable_classification():
-    hist_stable = [0.10088] * 6 + [0.10087] * 2 + [0.10088]
-    an_stable = calculate_model_analytics(
-        "google/gemini-2.5-flash-lite", 0.10088, hist_stable, tracking_days_elapsed=30
-    )
-    assert an_stable.profile == "STABLE"
-    assert "STABLE" in an_stable.badge
-    assert an_stable.volatility_cv_pct < 0.1
+    series = {n: (0.10087 if n in (8, 9) else 0.10088) for n in range(1, 31)}
+    an = run("google/gemini-2.5-flash-lite", 0.10088, series)
+    assert an.profile == "STABLE"
+    assert "STABLE" in an.badge
+    assert an.volatility_cv_pct < 0.1
 
 
 def test_volatile_classification():
-    hist_vol = [0.85, 0.40, 0.95, 0.45, 0.90, 0.40, 0.85, 0.40, 0.90]
-    an_vol = calculate_model_analytics(
-        "nousresearch/hermes-3-70b", 0.65, hist_vol, tracking_days_elapsed=30
-    )
-    assert an_vol.profile == "VOLATILE"
-    assert "VOLATILE" in an_vol.badge
+    series = {n: (0.85 if n % 2 else 0.40) for n in range(1, 29)}
+    an = run("nousresearch/hermes-3-70b", 0.65, series)
+    assert an.profile == "VOLATILE"
+    assert "VOLATILE" in an.badge
 
 
 def test_discounted_classification():
-    hist_disc = [1.50, 1.50, 1.80, 2.00, 2.50, 3.00, 3.00, 3.00, 3.00]
-    an_disc = calculate_model_analytics(
-        "mistralai/mistral-large-2407", 1.50, hist_disc, tracking_days_elapsed=30
-    )
-    assert an_disc.profile == "DISCOUNTED"
-    assert "DISCOUNTED" in an_disc.badge
+    series = {n: (1.50 if n <= 3 else 3.00) for n in range(1, 31)}
+    an = run("mistralai/mistral-large-2407", 1.50, series)
+    assert an.profile == "DISCOUNTED"
+    assert "DISCOUNTED" in an.badge
 
 
 def test_creeping_inflation_classification():
-    hist_creep = [0.06534] * 4 + [0.06018] * 2 + [0.06017] * 2 + [0.06017]
-    an_creep = calculate_model_analytics(
-        "deepseek/deepseek-v4-flash-0731", 0.06534, hist_creep, tracking_days_elapsed=30
-    )
-    assert an_creep.profile == "CREEPING_INFLATION"
-    assert "CREEPING" in an_creep.badge
+    series = {n: (0.06534 if n <= 4 else 0.06018 if n <= 14 else 0.06017) for n in range(1, 31)}
+    an = run("deepseek/deepseek-v4-flash-0731", 0.06534, series)
+    assert an.profile == "CREEPING_INFLATION"
+    assert "CREEPING" in an.badge
 
 
-# --- Elapsed-days NEWLY_TRACKED threshold (new in pricing-engine-v2) ---
+# --- AC-1: maturity from distinct observed days in the observation window ---
 
-def test_newly_tracked_when_elapsed_days_unknown():
-    """tracking_days_elapsed=None (unknown) is the safe default -- NEWLY_TRACKED,
-    even if the history slots happen to look mature."""
-    hist_stable = [0.10088] * 9
-    an = calculate_model_analytics("some/model", 0.10088, hist_stable)
+def test_day_zero_backfill_gets_normal_profile_with_evidence():
+    """An established model: 28 real backfilled days on its first Anticharon run."""
+    an = run("some/model", 0.10088, {n: 0.10088 for n in range(1, 29)})
+    assert an.profile == "STABLE"
+    assert an.observation_count == 28
+    assert an.earliest_observation == (TODAY - timedelta(days=28)).isoformat()
+    assert an.latest_observation == (TODAY - timedelta(days=1)).isoformat()
+    assert an.coverage_days == 28
+    assert an.classification_reason == "28 distinct observed days ≥ 14 required for classification."
+
+
+def test_new_release_with_five_days_stays_newly_tracked():
+    an = run("some/model", 0.10, {n: 0.10 for n in range(1, 6)})
     assert an.profile == "NEWLY_TRACKED"
+    assert an.observation_count == 5
+    assert an.classification_reason == "5 distinct observed days < 14 required for classification."
+    assert "5 observed days" in an.recommendation
 
 
-def test_newly_tracked_below_min_tracking_days():
-    hist_stable = [0.10088] * 9
-    an = calculate_model_analytics(
-        "some/model", 0.10088, hist_stable, tracking_days_elapsed=13, min_tracking_days_for_profile=14
-    )
-    assert an.profile == "NEWLY_TRACKED"
-
-
-def test_classification_resumes_at_exact_threshold():
-    hist_stable = [0.10088] * 9
-    an = calculate_model_analytics(
-        "some/model", 0.10088, hist_stable, tracking_days_elapsed=14, min_tracking_days_for_profile=14
-    )
-    assert an.profile != "NEWLY_TRACKED"
+def test_threshold_is_exact_observed_day_count():
+    below = run("some/model", 0.10, {n: 0.10 for n in range(1, 14)})
+    at = run("some/model", 0.10, {n: 0.10 for n in range(1, 15)})
+    assert below.profile == "NEWLY_TRACKED"
+    assert at.profile != "NEWLY_TRACKED"
 
 
 def test_min_tracking_days_for_profile_is_configurable():
-    hist_stable = [0.10088] * 9
-    an = calculate_model_analytics(
-        "some/model", 0.10088, hist_stable, tracking_days_elapsed=5, min_tracking_days_for_profile=3
-    )
-    assert an.profile != "NEWLY_TRACKED"
+    series = {n: 0.10 for n in range(1, 6)}
+    assert run("some/model", 0.10, series, min_tracking_days_for_profile=5).profile != "NEWLY_TRACKED"
+    assert run("some/model", 0.10, series, min_tracking_days_for_profile=6).profile == "NEWLY_TRACKED"
 
 
-def test_single_observation_golden_case():
-    """EXECUTION_CONTRACT.md golden case: a single historical observation ->
-    mean = observed value, profile = NEWLY_TRACKED, no synthetic observations
-    fabricated to pad the remaining 8 slots (history_vector keeps real None)."""
-    an = calculate_model_analytics(
-        "brand/new-model", 0.05, [0.04, None, None, None, None, None, None, None, None],
-        tracking_days_elapsed=1, min_tracking_days_for_profile=14,
-    )
+def test_no_observations_is_newly_tracked_with_empty_evidence():
+    an = run("brand/new-model", 0.05, {})
     assert an.profile == "NEWLY_TRACKED"
-    assert an.history_vector["d1"] == 0.04
-    assert an.history_vector["d2"] is None
-    assert an.history_vector["d30"] is None
-
-
-def test_single_observation_zero_dispersion_golden_case():
-    """PE2-009: fills in EXECUTION_CONTRACT.md's Sample Golden Case's
-    `<explicit Anticharon-defined behavior>` placeholder for dispersion. This
-    is the literal "single historical observation" scenario the Contract
-    describes -- a model tracked for exactly one day, zero backfill at all
-    (every history slot null, only today's current price exists) -- distinct
-    from `test_single_observation_golden_case` above, which uses two data
-    points (current + one real historical slot).
-
-    Expected per the Contract: mean = observed value, dispersion = 0.0%
-    (the coefficient of variation of a single data point is mathematically
-    zero -- there is no second point to vary against -- not undefined and
-    not a fabricated nonzero guess), profile = NEWLY_TRACKED."""
-    observed_value = 0.05
-    an = calculate_model_analytics(
-        "brand/new-model", observed_value, [None] * 9,
-        tracking_days_elapsed=1, min_tracking_days_for_profile=14,
-    )
-    assert an.profile == "NEWLY_TRACKED"
+    assert an.observation_count == 0
+    assert an.earliest_observation is None and an.latest_observation is None
+    assert an.coverage_days == 0
     assert an.volatility_cv_pct == 0.0
-    assert an.price_min_30d == observed_value  # "mean = observed value"
-    assert an.price_max_30d == observed_value
-    assert an.history_vector["now"] == observed_value
+    assert an.price_min_30d == an.price_max_30d == 0.05
     assert all(an.history_vector[k] is None for k in an.history_vector if k != "now")
 
 
-def test_nullable_slots_do_not_crash_mature_classification():
-    """A model tracked long enough (elapsed >= threshold) but with backfill
-    gaps (e.g. d1 and d15 populated, nothing between) must still classify
-    without crashing or fabricating the missing points."""
-    history_prices = [0.10, None, None, None, None, None, None, 0.10, None]  # d1, d15 only
-    an = calculate_model_analytics(
-        "gapped/model", 0.10, history_prices, tracking_days_elapsed=30, min_tracking_days_for_profile=14
-    )
+def test_gaps_are_preserved_and_count_only_observed_days():
+    every_other_day = {n: 0.10 for n in range(2, 30, 2)}  # 14 observed days, days 2..28
+    an = run("gapped/model", 0.10, every_other_day)
+    assert an.observation_count == 14
+    assert an.coverage_days == 27
     assert an.profile != "NEWLY_TRACKED"
-    assert an.history_vector["d2"] is None
-    assert an.history_vector["d30"] is None
+    assert an.history_vector["d1"] is None
+    assert an.history_vector["d2"] == 0.10
+    thirteen = run("gapped/model", 0.10, {n: 0.10 for n in range(2, 28, 2)})
+    assert thirteen.observation_count == 13
+    assert thirteen.profile == "NEWLY_TRACKED"
+
+
+def test_duplicate_dates_count_once_and_minimum_wins():
+    entries = obs({n: 0.20 for n in range(1, 14)}) + obs({n: 0.10 for n in range(1, 14)})
+    an = calculate_model_analytics("dup/model", 0.10, entries, TODAY)
+    assert an.observation_count == 13
+    assert an.profile == "NEWLY_TRACKED"
+    assert an.price_max_30d == 0.10  # the 0.20 duplicates never survive
+    assert valid_observations(entries, TODAY)[TODAY - timedelta(days=1)] == 0.10
+
+
+def test_zero_prices_are_valid_observations():
+    series = {n: 0.0 for n in range(1, 15)}
+    an = run("free/model", 0.0, series)
+    assert an.observation_count == 14
+    assert an.profile == "STABLE"
+    assert an.volatility_cv_pct == 0.0
+    assert an.history_vector["d1"] == 0.0
+
+
+def test_zero_baseline_then_paid_price_does_not_crash():
+    series = {n: 0.0 for n in range(1, 31)}
+    an = run("free/model", 0.10, series)
+    assert an.profile != "NEWLY_TRACKED"
+    assert an.change_vs_30d_pct == 0.0
+
+
+def test_invalid_observations_are_not_counted():
+    good = obs({n: 0.10 for n in range(1, 14)})
+    bad = [
+        {"date": "not-a-date", "effective_price_1m": 0.1},
+        {"date": (TODAY - timedelta(days=14)).isoformat(), "effective_price_1m": -0.1},
+        {"date": (TODAY - timedelta(days=15)).isoformat(), "effective_price_1m": float("nan")},
+        {"date": (TODAY - timedelta(days=16)).isoformat(), "effective_price_1m": float("inf")},
+        {"date": (TODAY - timedelta(days=17)).isoformat(), "effective_price_1m": "abc"},
+        {"date": (TODAY + timedelta(days=1)).isoformat(), "effective_price_1m": 0.1},
+        {"date": (TODAY - timedelta(days=31)).isoformat(), "effective_price_1m": 0.1},
+        {"date": (TODAY - timedelta(days=18)).isoformat()},
+    ]
+    an = calculate_model_analytics("some/model", 0.10, good + bad, TODAY)
+    assert an.observation_count == 13
+    assert an.profile == "NEWLY_TRACKED"
+
+
+def test_observation_window_includes_today_and_thirty_days_back():
+    edge = {"date": (TODAY - timedelta(days=30)).isoformat(), "effective_price_1m": 0.1}
+    today_obs = {"date": TODAY.isoformat(), "effective_price_1m": 0.1}
+    assert set(valid_observations([edge, today_obs], TODAY)) == {TODAY - timedelta(days=30), TODAY}

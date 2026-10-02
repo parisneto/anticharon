@@ -124,6 +124,11 @@ class ModelAnalytics:
     secondary_badge: str | None = None
     sibling_alternatives: list[SiblingAlternative] = field(default_factory=list)
     history_vector: dict[str, float | None] = field(default_factory=dict)
+    observation_count: int = 0
+    earliest_observation: str | None = None
+    latest_observation: str | None = None
+    coverage_days: int = 0
+    classification_reason: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -138,7 +143,12 @@ class ModelAnalytics:
             "trajectory_sparkline": self.trajectory_sparkline,
             "recommendation": self.recommendation,
             "sibling_alternatives": [s.to_dict() for s in self.sibling_alternatives],
-            "history_vector": {k: (round(v, 5) if v is not None else None) for k, v in self.history_vector.items()}
+            "history_vector": {k: (round(v, 5) if v is not None else None) for k, v in self.history_vector.items()},
+            "observation_count": self.observation_count,
+            "earliest_observation": self.earliest_observation,
+            "latest_observation": self.latest_observation,
+            "coverage_days": self.coverage_days,
+            "classification_reason": self.classification_reason,
         }
 
 

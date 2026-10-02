@@ -695,3 +695,55 @@ def test_run_tracker_survives_nested_schema_drift_on_both_stats_routes(monkeypat
     assert model_price.price.policy_price_1m is None
     assert model_price.price.is_policy_routable is None
     assert model_price.price.cache_hit_rate_used != pytest.approx(0.764478, abs=1e-4)
+
+
+def _analytics_profile_for_store(monkeypatch, tmp_path, observation_days, first_seen):
+    """Run the tracker with a fresh seeded store and return the model's analytics."""
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {
+        "openai/gpt-5.6-sol": {
+            "id": "openai/gpt-5.6-sol",
+            "canonical_slug": "openai/gpt-5.6-sol-20260709",
+            "pricing": {"prompt": "0.000002", "completion": "0.00001"},
+        },
+    })
+    fixed_now = datetime(2026, 9, 16, 10, 0, 0, tzinfo=timezone.utc)
+    (tmp_path / "effective_prices.json").write_text(json.dumps({
+        "openai/gpt-5.6-sol": {
+            "canonical_slug": "openai/gpt-5.6-sol-20260709",
+            "first_seen": first_seen,
+            "last_synced": fixed_now.isoformat(),
+            "observations": [
+                {"date": (fixed_now.date() - timedelta(days=n)).isoformat(), "effective_price_1m": 0.5}
+                for n in range(1, observation_days + 1)
+            ],
+        }
+    }), encoding="utf-8")
+    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history",
+                        lambda *a, **kw: pytest.fail("fresh store must not refetch"))
+
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now
+
+    monkeypatch.setattr("anticharon.tracker.datetime", _FixedDatetime)
+    result = run_tracker(
+        dry_run=True, config_path=_write_shortlist(tmp_path, ["openai/gpt-5.6-sol"]),
+        history_path=tmp_path / "history.csv", no_hermes=True, enable_analytics=True,
+    )
+    return result.prices_shortlist[0].analytics
+
+
+def test_first_run_with_day_zero_backfill_gets_normal_profile(monkeypatch, tmp_path):
+    """AC-1: first_seen is today (first Anticharon run) but 28 real backfilled
+    days exist, so the model is not NEWLY_TRACKED."""
+    analytics = _analytics_profile_for_store(monkeypatch, tmp_path, 28, first_seen="2026-09-16")
+    assert analytics.profile != "NEWLY_TRACKED"
+    assert analytics.observation_count == 28
+
+
+def test_old_first_seen_does_not_mature_a_model_with_five_observed_days(monkeypatch, tmp_path):
+    """AC-1: a long-ago first_seen cannot mature a model with only five real days."""
+    analytics = _analytics_profile_for_store(monkeypatch, tmp_path, 5, first_seen="2026-01-01")
+    assert analytics.profile == "NEWLY_TRACKED"
+    assert analytics.observation_count == 5

@@ -510,7 +510,7 @@ def cmd_model(args) -> int:
             print(f"\n📋 Shortlisted Models ({len(res.shortlist)}):")
             print(f"⚙️ Config: {res.config_path}")
             print("-" * 50)
-            defaults = {entry["model"] for entry in res.entries if entry.get("order") == 0}
+            defaults = {entry["model"] for entry in res.entries if entry.get("is_default")}
             for idx, m in enumerate(res.shortlist, 1):
                 entry = next((e for e in res.entries if e["model"] == m), {"source": "manual"})
                 badge = " (Default Model)" if m in defaults else ""

@@ -32,6 +32,7 @@ from anticharon.hermes import (
 from anticharon.models import (
     AgentMessage,
     HermesIntegrationStatus,
+    ModelAnalytics,
     ModelPrice,
     PricePoint,
     PriceWarning,
@@ -316,18 +317,20 @@ def sync_effective_prices_for_model(
     store[model_id] = entry
 
 
-def tracking_days_elapsed(store: dict[str, Any], model_id: str, today: date) -> int | None:
-    """Elapsed calendar days since a model was first tracked, per the granular
-    store's `first_seen` -- drives analytics.py's NEWLY_TRACKED threshold.
-    `None` (unknown) when the model has no store entry yet."""
-    entry = store.get(model_id)
-    if not entry or not entry.get("first_seen"):
-        return None
-    try:
-        first_seen = date.fromisoformat(entry["first_seen"])
-    except (ValueError, TypeError):
-        return None
-    return (today - first_seen).days
+def _analytics_for(
+    store: dict[str, Any], model_id: str, current_price: float, today: date,
+    candidates: dict[str, float], current_default: str | None, cfg: dict[str, Any],
+) -> ModelAnalytics:
+    """Analytics for one model from its dated observations in the granular store."""
+    return calculate_model_analytics(
+        model_id=model_id,
+        current_price=current_price,
+        observations=(store.get(model_id) or {}).get("observations", []),
+        today=today,
+        candidate_prices=candidates,
+        current_default=current_default,
+        min_tracking_days_for_profile=cfg.get("min_tracking_days_for_profile", 14),
+    )
 
 
 def _parse_record_date(last_updated: str) -> date | None:
@@ -607,19 +610,8 @@ def run_tracker(
         prices_shortlist.sort(key=lambda x: x.price_1m)
         if enable_analytics:
             cand = {p.model: p.price_1m for p in prices_shortlist}
-            c_def = current_default
-            min_tracking_days = cfg.get("min_tracking_days_for_profile", 14)
             for p in prices_shortlist:
-                if p.model in history:
-                    p.analytics = calculate_model_analytics(
-                        model_id=p.model,
-                        current_price=p.price_1m,
-                        history_prices=history[p.model].prices,
-                        candidate_prices=cand,
-                        current_default=c_def,
-                        min_tracking_days_for_profile=min_tracking_days,
-                        tracking_days_elapsed=tracking_days_elapsed(effective_store, p.model, today),
-                    )
+                p.analytics = _analytics_for(effective_store, p.model, p.price_1m, today, cand, current_default, cfg)
         return TrackerResult(
             status="success",
             timestamp=now_iso,
@@ -895,25 +887,9 @@ def run_tracker(
         warnings.append(next_fallback_alert)
 
     if enable_analytics:
-        if updated_records:
-            history_prices_map = {row[0]: row[7:] for row in updated_records}
-        else:
-            history_prices_map = {m: r.prices for m, r in history.items()}
-
         cand = {p.model: p.price_1m for p in prices_shortlist}
-        c_def = current_default
-        min_tracking_days = cfg.get("min_tracking_days_for_profile", 14)
         for p in prices_shortlist:
-            if p.model in history_prices_map:
-                p.analytics = calculate_model_analytics(
-                    model_id=p.model,
-                    current_price=p.price_1m,
-                    history_prices=history_prices_map[p.model],
-                    candidate_prices=cand,
-                    current_default=c_def,
-                    min_tracking_days_for_profile=min_tracking_days,
-                    tracking_days_elapsed=tracking_days_elapsed(effective_store, p.model, today),
-                )
+            p.analytics = _analytics_for(effective_store, p.model, p.price_1m, today, cand, current_default, cfg)
 
     return TrackerResult(
         status="success",
@@ -1072,10 +1048,9 @@ def read_history_result(
     model_id: str | None = None,
 ) -> TrackerResult:
     """Local-only 30-day analytics read (D-19 `history`/`get_model_history`):
-    owns all analytics/profile classification. Source is history.csv's
-    already-derived d1..d30/MA columns (in turn derived from
-    effective_prices.json by the last `run`, §5.2). Makes no OpenRouter
-    network call."""
+    owns all analytics/profile classification, computed from the dated
+    observations in effective_prices.json (§5.2); the latest-run price export
+    only supplies the current price. Makes no OpenRouter network call."""
     cfg_path = config_path or get_config_path()
     hist_path = history_path or get_history_path()
     cfg = load_config(cfg_path)
@@ -1104,15 +1079,8 @@ def read_history_result(
         rec_date = _parse_record_date(record.last_updated)
         if rec_date is not None and (latest_date is None or rec_date > latest_date):
             latest_date = rec_date
-        analytics = calculate_model_analytics(
-            model_id=slug,
-            current_price=record.effective_price_1m,
-            history_prices=record.prices,
-            candidate_prices=candidates,
-            current_default=configured_default,
-            min_tracking_days_for_profile=cfg.get("min_tracking_days_for_profile", 14),
-            tracking_days_elapsed=tracking_days_elapsed(effective_store, slug, today),
-        )
+        analytics = _analytics_for(effective_store, slug, record.effective_price_1m, today, candidates,
+                                   configured_default, cfg)
         entry = next((item for item in entries if item["model"] == slug), {})
         prices.append(ModelPrice(
             model=slug,

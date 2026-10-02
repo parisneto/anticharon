@@ -56,7 +56,7 @@ is experimental and may require a host restart.
 ## MCP resources
 
 - `anticharon://llms.txt`: This operational briefing and glossary.
-- `anticharon://history.csv`: Compact 30-day local history.
+- `anticharon://history.csv`: Derived one-line-per-model price export (convenience only).
 - `anticharon://shortlist.json`: Active shortlist and token weights.
 - `anticharon://calibration-details`: Token-weight derivation and CSV fallback.
 

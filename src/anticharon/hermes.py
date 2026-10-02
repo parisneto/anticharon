@@ -381,10 +381,15 @@ def sync_hermes_to_config(
     current_entries = current_cfg.get("_shortlist_entries", [])
 
     new_models = hermes_models.get("all_models", [])
-    if not new_models:
+    detection = hermes_models.get("detection", DETECTION_COMPLETE)
+    incomplete = detection != DETECTION_COMPLETE
+    # An empty set is only authoritative when explicitly reported `complete`
+    # (Hermes owns no models): its entries are dropped and any stored manual
+    # default preference becomes effective again. Anything else is a temporary
+    # failure and preserves the existing ownership state.
+    authoritative_removal = detection == DETECTION_COMPLETE and "all_models" in hermes_models and not new_models
+    if not new_models and not authoritative_removal:
         return False, current_shortlist, target_path
-
-    incomplete = hermes_models.get("detection", DETECTION_COMPLETE) != DETECTION_COMPLETE
     if incomplete and current_shortlist:
         return False, current_shortlist, target_path
 
@@ -392,13 +397,25 @@ def sync_hermes_to_config(
     hermes_entries = [{"model": model, "source": "hermes", "order": index}
                       for index, model in enumerate(new_models)]
     entries = hermes_entries + manual_entries
-    changed = (current_entries != entries)
+    # Compare with the shortlist as stored, not as normalized on load: a legacy
+    # flat list with the same sequence must still be rewritten with explicit
+    # source/order metadata.
+    changed = _stored_shortlist(target_path) != entries
 
     if changed and not dry_run:
-        saved_path = update_config_shortlist(new_models, target_path, entries=entries)
+        saved_path = update_config_shortlist([e["model"] for e in entries], target_path, entries=entries)
         return True, [e["model"] for e in entries], saved_path
 
     return changed, [e["model"] for e in entries], target_path
+
+
+def _stored_shortlist(path: Path) -> list[Any] | None:
+    """The `shortlist` value exactly as stored in the config file, or None."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f).get("shortlist")
+    except (OSError, ValueError, AttributeError):
+        return None
 
 
 def hermes_shortlist_divergent(hermes_models: list[str], shortlist: list[Any]) -> bool:

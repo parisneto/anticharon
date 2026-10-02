@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from anticharon.config import (
+    default_model,
     get_config_path,
     get_history_path,
     load_config,
@@ -185,8 +186,9 @@ def list_models(config_path: Path | None = None) -> ManagementResult:
     shortlist = cfg.get("shortlist", [])
     effective_path = get_effective_prices_path(get_history_path().parent)
     stored = read_effective_prices(effective_path)
+    effective_default = default_model(cfg.get("_shortlist_entries", []))
     entries = [
-        {**entry, "is_default": entry.get("order") == 0, **({"canonical_slug": stored[entry["model"]]["canonical_slug"]}
+        {**entry, "is_default": entry["model"] == effective_default, **({"canonical_slug": stored[entry["model"]]["canonical_slug"]}
                      if stored.get(entry["model"], {}).get("canonical_slug") else {})}
         for entry in cfg.get("_shortlist_entries", [])
     ]

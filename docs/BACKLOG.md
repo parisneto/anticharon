@@ -69,7 +69,7 @@ This backlog tracks completed milestones, upcoming sprint priorities, and long-t
 - [x] The three-price model (advertised / effective / policy) as distinct, never-collapsed numbers everywhere a price is shown.
 - [x] 28-day historical backfill on cold start (internal effective-pricing route with `range=1m`, live-verified required for ~30 days vs. the ~8-day default) replacing fabricated flat-padding with real observations; dual storage (`history.csv` compact summary + new granular `effective_prices.json` store).
 - [x] Same-day-rerun bug fixed: `d1..d30`/MA columns derived fresh from dated observations each sync instead of shifted per run.
-- [x] Elapsed-days `NEWLY_TRACKED` analytics threshold (`min_tracking_days_for_profile`), nullable history slots throughout.
+- [x] Observed-days `NEWLY_TRACKED` analytics threshold (`min_tracking_days_for_profile`) over dated `effective_prices.json` observations.
 - [x] Test suite matured to `pytest` as part of this initiative (`tests/run_tests.py` retired outright as the CI gate, per `AGENTS.md` Rule 8).
 
 ### Milestone 4: Public Release, Community Hardening & Ergonomics (v0.4.1 - v0.4.3)

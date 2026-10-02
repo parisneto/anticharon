@@ -154,8 +154,8 @@ def run_prices(
     description=(
         "Local read (no network) of 30-day historical price trajectories, statistical "
         "volatility (CV%), directional trend sparklines, deterministic intelligence profiles, "
-        "and sibling alternative recommendations, derived from history.csv's d1..d30 columns "
-        "(themselves derived from effective_prices.json by the last `run_prices` call). See "
+        "and sibling alternative recommendations, computed from the dated observations in "
+        "effective_prices.json. See "
         "anticharon://llms.txt for the authoritative glossary."
     )
 )

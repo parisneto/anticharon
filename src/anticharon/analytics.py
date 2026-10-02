@@ -2,6 +2,8 @@
 
 import math
 import re
+from datetime import date, timedelta
+from typing import Any
 
 from anticharon.models import ModelAnalytics, SiblingAlternative
 
@@ -63,46 +65,76 @@ def find_sibling_alternatives(
     return alternatives
 
 
+ANALYTICS_WINDOW_DAYS = 30
+
+
+def valid_observations(observations: list[dict[str, Any]] | None, today: date) -> dict[date, float]:
+    """Distinct valid observation dates -> price, from `effective_prices.json` entries.
+
+    Valid: parseable ISO date inside the analytics window (today minus 30 days
+    through today), finite non-negative price (a genuine zero price counts).
+    Each calendar date counts once (the minimum wins, as in storage); gaps stay
+    gaps -- nothing is interpolated or fabricated.
+    """
+    earliest = today - timedelta(days=ANALYTICS_WINDOW_DAYS)
+    by_day: dict[date, float] = {}
+    for obs in observations or []:
+        try:
+            obs_date = date.fromisoformat(obs["date"])
+            price = float(obs["effective_price_1m"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        if not math.isfinite(price) or price < 0 or not earliest <= obs_date <= today:
+            continue
+        by_day[obs_date] = min(price, by_day.get(obs_date, price))
+    return by_day
+
+
 def calculate_model_analytics(
     model_id: str,
     current_price: float,
-    history_prices: list[float | None],
+    observations: list[dict[str, Any]] | None,
+    today: date,
     candidate_prices: dict[str, float] | None = None,
     current_default: str | None = None,
     min_tracking_days_for_profile: int = 14,
-    tracking_days_elapsed: int | None = None,
 ) -> ModelAnalytics:
-    """Calculate statistical variance, historical delta, and assign pricing profile.
+    """Calculate variance, historical delta, and the pricing profile from the
+    real dated observations in `effective_prices.json` (the only analytics input).
 
-    `history_prices` is the 9-slot [d1..d7, d15, d30] array with nullable
-    entries -- `None` means "no real observation for that day yet," never a
-    fabricated duplicate of `current_price` (ADR-2026-0002-TOKENS-CACHED /
-    PLAN.md "Storage architecture"). `tracking_days_elapsed` (elapsed calendar
-    days since the model was first tracked) drives `NEWLY_TRACKED`, not a
-    slot count -- those diverge once backfill can leave gaps (e.g. `d1` and
-    `d15` populated but nothing between). `tracking_days_elapsed=None` (unknown)
-    is treated the same as "not enough elapsed time" -- the safe default.
+    Maturity: `NEWLY_TRACKED` when the number of distinct valid observed
+    calendar days in the 30-day window is below `min_tracking_days_for_profile`.
+    Backfilled days count immediately and `first_seen` plays no role. Historical
+    comparison points are the nearest real observation on or before the target
+    day (the oldest available one for the 30-day baseline); with no past
+    observation they fall back to `current_price`, a classification-only
+    reference that is never exposed as an observation.
     """
-    padded_hist: list[float | None] = list(history_prices)[:9]
-    padded_hist.extend([None] * (9 - len(padded_hist)))
+    by_day = valid_observations(observations, today)
+    observed_days = sorted(by_day)
+    observation_count = len(observed_days)
 
-    real_hist = [p for p in padded_hist if p is not None]
-    all_prices = [current_price] + real_hist
+    series = dict(by_day)
+    series[today] = current_price
+    all_prices = list(series.values())
     mean_price = sum(all_prices) / len(all_prices)
     var_price = sum((p - mean_price) ** 2 for p in all_prices) / len(all_prices)
     std_price = math.sqrt(var_price)
     cv_pct = (std_price / mean_price * 100) if mean_price > 0 else 0.0
 
-    def _ref(value: float | None) -> float:
-        """Defensive reference point for classification heuristics only. Never
-        exposed as a stored/fabricated observation -- `history_vector` below
-        keeps the real `None`."""
-        return value if value is not None else current_price
+    past = [(d, by_day[d]) for d in observed_days if d < today]
 
-    d1 = _ref(padded_hist[0])
-    d7 = _ref(padded_hist[6])
-    d15 = _ref(padded_hist[7])
-    d30 = _ref(padded_hist[8])
+    def _ref(days_ago: int) -> float:
+        if not past:
+            return current_price
+        cutoff = today - timedelta(days=days_ago)
+        on_or_before = [p for d, p in past if d <= cutoff]
+        return on_or_before[-1] if on_or_before else past[0][1]
+
+    d1 = _ref(1)
+    d7 = _ref(7)
+    d15 = _ref(15)
+    d30 = past[0][1] if past else current_price
 
     price_min_30d = min(all_prices)
     price_max_30d = max(all_prices)
@@ -122,38 +154,33 @@ def calculate_model_analytics(
 
     sparkline = f"${d30:.2f} ──{arrow} ${current_price:.2f}"
 
-    history_vector = {
-        "now": current_price,
-        "d1": padded_hist[0],
-        "d2": padded_hist[1],
-        "d3": padded_hist[2],
-        "d4": padded_hist[3],
-        "d5": padded_hist[4],
-        "d6": padded_hist[5],
-        "d7": padded_hist[6],
-        "d15": padded_hist[7],
-        "d30": padded_hist[8]
-    }
+    history_vector: dict[str, float | None] = {"now": current_price}
+    for days_ago in (1, 2, 3, 4, 5, 6, 7, 15, 30):
+        history_vector[f"d{days_ago}"] = by_day.get(today - timedelta(days=days_ago))
 
     siblings = find_sibling_alternatives(model_id, current_price, candidate_prices or {})
     best_sibling = siblings[0] if siblings else None
 
     # Classification logic
-    is_newly_tracked = tracking_days_elapsed is None or tracking_days_elapsed < min_tracking_days_for_profile
+    is_newly_tracked = observation_count < min_tracking_days_for_profile
     prior_baseline = min(d30, d15, d7)
+    comparison = "<" if is_newly_tracked else "≥"
+    classification_reason = (
+        f"{observation_count} distinct observed days {comparison} "
+        f"{min_tracking_days_for_profile} required for classification."
+    )
 
     if is_newly_tracked:
         profile = "NEWLY_TRACKED"
         badge = "🌱 NEWLY_TRACKED"
         secondary_badge = None
         trend_direction = "cold_start"
-        elapsed_str = "unknown" if tracking_days_elapsed is None else f"{tracking_days_elapsed}d"
         recommendation = (
-            f"Insufficient tracking history yet ({elapsed_str} elapsed, "
-            f"{min_tracking_days_for_profile}d required for classification)."
+            f"Insufficient price history yet ({observation_count} observed days, "
+            f"{min_tracking_days_for_profile} required for classification)."
         )
 
-    elif ((current_price - prior_baseline) / prior_baseline >= 0.25) and abs(d1 - current_price) < 1e-4:
+    elif prior_baseline > 0 and ((current_price - prior_baseline) / prior_baseline >= 0.25) and abs(d1 - current_price) < 1e-4:
         profile = "PROMO_ENDED"
         badge = "📈 PROMO_ENDED"
         trend_direction = "rising"
@@ -224,5 +251,10 @@ def calculate_model_analytics(
         trajectory_sparkline=sparkline,
         recommendation=recommendation,
         sibling_alternatives=siblings,
-        history_vector=history_vector
+        history_vector=history_vector,
+        observation_count=observation_count,
+        earliest_observation=observed_days[0].isoformat() if observed_days else None,
+        latest_observation=observed_days[-1].isoformat() if observed_days else None,
+        coverage_days=(observed_days[-1] - observed_days[0]).days + 1 if observed_days else 0,
+        classification_reason=classification_reason,
     )
