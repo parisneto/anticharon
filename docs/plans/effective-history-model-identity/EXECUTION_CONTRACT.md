@@ -1,0 +1,115 @@
+# Effective History & Model Identity Sprint
+
+## 1. Outcome
+
+Correct history maturity, model identity, Hermes persistence, discovery,
+MCP, and CLI ergonomics. [PLAN.md](PLAN.md) owns sequencing/evidence methods;
+the [spec](../../specs/spec_v1_anticharon.md) owns detailed behavior.
+
+Protocol baseline: MCP specification [2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28).
+
+## 2. Acceptance Criteria
+
+- **AC-1 — EH-1 / [#26](https://github.com/parisneto/anticharon/issues/26): Effective history maturity.**
+  Use valid effective-price observation dates and covered history, rather
+  than installation time alone. Sufficient day-0 backfill permits a normal
+  first-run profile; new or insufficiently observed models remain
+  `NEWLY_TRACKED`. Gaps stay null, with no synthetic observations. Document
+  the exact coverage/configuration rule; expose observation count,
+  earliest/latest dates, coverage span, and classification reason.
+- **AC-2 — EH-2 / [#25](https://github.com/parisneto/anticharon/issues/25): Hermes persistence.**
+  Complete sync persists explicit source/order/default metadata even when
+  the sequence is unchanged. Hermes-owned entries may refresh each run;
+  preserve manual models and user-enforced manual defaults, subject to the
+  explicit precedence clarification in D-3. Repeated runs are idempotent
+  without false `HERMES_DIVERGENT` or `NO_DEFAULT` messages.
+- **AC-3 — EH-3 / [#27](https://github.com/parisneto/anticharon/issues/27): First-class analytics.**
+  `run` and `history` classify identical stored evidence identically.
+  Human output, JSON, MCP, and `budget_optimization_audit` use the corrected
+  semantics; agent wording distinguishes backfill from insufficient history.
+- **AC-4 — EH-4 / [#29](https://github.com/parisneto/anticharon/issues/29): Redirect identity.**
+  Preserve exact imported slugs and fallback order. Persist redirect/dynamic
+  state and canonical identity when known; avoid repeated useless retries.
+  Show `NOT_TRACKED` with a diagnostic in price tables. Never attribute
+  stable historical prices to an unstable redirect identity.
+- **AC-5 — EH-5 / [#28](https://github.com/parisneto/anticharon/issues/28): MCP resource.**
+  Add read-only `anticharon://effective_prices.json`, MIME `application/json`.
+  Return the local store, or `{}` when absent, without network or mutation.
+  Document and test both existing-file and missing-file behavior.
+- **AC-6 — EH-6 / [#30](https://github.com/parisneto/anticharon/issues/30): Batch discovery.**
+  Normal discovery silently excludes IDs ending in `:batch`. The changelog
+  explains asynchronous Batch API variants and the possible 24-hour delay.
+  Exact `model add <slug>:batch` and explicitly configured Hermes batch
+  slugs remain allowed, without rewriting or removal.
+- **AC-7 — EH-7 / [#31](https://github.com/parisneto/anticharon/issues/31): CLI help.**
+  Document consistent help syntax for every primary/nested command.
+  Successful help exits 0 and shows command-specific options; invalid forms
+  fail clearly or are supported consistently. Review top-level options
+  without promoting unrelated options merely to mask help inconsistency.
+
+## 3. Non-Goals
+
+- Broad pre-v0.6 migration; deletion/replacement of user VM data as a workaround.
+- Automatic Batch API submission/polling; provider-granular historical storage.
+- Combining unrelated bug and enhancement work into one issue.
+
+## 4. Evidence Gates
+
+Keep current results only. PASS requires referenced revision/scope evidence;
+relevant changes require revalidation.
+
+| ID | Required proof | Current state/result | Evidence |
+|---|---|---|---|
+| E-1 | Protocol-update check before scope approval | RECORDED: 2026-10-02 check reports unchanged baseline | PLAN.md, Protocol baseline check; source reference needed |
+| E-2 | AC-1: mature day-0, insufficient and gapped history | NOT_RUN | Pending |
+| E-3 | AC-2: metadata, idempotence, default precedence, manual retention | NOT_RUN | Pending |
+| E-4 | AC-3: CLI/MCP/prompt analytics parity | NOT_RUN | Pending |
+| E-5 | AC-4: redirect persistence, retries, `NOT_TRACKED` output | NOT_RUN | Pending |
+| E-6 | AC-5: present/missing local resource, no network or mutation | NOT_RUN | Pending |
+| E-7 | AC-6: discovery exclusion and exact explicit add/import | NOT_RUN | Pending |
+| E-8 | AC-7: primary/nested help forms and exit codes | NOT_RUN | Pending |
+| E-9 | Final deterministic suite, applicable quality checks, independent review | NOT_RUN | Pending |
+| E-10 | Preserved-backup VM verification (D-8) | NOT_RUN | Pending |
+
+## 5. Decisions
+
+Keep stable IDs and current resolutions; reference rationale/approvals.
+OPEN decisions block only dependent work.
+
+| ID | Decision | Current resolution | Applies to |
+|---|---|---|---|
+| D-1 | Minimum valid observation coverage for maturity | OPEN | AC-1, Wave 1 |
+| D-2 | Rename, repurpose, or replace `min_tracking_days_for_profile` | OPEN | AC-1, Wave 1 |
+| D-3 | Manual-default preservation versus Hermes precedence | OPEN; clarify AC-2 against existing spec | AC-2, Wave 1 |
+| D-4 | Persisted redirect identity schema | OPEN | AC-4, Wave 3 |
+| D-5 | `NOT_TRACKED` JSON shape and stable message code | OPEN | AC-4, Wave 3 |
+| D-6 | Testable redirect retry/invalidation rule | OPEN | AC-4, Wave 3 |
+| D-7 | Support `--help`, `help <command>`, or both consistently | OPEN | AC-7, Wave 4 |
+| D-8 | Whether VM verification blocks completion | OPEN; planned verification retained | E-10, Wave 4 |
+
+## 6. Current Execution State
+
+| Wave | Status | Blocking gate | PO action |
+|---|---|---|---|
+| W0 — Planning | AWAITING_SCOPE_APPROVAL | Scope approval; E-1 source reference incomplete | Approve scope; resolve decisions before dependent work |
+
+Preserve only current truth; reference everything else. At wave end, update
+E-n, D-n, this row, and unresolved deferred items. Reference history rather
+than copying it. Scope/acceptance changes require PO approval before implementation.
+
+## 7. Deferred
+
+None recorded. Non-goals: §3; OPEN decisions: §5;
+broader roadmap: [BACKLOG.md](../../BACKLOG.md). Reference existing owners.
+
+## 8. Definition of Done
+
+- AC-1…AC-7 proven by current E-2…E-8 evidence; E-1 check sourced before scope closes.
+- Resolve dependent decisions; synchronize spec, examples, agent briefing,
+  and changelog. Add bug regression tests.
+- E-9: green `uv run pytest` and applicable checks; disclose changed/skipped
+  expectations. Live tests remain opt-in. E-10 follows approved D-8.
+- Review behavior against linked issues. Follow AGENTS.md for independent
+  review, SemVer, changelog closeout, release notes, and PO release sign-off.
+- Mark current state complete with evidence references. Integration/tagging/
+  pushing retain existing authority.

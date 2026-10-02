@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Sprint contract governance:** Effective History & Model Identity now uses eight sections with stable acceptance, evidence, and decision IDs plus one current execution state. Rule 4 requires preserving current truth and referencing execution history; the four-wave plan routes open decisions to their dependent work. Product scope and release approval remain pending.
+
 ## [0.6.1] - 2026-09-26
 
 ### Removed
