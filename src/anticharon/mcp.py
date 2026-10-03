@@ -39,7 +39,7 @@ from anticharon.manager import list_models as manage_list_models
 from anticharon.manager import remove_model as manage_remove_model
 from anticharon.models import ERROR_STATUSES, AgentMessage, build_envelope
 from anticharon.prompts import PROMPTS, render_prompt
-from anticharon.storage import CSV_HEADER
+from anticharon.storage import CSV_HEADER, get_effective_prices_path, read_effective_prices
 from anticharon.tracker import read_check_result, read_history_result, run_tracker
 from anticharon.updater import UpdateType
 from anticharon.updater import check_updates as check_for_updates
@@ -451,6 +451,13 @@ def resource_history_csv() -> str:
     if hist_path.exists():
         return hist_path.read_text(encoding="utf-8").strip()
     return CSV_HEADER
+
+
+@server.resource("anticharon://effective_prices.json", mime_type="application/json")
+def resource_effective_prices_json() -> str:
+    """Local per-model dated price observations (the analytics source). Read-only:
+    `{}` when the store is absent; never touches the network or the file."""
+    return json.dumps(read_effective_prices(get_effective_prices_path(get_history_path().parent)), indent=2)
 
 
 @server.resource("anticharon://shortlist.json", mime_type="application/json")

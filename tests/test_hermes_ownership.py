@@ -150,3 +150,14 @@ def test_overlapping_manual_and_hermes_slug_exposes_one_effective_default(tmp_pa
     rows = read_check_result(config_path=path, history_path=tmp_path / "history.csv", no_hermes=True).prices_shortlist
     assert [(r.model, r.source) for r in rows if r.is_default] == [(SEQUENCE[0], "hermes")]
     assert len(rows) == len(SEQUENCE)
+
+
+def test_configured_hermes_batch_slug_is_imported_verbatim_and_kept(tmp_path):
+    """EH-6: explicitly configured Hermes batch slugs are never filtered or rewritten."""
+    path = _write(tmp_path, [])
+    models = ["a/default-1", "b/queued:batch"]
+
+    sync_hermes_to_config(_detected(models), config_path=path)
+    sync_hermes_to_config(_detected(models), config_path=path)
+
+    assert [e["model"] for e in _stored(path)] == models

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Batch variants hidden from discovery (EH-6, #30):** `model discover` and `discover_models` silently exclude catalog ids ending in `:batch`. These are asynchronous Batch API variants: requests are queued and results may take up to 24 hours, so they are unsuitable as interactive or fallback models. Exact `model add <slug>:batch` and explicitly configured Hermes batch slugs are unchanged and are never rewritten or removed. Anticharon does not submit or poll Batch API jobs.
 - **Local reads source from observations (EH-3):** `check` and `history` take the price and moving averages from `effective_prices.json`'s latest dated observation; `history.csv` is a cached-quote fallback only for a model with no observation and for `run`'s offline fallback. `run` and `history` classify identical stored evidence identically: while any observation exists, the latest observation (not a separate quote) is the current price for analytics.
 - **Agent wording (EH-3):** the `budget_optimization_audit` prompt and `llms.txt` distinguish backfilled history from insufficient history and explain a `null` 30-day change.
 - **Sprint contract governance:** Effective History & Model Identity now uses eight sections with stable acceptance, evidence, and decision IDs plus one current execution state. Rule 4 requires preserving current truth and referencing execution history; the four-wave plan routes open decisions to their dependent work. Product scope and release approval remain pending.
@@ -18,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **MCP resource `anticharon://effective_prices.json` (EH-5, #28):** read-only, `application/json`; returns the local dated-observation store, or `{}` when absent, with no network call and no file mutation.
 - **Price provenance (EH-3):** price rows report `price_source` (`observation`, `live_quote`, `cached_quote`) and `price_date`; `history` output shows an evidence section.
 - Analytics results expose `observation_count`, `earliest_observation`, `latest_observation`, `coverage_days`, `current_price_used`, `current_price_source`, and `classification_reason`.
 

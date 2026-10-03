@@ -226,6 +226,7 @@ The five MCP prompts are also available on the CLI: `anticharon prompt` lists th
 ### MCP Resources:
 - `anticharon://llms.txt`: Machine-readable Agent-to-Agent briefing.
 - `anticharon://history.csv`: Derived one-line-per-model price export (convenience only).
+- `anticharon://effective_prices.json`: Local dated price observations (read-only; `{}` when absent).
 - `anticharon://shortlist.json`: Active configuration and calibrated weights.
 - `anticharon://calibration-details`: Token weight definitions, derivation guidance, and local CSV fallback.
 

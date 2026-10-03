@@ -64,6 +64,8 @@ is experimental and may require a host restart.
 
 - `anticharon://llms.txt`: This operational briefing and glossary.
 - `anticharon://history.csv`: Derived one-line-per-model price export (convenience only).
+- `anticharon://effective_prices.json`: Local dated price observations (the
+  analytics source); read-only, `{}` when absent, no network.
 - `anticharon://shortlist.json`: Active shortlist and token weights.
 - `anticharon://calibration-details`: Token-weight derivation and CSV fallback.
 
