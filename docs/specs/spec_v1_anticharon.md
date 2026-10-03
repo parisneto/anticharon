@@ -182,7 +182,7 @@ The three finite numeric weights must each be in `[0, 1]` and sum to `1.0` withi
 
 ### 5.1 `history.csv` — derived compact export (one line per model)
 
-A convenience export derived from `effective_prices.json` on each `run`. It is never a historical input; its price column is only a separate current quote (§3.6, Current price authority).
+A convenience export derived from `effective_prices.json` on each `run`. It is never a historical input. It is read only as a cached quote: by `run`'s offline fallback when OpenRouter is unreachable (§10), and by `check`/`history` for a model with no stored observation.
 
 **Breaking rename:** the blended-price column is `effective_price_1m`, not `current_price_1m` — pre-launch, single-digit testers, so there is deliberately no backward-compatibility shim; a stale local `history.csv` from before this change should be deleted/regenerated.
 
@@ -379,7 +379,7 @@ An `unavailable` source is **not** retried in-process; the next scheduled or man
 
 Anticharon's only historical input is the set of real dated daily observations in `effective_prices.json` (§5.2) within the 30-day analytics window. Maturity, dispersion, trends, and historical comparisons are all computed from those observations, alongside live catalog sibling relationship tracking. `history.csv` is a derived export for user convenience and is never a historical input.
 
-**Current price authority:** a stored observation dated today is the current price for every calculation; a separate current quote (the live price in `run`, or the exported price in the offline fallback and `history`) never overrides it. Only when today has no stored observation is the quote used, as the latest point. Every result reports `current_price_used` and `current_price_source` (`observation` or `quote`).
+**Current price authority:** when a model has any valid observation, the current price for every calculation is its latest stored observation (today's, else the most recent) and a separate quote (the live price in `run`, the exported price in the offline fallback) never changes the result — so `run`, `history`, the CLI, MCP, and prompts classify the same stored evidence identically. `d1` is the latest observation before the current observation's date; `d7`/`d15`/`d30` are measured from today. Only with no observation at all is the quote used. Every result reports `current_price_used` and `current_price_source` (`observation` or `quote`).
 
 **Observation validity (D-1):** an observation counts when its `date` is a valid ISO date from `today − 30 days` through `today` and its `effective_price_1m` is a finite number ≥ 0 (a genuine zero price is valid). Each calendar date counts once (the minimum price wins). Gaps stay gaps — nothing is interpolated.
 
@@ -427,11 +427,18 @@ Anticharon's only historical input is the set of real dated daily observations i
 `effective_prices.json`, and pre-computes + persists this run's alerts into
 `alerts.json` (§5.3). `check` and `history` are both **local reads only** --
 they make zero network calls, ever, and never recompute alerts:
-- `check` = the latest normalized/blended price per model from the last run's
-  derived export, plus the alerts `run` last persisted, shown verbatim.
+- `check` = the latest stored observation's price and the observation-derived
+  moving averages per model, plus the alerts `run` last persisted, shown verbatim.
 - `history` = the long-term 30-day view computed from `effective_prices.json`'s
   dated observations, plus all analytics/profile classification, which lives
   here and not in `check`.
+- Every price row reports `price_source` — `observation` (latest stored dated
+  observation), `live_quote` (this `run`'s catalog quote), or `cached_quote`
+  (the exported quote: `run`'s offline fallback or same-day reuse, and local
+  reads of a model with no observation) — and `price_date`. `DATA_STALE` is
+  judged from the latest observation date (or the quote's date for a
+  `cached_quote` row). `history` human output adds an evidence section (observed
+  days, date span, price source) per model.
 
 Both `check` and `history` report `DATA_STALE` when the latest locally stored
 observation is older than today, pointing back to `run`.
@@ -606,7 +613,7 @@ Codes emitted in 0.6.0 so far (the full catalog, including codes introduced by l
 ### 10.2 Exposed MCP Tools
 
 #### 1. `check_prices` (D-19: local read, no network)
-- **Description:** Local read of the latest normalized/blended price per the monitored shortlist from `history.csv`, plus the price alerts (PRICE_SPIKE, PRICE_DROP, BEST_OPTION_CHANGED) persisted by the last `run_prices` call in `alerts.json` -- shown verbatim, never recomputed. Makes no OpenRouter network call; `readOnlyHint: true`, `openWorldHint: false`.
+- **Description:** Local read of the latest stored observation's price and observation-derived moving averages per the monitored shortlist (`history.csv` only as a cached-quote fallback), plus the price alerts (PRICE_SPIKE, PRICE_DROP, BEST_OPTION_CHANGED) persisted by the last `run_prices` call in `alerts.json` -- shown verbatim, never recomputed. Makes no OpenRouter network call; `readOnlyHint: true`, `openWorldHint: false`.
 - **Parameters:**
   - `model_id` (string, optional): Exact shortlisted slug to read. If omitted, returns all shortlisted models. An absent slug returns `status: "not_monitored"` with `NOT_MONITORED` (a normal result, not `isError`; no catalog lookup).
 - **Return Payload:** The §10.1a envelope (`status`, `messages`, `elapsed_ms`) followed by `timestamp`, `data_source` (always `"cached_history"` -- this tool never performs a live call), `api_offline_fallback`, `prices_shortlist` (each entry carrying `effective_price_1m` and `advertised_prompt_1m`/`advertised_completion_1m`; no `policy_price_1m` -- ZDR is live-only, `run_prices`-only, D-28), `price_warnings` (as persisted), `hermes_integration` (`detected`, `source`, `method`, `models_count`), and in-band `_hints`. A `DATA_STALE` warning is added when the latest locally stored observation is older than today.

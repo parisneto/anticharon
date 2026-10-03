@@ -804,11 +804,16 @@ def test_stored_observations_are_authoritative_in_run_fallback_and_history(monke
         },
     })
     live = run_tracker(dry_run=True, config_path=cfg, history_path=hist, no_hermes=True,
-                       enable_analytics=True).prices_shortlist[0]
+                       enable_analytics=True, force=True).prices_shortlist[0]
 
     for row in (local, fallback, live):
         assert row.analytics.current_price_source == "observation"
         assert row.analytics.current_price_used == 1.0
         assert row.analytics.volatility_cv_pct == 0.0
         assert row.analytics.profile != "VOLATILE"
-    assert local.price_1m == 2.0  # the separate quote is still reported as the quote
+    # The displayed price carries explicit provenance: stored observation vs quotes.
+    assert (local.price_1m, local.price_source) == (1.0, "observation")
+    assert (fallback.price_1m, fallback.price_source) == (2.0, "cached_quote")
+    assert live.price_source == "live_quote" and live.price_1m != 1.0
+    # run, fallback and history classify the same stored evidence identically.
+    assert live.analytics.to_dict() == fallback.analytics.to_dict() == local.analytics.to_dict()

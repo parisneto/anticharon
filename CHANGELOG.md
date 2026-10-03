@@ -9,13 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Local reads source from observations (EH-3):** `check` and `history` take the price and moving averages from `effective_prices.json`'s latest dated observation; `history.csv` is a cached-quote fallback only for a model with no observation and for `run`'s offline fallback. `run` and `history` classify identical stored evidence identically: while any observation exists, the latest observation (not a separate quote) is the current price for analytics.
+- **Agent wording (EH-3):** the `budget_optimization_audit` prompt and `llms.txt` distinguish backfilled history from insufficient history and explain a `null` 30-day change.
 - **Sprint contract governance:** Effective History & Model Identity now uses eight sections with stable acceptance, evidence, and decision IDs plus one current execution state. Rule 4 requires preserving current truth and referencing execution history; the four-wave plan routes open decisions to their dependent work. Product scope and release approval remain pending.
-- **Analytics read dated observations (EH-1):** `NEWLY_TRACKED`, volatility, trends, and historical comparisons are computed from the real dated observations in `effective_prices.json`; `history.csv` is a derived export and no longer a historical input. A stored observation dated today is authoritative for the current price; a separate quote is used (and labelled via `current_price_source`) only when today has no observation. An unavailable comparison baseline is reported as unavailable (`change_vs_30d_pct` is `null`) instead of being substituted, and profiles that need it are not produced.
+- **Analytics read dated observations (EH-1):** `NEWLY_TRACKED`, volatility, trends, and historical comparisons are computed from the real dated observations in `effective_prices.json`; `history.csv` is a derived export and no longer a historical input. The latest stored observation is the current price for analytics; a separate quote is used (and labelled via `current_price_source`) only when a model has no observation. An unavailable comparison baseline is reported as unavailable (`change_vs_30d_pct` is `null`) instead of being substituted, and profiles that need it are not produced.
 - **`min_tracking_days_for_profile` semantic correction (EH-1):** the key (default `14`, unchanged name) now means the minimum number of distinct observed calendar days, including backfilled days, required before classification. It previously counted days elapsed since `first_seen`; the earlier changelog entries describing that behavior are historical.
 - **Default ownership (EH-2, D-3):** an overlapping manual and Hermes slug is tracked once and lists a single effective default entry; a stored manual `order: 0` default preference is preserved while Hermes owns the default, and only the effective default is reported as `is_default` (including `model list`). After an authoritative removal of Hermes ownership the manual preference is effective again; incomplete or unavailable detections keep the existing state.
 
 ### Added
 
+- **Price provenance (EH-3):** price rows report `price_source` (`observation`, `live_quote`, `cached_quote`) and `price_date`; `history` output shows an evidence section.
 - Analytics results expose `observation_count`, `earliest_observation`, `latest_observation`, `coverage_days`, `current_price_used`, `current_price_source`, and `classification_reason`.
 
 ### Fixed

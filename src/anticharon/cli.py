@@ -189,6 +189,15 @@ def format_analytics_human_output(result: TrackerResult, messages: list[dict], l
 
     print("-" * 104)
 
+    evidence_rows = [p for p in result.prices_shortlist if p.analytics]
+    if evidence_rows:
+        print("\n📎 EVIDENCE (stored daily observations):")
+        for p in evidence_rows:
+            an = p.analytics
+            span = f"{an.earliest_observation} → {an.latest_observation}" if an.observation_count else "none"
+            print(f"  • {p.model}: {an.observation_count} observed days ({span}); "
+                  f"price: {p.price_source or 'n/a'}{f' {p.price_date}' if p.price_date else ''}")
+
     # Summary Insights
     print("\n📊 30-DAY VOLATILITY & SPREAD SUMMARY:")
     if stable_models:

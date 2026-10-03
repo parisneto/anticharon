@@ -27,6 +27,9 @@ Protocol baseline: MCP specification [2026-07-28](https://modelcontextprotocol.i
   `run` and `history` classify identical stored evidence identically.
   Human output, JSON, MCP, and `budget_optimization_audit` use the corrected
   semantics; agent wording distinguishes backfill from insufficient history.
+  PO-approved addition (B): `check` and `history` take the displayed price
+  and moving averages from `effective_prices.json` observations, with
+  explicit price provenance; `history.csv` remains only a cached-quote fallback.
 - **AC-4 — EH-4 / [#29](https://github.com/parisneto/anticharon/issues/29): Redirect identity.**
   Preserve exact imported slugs and fallback order. Persist redirect/dynamic
   state and canonical identity when known; avoid repeated useless retries.
@@ -63,7 +66,7 @@ relevant changes require revalidation.
 | E-1 | Protocol-update check before scope approval | PASS: checked 2026-10-02; `2026-07-28` is the current revision | [MCP versioning page](https://modelcontextprotocol.io/specification/versioning); PLAN.md, Protocol baseline check |
 | E-2 | AC-1: mature day-0, insufficient and gapped history | PASS at `09ce27c` (analytics + tracker scope; also duplicate dates, zero and invalid prices, observation-authoritative current price, unavailable baselines) | `tests/test_analytics.py`, `tests/test_tracker.py` (`first_seen` independence; run/fallback/history parity) |
 | E-3 | AC-2: metadata, idempotence, default precedence, manual retention | PASS at `09ce27c` (sync, `list_models`, and check-output scope, including overlapping manual/Hermes slug; CLI `model list` renders the same `is_default`) | `tests/test_hermes_ownership.py` |
-| E-4 | AC-3: CLI/MCP/prompt analytics parity | NOT_RUN | Pending |
+| E-4 | AC-3: CLI/MCP/prompt analytics parity | IMPLEMENTED; evidence revision recorded at W2 closeout | `tests/test_analytics_parity.py`, `tests/test_tracker.py` |
 | E-5 | AC-4: redirect persistence, retries, `NOT_TRACKED` output | NOT_RUN | Pending |
 | E-6 | AC-5: present/missing local resource, no network or mutation | NOT_RUN | Pending |
 | E-7 | AC-6: discovery exclusion and exact explicit add/import | NOT_RUN | Pending |
@@ -92,7 +95,8 @@ OPEN decisions block only dependent work.
 | Wave | Status | Blocking gate | PO action |
 |---|---|---|---|
 | W1 — Data contract (AC-1, AC-2) | IMPLEMENTED at `09ce27c`; independent re-review of audit remediation pending (E-9) | None for W2 start | Review W1; approve W2 start |
-| W2–W4 | NOT_STARTED | W2 follows W1 review; D-4…D-8 gate W3/W4 | Resolve D-4…D-8 before dependent work |
+| W2 — Analytics propagation (AC-3 + B) | IMPLEMENTED; review pending | None | Review W2 |
+| W3–W4 | NOT_STARTED | D-4…D-8 gate W3/W4 | Resolve D-4…D-8 before dependent work |
 
 Preserve only current truth; reference everything else. At wave end, update
 E-n, D-n, this row, and unresolved deferred items. Reference history rather
@@ -101,7 +105,6 @@ than copying it. Scope/acceptance changes require PO approval before implementat
 ## 7. Deferred
 
 - Hermes detection has no explicit "Hermes owns no default" signal (an unreadable default is treated as unavailable), so authoritative removal is honored at the sync boundary (`complete` with no models) but no detector emits it yet.
-- Local reads (`check`, `history`, API-fallback) still display the latest-run price and moving averages from the derived `history.csv` export as the current quote; analytics calculations use dated observations only. Sourcing the displayed quote and moving averages from `effective_prices.json` is unscheduled.
 - Pre-existing lint debt is unchanged; changed-line gate passes against `219a766` (`docs/standards/lint_baseline_legacy.txt`).
 
 Non-goals: §3; OPEN decisions: §5;

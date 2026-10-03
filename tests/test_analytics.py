@@ -168,8 +168,8 @@ def test_zero_prices_are_valid_observations():
 
 
 def test_zero_baseline_then_paid_price_has_no_percentage_but_shows_the_rise():
-    series = {n: 0.0 for n in range(1, 31)}
-    an = run("free/model", 0.10, series)
+    series = {0: 0.10, **{n: 0.0 for n in range(1, 31)}}
+    an = run("free/model", None, series)
     assert an.profile != "NEWLY_TRACKED"
     assert an.change_vs_30d_pct is None
     assert "↑" in an.trajectory_sparkline
@@ -215,11 +215,23 @@ def test_stored_today_observation_overrides_a_separate_current_quote():
     assert an.current_price_used == 1.0
 
 
-def test_quote_is_used_and_labelled_only_when_today_has_no_observation():
-    an = run("some/model", 2.0, {n: 1.0 for n in range(1, 15)})
+def test_latest_observation_beats_a_separate_quote_even_when_today_is_missing():
+    """Same stored evidence -> same classification on every surface: a quote
+    never changes the result while any observation exists."""
+    series = {n: 1.0 for n in range(1, 15)}
+    with_quote = run("some/model", 2.0, series)
+    without_quote = run("some/model", None, series)
+    assert with_quote.to_dict() == without_quote.to_dict()
+    assert with_quote.current_price_source == "observation"
+    assert with_quote.current_price_used == 1.0
+    assert with_quote.price_max_30d == 1.0
+
+
+def test_quote_is_used_and_labelled_only_with_no_observations():
+    an = run("some/model", 2.0, {})
     assert an.current_price_source == "quote"
     assert an.current_price_used == 2.0
-    assert an.price_max_30d == 2.0
+    assert an.profile == "NEWLY_TRACKED"
 
 
 def test_missing_30d_baseline_is_unavailable_not_fabricated():

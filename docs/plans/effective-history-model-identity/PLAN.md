@@ -28,6 +28,9 @@ EH-7 is P2. Acceptance groups retain the exact EH-n/issue associations.
 1. Evidence fields already exist on the analytics result (Wave 1); propagate them.
 2. Make `run`, `history`, MCP, and agent prompts consume the same result (AC-3).
 3. Prove E-4 with CLI/MCP analytics parity tests; update the active spec.
+4. PO-approved addition (B): local reads (`check`, `history`) derive price and
+   moving averages from `effective_prices.json` with explicit price provenance;
+   `history.csv` stays only a cached-quote fallback (offline `run`, unobserved models).
 
 ### Wave 3 — Model identity and catalog boundaries
 

@@ -28,6 +28,13 @@ is experimental and may require a host restart.
   `history.csv`, `effective_prices.json`, and `alerts.json`.
 - `check` / `check_prices` and `history` / `get_model_history` are local reads
   that never fetch or recompute stored alerts.
+- Analytics come only from the dated daily observations in
+  `effective_prices.json`; backfilled days count immediately. `NEWLY_TRACKED`
+  means too few observed days (`observation_count` below
+  `min_tracking_days_for_profile`), not a recent install. `change_vs_30d_pct:
+  null` means no usable 30-day baseline. Each result carries
+  `classification_reason`; each price row carries `price_source`
+  (`observation`, `live_quote`, `cached_quote`) and `price_date`.
 - A write saves by default. Use `dry_run=true` (or CLI `--dry-run`) only to
   preview a write.
 - `add_model` validates an exact live catalog slug. `remove_model` refuses

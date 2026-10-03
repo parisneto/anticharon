@@ -16,7 +16,7 @@ from typing import Any
 
 import requests
 
-from anticharon.analytics import calculate_model_analytics
+from anticharon.analytics import calculate_model_analytics, valid_observations
 from anticharon.config import (
     default_model,
     entry_by_model as entry_by_model_map,
@@ -36,6 +36,7 @@ from anticharon.models import (
     ModelAnalytics,
     ModelPrice,
     PricePoint,
+    PriceRecord,
     PriceWarning,
     TrackerResult,
 )
@@ -334,6 +335,40 @@ def _analytics_for(
     )
 
 
+def _stored_price_view(
+    store: dict[str, Any], model_id: str, today: date,
+) -> tuple[float, date, float, float] | None:
+    """(price, price_date, ma_3d, ma_7d) from a model's dated observations in the
+    granular store: the latest valid observation and moving averages derived from
+    the observations (same rule as `run`). `None` when the model has none."""
+    observations = (store.get(model_id) or {}).get("observations", [])
+    valid = valid_observations(observations, today)
+    if not valid:
+        return None
+    latest = max(valid)
+    price = valid[latest]
+    derived = derive_history_window(observations, today=today)
+    ma_3d = derived["ma_3d"] if derived["ma_3d"] is not None else price
+    ma_7d = derived["ma_7d"] if derived["ma_7d"] is not None else price
+    return price, latest, ma_3d, ma_7d
+
+
+def _local_price_row(
+    model_id: str, record: PriceRecord | None, store: dict[str, Any], today: date,
+) -> tuple[float, float, float, str, date | None] | None:
+    """(price, ma_3d, ma_7d, price_source, price_date) for a local read: the latest
+    stored observation when the model has any (`observation`), else the last
+    exported quote (`cached_quote`), else `None`."""
+    view = _stored_price_view(store, model_id, today)
+    if view is not None:
+        price, price_date, ma_3d, ma_7d = view
+        return price, ma_3d, ma_7d, "observation", price_date
+    if record is None:
+        return None
+    return (record.effective_price_1m, record.ma_3d, record.ma_7d, "cached_quote",
+            _parse_record_date(record.last_updated))
+
+
 def _parse_record_date(last_updated: str) -> date | None:
     try:
         return datetime.fromisoformat(last_updated).date()
@@ -607,6 +642,7 @@ def run_tracker(
                     canonical_slug=(effective_store.get(fallback_model_id) or {}).get("canonical_slug"),
                     source=entry_by_model.get(fallback_model_id, {}).get("source"),
                     is_default=fallback_model_id == current_default,
+                    price_source="cached_quote",
                 ))
         prices_shortlist.sort(key=lambda x: x.price_1m)
         if enable_analytics:
@@ -675,6 +711,7 @@ def run_tracker(
                 canonical_slug=(effective_store.get(tracked_model_id) or {}).get("canonical_slug"),
                 source=entry_by_model.get(tracked_model_id, {}).get("source"),
                 is_default=tracked_model_id == current_default,
+                price_source="cached_quote",
             ))
             continue
 
@@ -814,6 +851,7 @@ def run_tracker(
             canonical_slug=canonical_slug,
             source=entry_by_model.get(tracked_model_id, {}).get("source"),
             is_default=tracked_model_id == current_default,
+            price_source="live_quote",
         ))
 
         updated_records.append([
@@ -987,28 +1025,31 @@ def read_check_result(
     latest_date: date | None = None
     for slug in shortlist:
         record = history.get(slug)
-        if record is None:
+        row = _local_price_row(slug, record, effective_store, today)
+        if row is None:
             continue
-        rec_date = _parse_record_date(record.last_updated)
-        if rec_date is not None and (latest_date is None or rec_date > latest_date):
-            latest_date = rec_date
-        delta_7d_pct = ((record.effective_price_1m - record.ma_7d) / record.ma_7d) * 100 if record.ma_7d > 0 else 0.0
+        price, ma_3d, ma_7d, source, price_date = row
+        if latest_date is None or price_date is not None and price_date > latest_date:
+            latest_date = price_date
+        delta_7d_pct = ((price - ma_7d) / ma_7d) * 100 if ma_7d > 0 else 0.0
         prices_shortlist.append(ModelPrice(
             model=slug,
-            price_1m=record.effective_price_1m,
-            ma_7d=record.ma_7d,
-            ma_3d=record.ma_3d,
+            price_1m=price,
+            ma_7d=ma_7d,
+            ma_3d=ma_3d,
             change_vs_7d_pct=delta_7d_pct,
-            prompt_price_raw=record.advertised_prompt_1m,
-            completion_price_raw=record.advertised_completion_1m,
+            prompt_price_raw=record.advertised_prompt_1m if record else None,
+            completion_price_raw=record.advertised_completion_1m if record else None,
             price=PricePoint(
                 advertised_prompt_1m=record.advertised_prompt_1m,
                 advertised_completion_1m=record.advertised_completion_1m,
-                effective_price_1m=record.effective_price_1m,
-            ),
+                effective_price_1m=price,
+            ) if record else None,
             canonical_slug=(effective_store.get(slug) or {}).get("canonical_slug"),
             source=entry_by_model.get(slug, {}).get("source"),
             is_default=slug == current_default,
+            price_source=source,
+            price_date=price_date.isoformat() if price_date else None,
         ))
     prices_shortlist.sort(key=lambda p: p.price_1m)
 
@@ -1070,29 +1111,38 @@ def read_history_result(
         messages.append(AgentMessage("info", "NO_DEFAULT", "No default model is set; default-based alerts are off."))
 
     today = datetime.now(timezone.utc).date()
-    candidates = {slug: record.effective_price_1m for slug, record in history.items() if slug in shortlist}
+    rows = {slug: _local_price_row(slug, history.get(slug), effective_store, today) for slug in shortlist}
+    candidates = {slug: row[0] for slug, row in rows.items() if row}
     prices: list[ModelPrice] = []
     latest_date: date | None = None
     for slug in ([target] if target else shortlist):
-        record = history.get(slug)
-        if record is None:
+        row = rows.get(slug)
+        if row is None:
             continue
-        rec_date = _parse_record_date(record.last_updated)
-        if rec_date is not None and (latest_date is None or rec_date > latest_date):
-            latest_date = rec_date
-        analytics = _analytics_for(effective_store, slug, record.effective_price_1m, today, candidates,
+        price, ma_3d, ma_7d, source, price_date = row
+        record = history.get(slug)
+        if latest_date is None or price_date is not None and price_date > latest_date:
+            latest_date = price_date
+        analytics = _analytics_for(effective_store, slug, price, today, candidates,
                                    configured_default, cfg)
         entry = next((item for item in entries if item["model"] == slug), {})
         prices.append(ModelPrice(
             model=slug,
-            price_1m=record.effective_price_1m,
-            ma_7d=record.ma_7d,
-            ma_3d=record.ma_3d,
-            change_vs_7d_pct=((record.effective_price_1m - record.ma_7d) / record.ma_7d * 100) if record.ma_7d else 0.0,
+            price_1m=price,
+            ma_7d=ma_7d,
+            ma_3d=ma_3d,
+            change_vs_7d_pct=((price - ma_7d) / ma_7d * 100) if ma_7d else 0.0,
             analytics=analytics,
             canonical_slug=(effective_store.get(slug) or {}).get("canonical_slug"),
             source=entry.get("source"),
             is_default=slug == configured_default,
+            price_source=source,
+            price_date=price_date.isoformat() if price_date else None,
+            price=PricePoint(
+                advertised_prompt_1m=record.advertised_prompt_1m,
+                advertised_completion_1m=record.advertised_completion_1m,
+                effective_price_1m=price,
+            ) if record else None,
         ))
     prices.sort(key=lambda p: p.price_1m)
 

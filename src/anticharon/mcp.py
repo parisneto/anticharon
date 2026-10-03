@@ -103,7 +103,7 @@ def tool_result(envelope: dict[str, Any]) -> dict[str, Any] | CallToolResult:
         "Local read (no network) of the latest normalized/blended price per your monitored "
         "shortlist, computes 7-day moving averages, and shows price alerts (PRICE_SPIKE, "
         "PRICE_DROP, BEST_OPTION_CHANGED) exactly as persisted by the last `run_prices` call -- "
-        "never recomputed here. Source: history.csv (compact summary) and alerts.json. Call "
+        "never recomputed here. Prices and moving averages come from the dated observations in effective_prices.json (each row reports `price_source`/`price_date`; history.csv is only a cached-quote fallback for a model with no observations). Call "
         "`run_prices` first to refresh; this tool never fetches from OpenRouter. See "
         "anticharon://llms.txt for the authoritative glossary.\n"
         "## IMPORTANT : NO ZDR support in this endpoint. It needs live data as provider availability changes. Use run_prices with zdr_only=true to get latest ZDR information for your entire shortlist or for a single model_id."

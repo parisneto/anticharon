@@ -218,6 +218,10 @@ class ModelPrice:
     canonical_slug: str | None = None
     source: str | None = None
     is_default: bool = False
+    # Provenance of `price_1m`: `observation` (latest stored dated observation),
+    # `live_quote` (this run's catalog quote), or `cached_quote` (last exported quote).
+    price_source: str | None = None
+    price_date: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         # PE2-001 defense-in-depth: always serialize the true unconstrained
@@ -238,6 +242,10 @@ class ModelPrice:
         if self.source:
             data["source"] = self.source
         data["is_default"] = self.is_default
+        if self.price_source:
+            data["price_source"] = self.price_source
+        if self.price_date:
+            data["price_date"] = self.price_date
         if self.price:
             price_dict = self.price.to_dict()
             price_dict.pop("effective_price_1m", None)

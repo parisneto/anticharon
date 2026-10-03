@@ -92,7 +92,7 @@ def valid_observations(observations: list[dict[str, Any]] | None, today: date) -
 
 def calculate_model_analytics(
     model_id: str,
-    current_price: float,
+    current_price: float | None,
     observations: list[dict[str, Any]] | None,
     today: date,
     candidate_prices: dict[str, float] | None = None,
@@ -106,37 +106,44 @@ def calculate_model_analytics(
     calendar days in the 30-day window is below `min_tracking_days_for_profile`.
     Backfilled days count immediately and `first_seen` plays no role.
 
-    Dated observations are authoritative: today's stored observation, when
-    present, is the current price for every calculation and `current_price` (a
-    separate live/exported quote) is ignored; only when today has no
-    observation is the quote used, and `current_price_source` says which.
+    Dated observations are authoritative: when any exist, the current price is
+    the latest stored observation (today's, else the most recent) and
+    `current_price` (a separate live/exported quote) is ignored, so every
+    surface classifies the same stored evidence identically. Only with no
+    observation at all is the quote used. `current_price_source` says which.
     Comparison baselines (d1/d7/d15/d30) are the latest real observation on or
-    before that many days ago; when none exists the baseline is unavailable
-    (`None`) and no classification or wording that requires it is produced.
+    before that many days ago (d1: before the current observation's date); when
+    none exists the baseline is unavailable (`None`) and no classification or
+    wording that requires it is produced.
     """
     by_day = valid_observations(observations, today)
     observed_days = sorted(by_day)
     observation_count = len(observed_days)
 
-    current_price_source = "observation" if today in by_day else "quote"
-    if current_price_source == "observation":
-        current_price = by_day[today]
-    series = dict(by_day)
-    series.setdefault(today, current_price)
+    if observed_days:
+        current_date = observed_days[-1]
+        current_price = by_day[current_date]
+        current_price_source = "observation"
+        series = dict(by_day)
+    else:
+        current_date = today
+        current_price = current_price if current_price is not None else 0.0
+        current_price_source = "quote"
+        series = {today: current_price}
     all_prices = list(series.values())
     mean_price = sum(all_prices) / len(all_prices)
     var_price = sum((p - mean_price) ** 2 for p in all_prices) / len(all_prices)
     std_price = math.sqrt(var_price)
     cv_pct = (std_price / mean_price * 100) if mean_price > 0 else 0.0
 
-    past = [(d, by_day[d]) for d in observed_days if d < today]
+    past = [(d, by_day[d]) for d in observed_days if d < current_date]
 
-    def _ref(days_ago: int) -> float | None:
-        cutoff = today - timedelta(days=days_ago)
+    def _ref(cutoff: date) -> float | None:
         on_or_before = [p for d, p in past if d <= cutoff]
         return on_or_before[-1] if on_or_before else None
 
-    d1, d7, d15, d30 = _ref(1), _ref(7), _ref(15), _ref(30)
+    d1 = _ref(current_date - timedelta(days=1))
+    d7, d15, d30 = (_ref(today - timedelta(days=n)) for n in (7, 15, 30))
 
     price_min_30d = min(all_prices)
     price_max_30d = max(all_prices)
