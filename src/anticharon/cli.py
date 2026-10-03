@@ -196,7 +196,8 @@ def format_analytics_human_output(result: TrackerResult, messages: list[dict], l
         print(f"  • STABLE WORKHORSES: {st_desc} [CV < 2.5%]")
     if promo_ended_models:
         for m, delta, cv in promo_ended_models:
-            print(f"  • EXPIRED PROMO: {m} rose {delta:+.1f}% over baseline (CV: {cv:.1f}%).")
+            rise = f" {delta:+.1f}%" if delta is not None else ""
+            print(f"  • EXPIRED PROMO: {m} rose{rise} over baseline (CV: {cv:.1f}%).")
     if sunsetting_models:
         for m, rec in sunsetting_models:
             print(f"  • MIGRATION OPPORTUNITY: {m} — {rec}")

@@ -182,7 +182,7 @@ The three finite numeric weights must each be in `[0, 1]` and sum to `1.0` withi
 
 ### 5.1 `history.csv` — derived compact export (one line per model)
 
-A convenience export derived from `effective_prices.json` on each `run`. It is not an analytics input.
+A convenience export derived from `effective_prices.json` on each `run`. It is never a historical input; its price column is only a separate current quote (§3.6, Current price authority).
 
 **Breaking rename:** the blended-price column is `effective_price_1m`, not `current_price_1m` — pre-launch, single-digit testers, so there is deliberately no backward-compatibility shim; a stale local `history.csv` from before this change should be deleted/regenerated.
 
@@ -211,7 +211,7 @@ model,last_updated,effective_price_1m,advertised_prompt_1m,advertised_completion
 
 **Correction (PE2-004, 2026-09-17):** this section's own heading previously read "per-model, per-provider daily observations," but the schema it describes below has never stored provider identity — it is one collapsed cheapest-price-per-day observation per model. The heading was simply wrong; see `docs/plans/pricing-engine-v2/PLAN.md`'s "Scope correction" note (under "Storage architecture") for the full reconciliation: `EXECUTION_CONTRACT.md`'s actual acceptance criteria never required provider-level persisted granularity, no downstream consumer in this codebase needs it, and building it speculatively would violate the Contract's own "concrete over general" Non-Goal. Provider-granular historical persistence is recorded as a deferred backlog candidate in `EXECUTION_CONTRACT.md`, to be scoped against a real future consumer if one is ever proposed.
 
-Same data directory as `history.csv`, same path-resolution hierarchy (§6.1). This file is the sole source of truth for dated price history and the only analytics input; `history.csv`'s `d1..d30`/MA columns are derived from it (§3.4), never the other way around. Its refresh cadence is independent of `history.csv`'s per-run cadence — a model is only re-fetched when its entry is stale (default: older than 24 hours), not on every `anticharon run`.
+Same data directory as `history.csv`, same path-resolution hierarchy (§6.1). This file is the sole source of truth for dated price history and the only historical input to analytics; `history.csv`'s `d1..d30`/MA columns are derived from it (§3.4), never the other way around. Its refresh cadence is independent of `history.csv`'s per-run cadence — a model is only re-fetched when its entry is stale (default: older than 24 hours), not on every `anticharon run`.
 
 ```json
 {
@@ -291,7 +291,7 @@ never implies a default.
 `order: 0` entry), it is the only effective default. A stored manual
 `order: 0` preference is preserved unchanged but inactive. Every output
 (`is_default` in `run`/`check`/`history`/`model list`, the default badge)
-identifies only the effective default. When a `complete` Hermes detection
+identifies only the effective default. If a Hermes entry and a manual entry share a slug, both stay stored, but the tracked list has one row for the slug, the Hermes entry is the effective one (its `source` is reported), and exactly one listed entry is the default. When a `complete` Hermes detection
 reports no models (authoritative removal), Hermes entries are dropped and the
 stored manual preference becomes effective again. An `incomplete` or
 unavailable detection never changes ownership: the persisted state is kept. When absent, Anticharon emits `NO_DEFAULT` and skips
@@ -377,11 +377,13 @@ An `unavailable` source is **not** retried in-process; the next scheduled or man
 
 ## 3.6 Historical Analytical Intelligence & Pricing Profiles
 
-Anticharon's only analytics input is the set of real dated daily observations in `effective_prices.json` (§5.2) within the 30-day analytics window. Maturity, dispersion, trends, and historical comparisons are all computed from those observations, alongside live catalog sibling relationship tracking. `history.csv` is a derived export for user convenience and is never read by analytics.
+Anticharon's only historical input is the set of real dated daily observations in `effective_prices.json` (§5.2) within the 30-day analytics window. Maturity, dispersion, trends, and historical comparisons are all computed from those observations, alongside live catalog sibling relationship tracking. `history.csv` is a derived export for user convenience and is never a historical input.
+
+**Current price authority:** a stored observation dated today is the current price for every calculation; a separate current quote (the live price in `run`, or the exported price in the offline fallback and `history`) never overrides it. Only when today has no stored observation is the quote used, as the latest point. Every result reports `current_price_used` and `current_price_source` (`observation` or `quote`).
 
 **Observation validity (D-1):** an observation counts when its `date` is a valid ISO date from `today − 30 days` through `today` and its `effective_price_1m` is a finite number ≥ 0 (a genuine zero price is valid). Each calendar date counts once (the minimum price wins). Gaps stay gaps — nothing is interpolated.
 
-**Historical comparison points:** `Price_d1`, `Price_d7`, and `Price_d15` are the nearest real observation on or before that many days ago; `Price_d30` is the oldest valid observation before today. With none available (or no earlier observation for a given point) the point falls back to the current price, as a classification-only reference that is never exposed as an observation. `history_vector` reports exact-day observations only, `null` where the day was not observed.
+**Historical comparison points:** `Price_dN` (N = 1, 7, 15, 30) is the latest real observation on or before N days ago within the window. When none exists the baseline is **unavailable** (never substituted by a newer observation or the current price). Unavailable baselines produce no conclusion that needs them: `Delta_30d_Pct` is `null` (`change_vs_30d_pct`) and the sparkline shows `n/a`; `SUNSETTING`, `DISCOUNTED`, and `CREEPING_INFLATION` require `Price_d30` (the last also `d7` and `d15`); `PROMO_ENDED` uses the minimum of the available `d7`/`d15`/`d30` baselines and requires `d1`. A 28-day backfill therefore has no 30-day baseline until a day-30 observation exists. `history_vector` reports exact-day observations only, `null` where the day was not observed.
 
 ### Metric Definitions:
 
@@ -414,7 +416,7 @@ Anticharon's only analytics input is the set of real dated daily observations in
 7. **`NEWLY_TRACKED` (`🌱 NEWLY_TRACKED`):**
    - Condition: the number of distinct valid observed calendar days (see Observation validity above) is below `min_tracking_days_for_profile` (default `14`). Backfilled days count immediately and `first_seen` plays no role: an established model with 28–30 backfilled days gets a normal profile on its first Anticharon run, while a model released five days ago with five observed days stays `NEWLY_TRACKED`. Gaps are preserved and not counted; no coverage-span threshold applies.
    - Meaning: Insufficient observed price history. Once the minimum is met, a model can be classified `STABLE`/`VOLATILE`/etc. even with real gaps in its history.
-   - Evidence: every analytics result carries `observation_count`, `earliest_observation`, `latest_observation`, `coverage_days` (earliest to latest, inclusive; `0` with no observations), and `classification_reason` (for example `5 distinct observed days < 14 required for classification.`).
+   - Evidence: every analytics result carries `observation_count`, `earliest_observation`, `latest_observation`, `coverage_days` (earliest to latest, inclusive; `0` with no observations), `current_price_used`, `current_price_source`, and `classification_reason` (for example `5 distinct observed days < 14 required for classification.`).
 
 ---
 

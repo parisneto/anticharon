@@ -10,13 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Sprint contract governance:** Effective History & Model Identity now uses eight sections with stable acceptance, evidence, and decision IDs plus one current execution state. Rule 4 requires preserving current truth and referencing execution history; the four-wave plan routes open decisions to their dependent work. Product scope and release approval remain pending.
-- **Analytics read dated observations (EH-1):** `NEWLY_TRACKED`, volatility, trends, and historical comparisons are computed from the real dated observations in `effective_prices.json`; `history.csv` is a derived export and no longer an analytics input.
+- **Analytics read dated observations (EH-1):** `NEWLY_TRACKED`, volatility, trends, and historical comparisons are computed from the real dated observations in `effective_prices.json`; `history.csv` is a derived export and no longer a historical input. A stored observation dated today is authoritative for the current price; a separate quote is used (and labelled via `current_price_source`) only when today has no observation. An unavailable comparison baseline is reported as unavailable (`change_vs_30d_pct` is `null`) instead of being substituted, and profiles that need it are not produced.
 - **`min_tracking_days_for_profile` semantic correction (EH-1):** the key (default `14`, unchanged name) now means the minimum number of distinct observed calendar days, including backfilled days, required before classification. It previously counted days elapsed since `first_seen`; the earlier changelog entries describing that behavior are historical.
-- **Default ownership (EH-2, D-3):** a stored manual `order: 0` default preference is preserved while Hermes owns the default, and only the effective default is reported as `is_default` (including `model list`). After an authoritative removal of Hermes ownership the manual preference is effective again; incomplete or unavailable detections keep the existing state.
+- **Default ownership (EH-2, D-3):** an overlapping manual and Hermes slug is tracked once and lists a single effective default entry; a stored manual `order: 0` default preference is preserved while Hermes owns the default, and only the effective default is reported as `is_default` (including `model list`). After an authoritative removal of Hermes ownership the manual preference is effective again; incomplete or unavailable detections keep the existing state.
 
 ### Added
 
-- Analytics results expose `observation_count`, `earliest_observation`, `latest_observation`, `coverage_days`, and `classification_reason`.
+- Analytics results expose `observation_count`, `earliest_observation`, `latest_observation`, `coverage_days`, `current_price_used`, `current_price_source`, and `classification_reason`.
 
 ### Fixed
 

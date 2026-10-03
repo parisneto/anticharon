@@ -104,18 +104,25 @@ def calculate_model_analytics(
 
     Maturity: `NEWLY_TRACKED` when the number of distinct valid observed
     calendar days in the 30-day window is below `min_tracking_days_for_profile`.
-    Backfilled days count immediately and `first_seen` plays no role. Historical
-    comparison points are the nearest real observation on or before the target
-    day (the oldest available one for the 30-day baseline); with no past
-    observation they fall back to `current_price`, a classification-only
-    reference that is never exposed as an observation.
+    Backfilled days count immediately and `first_seen` plays no role.
+
+    Dated observations are authoritative: today's stored observation, when
+    present, is the current price for every calculation and `current_price` (a
+    separate live/exported quote) is ignored; only when today has no
+    observation is the quote used, and `current_price_source` says which.
+    Comparison baselines (d1/d7/d15/d30) are the latest real observation on or
+    before that many days ago; when none exists the baseline is unavailable
+    (`None`) and no classification or wording that requires it is produced.
     """
     by_day = valid_observations(observations, today)
     observed_days = sorted(by_day)
     observation_count = len(observed_days)
 
+    current_price_source = "observation" if today in by_day else "quote"
+    if current_price_source == "observation":
+        current_price = by_day[today]
     series = dict(by_day)
-    series[today] = current_price
+    series.setdefault(today, current_price)
     all_prices = list(series.values())
     mean_price = sum(all_prices) / len(all_prices)
     var_price = sum((p - mean_price) ** 2 for p in all_prices) / len(all_prices)
@@ -124,24 +131,23 @@ def calculate_model_analytics(
 
     past = [(d, by_day[d]) for d in observed_days if d < today]
 
-    def _ref(days_ago: int) -> float:
-        if not past:
-            return current_price
+    def _ref(days_ago: int) -> float | None:
         cutoff = today - timedelta(days=days_ago)
         on_or_before = [p for d, p in past if d <= cutoff]
-        return on_or_before[-1] if on_or_before else past[0][1]
+        return on_or_before[-1] if on_or_before else None
 
-    d1 = _ref(1)
-    d7 = _ref(7)
-    d15 = _ref(15)
-    d30 = past[0][1] if past else current_price
+    d1, d7, d15, d30 = _ref(1), _ref(7), _ref(15), _ref(30)
 
     price_min_30d = min(all_prices)
     price_max_30d = max(all_prices)
-    delta_30d_pct = ((current_price - d30) / d30 * 100) if d30 > 0 else 0.0
+    delta_30d_pct = ((current_price - d30) / d30 * 100) if d30 is not None and d30 > 0 else (
+        0.0 if d30 is not None else None
+    )
 
     # Sparkline trajectory formatting
-    if delta_30d_pct > 15.0:
+    if delta_30d_pct is None:
+        arrow = "───"
+    elif delta_30d_pct > 15.0:
         arrow = "↑"
     elif delta_30d_pct < -15.0:
         arrow = "↓"
@@ -152,7 +158,7 @@ def calculate_model_analytics(
     else:
         arrow = "───"
 
-    sparkline = f"${d30:.2f} ──{arrow} ${current_price:.2f}"
+    sparkline = f"{f'${d30:.2f}' if d30 is not None else 'n/a'} ──{arrow} ${current_price:.2f}"
 
     history_vector: dict[str, float | None] = {"now": current_price}
     for days_ago in (1, 2, 3, 4, 5, 6, 7, 15, 30):
@@ -163,7 +169,8 @@ def calculate_model_analytics(
 
     # Classification logic
     is_newly_tracked = observation_count < min_tracking_days_for_profile
-    prior_baseline = min(d30, d15, d7)
+    available_baselines = [p for p in (d7, d15, d30) if p is not None]
+    prior_baseline = min(available_baselines) if available_baselines else None
     comparison = "<" if is_newly_tracked else "≥"
     classification_reason = (
         f"{observation_count} distinct observed days {comparison} "
@@ -180,28 +187,31 @@ def calculate_model_analytics(
             f"{min_tracking_days_for_profile} required for classification)."
         )
 
-    elif prior_baseline > 0 and ((current_price - prior_baseline) / prior_baseline >= 0.25) and abs(d1 - current_price) < 1e-4:
+    elif (prior_baseline is not None and prior_baseline > 0 and d1 is not None
+          and (current_price - prior_baseline) / prior_baseline >= 0.25 and abs(d1 - current_price) < 1e-4):
+        promo_pct = (current_price - prior_baseline) / prior_baseline * 100
         profile = "PROMO_ENDED"
         badge = "📈 PROMO_ENDED"
         trend_direction = "rising"
         if best_sibling:
             secondary_badge = "⚠️ SUNSETTING"
             recommendation = (
-                f"Introductory promo ended (+{delta_30d_pct:.1f}%). Sibling {best_sibling.model} "
+                f"Introductory promo ended (+{promo_pct:.1f}%). Sibling {best_sibling.model} "
                 f"active at same/lower price (${best_sibling.price_1m:.3f}). Migrate to {best_sibling.model}."
             )
         else:
             secondary_badge = None
-            recommendation = f"Introductory promo ended (+{delta_30d_pct:.1f}%). Prior baseline was ${prior_baseline:.3f}."
+            recommendation = f"Introductory promo ended (+{promo_pct:.1f}%). Prior baseline was ${prior_baseline:.3f}."
 
-    elif best_sibling and current_price >= d30:
+    elif best_sibling and d30 is not None and current_price >= d30:
         profile = "SUNSETTING"
         badge = "⚠️ SUNSETTING"
         secondary_badge = None
-        trend_direction = "rising" if delta_30d_pct > 0 else "flat"
+        trend_direction = "rising" if delta_30d_pct > 0 else "flat"  # d30 is available here
         recommendation = f"Vendor pushing migration to {best_sibling.model} (same or lower cost)."
 
-    elif delta_30d_pct <= -20.0 and current_price <= (min(d30, d15, d7) * 0.85):
+    elif (delta_30d_pct is not None and delta_30d_pct <= -20.0 and prior_baseline is not None
+          and current_price <= prior_baseline * 0.85):
         profile = "DISCOUNTED"
         badge = "🏷️ DISCOUNTED"
         secondary_badge = None
@@ -215,7 +225,8 @@ def calculate_model_analytics(
         trend_direction = "erratic"
         recommendation = f"High variance (CV: {cv_pct:.1f}%). Provider rates fluctuate unpredictably."
 
-    elif 5.0 <= delta_30d_pct < 25.0 and (current_price >= d7 >= d15 >= d30):
+    elif (None not in (d7, d15, d30) and delta_30d_pct is not None and 5.0 <= delta_30d_pct < 25.0
+          and current_price >= d7 >= d15 >= d30):
         profile = "CREEPING_INFLATION"
         badge = "🐌 CREEPING"
         secondary_badge = None
@@ -257,4 +268,6 @@ def calculate_model_analytics(
         latest_observation=observed_days[-1].isoformat() if observed_days else None,
         coverage_days=(observed_days[-1] - observed_days[0]).days + 1 if observed_days else 0,
         classification_reason=classification_reason,
+        current_price_used=current_price,
+        current_price_source=current_price_source,
     )

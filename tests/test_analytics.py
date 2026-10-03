@@ -195,3 +195,52 @@ def test_observation_window_includes_today_and_thirty_days_back():
     edge = {"date": (TODAY - timedelta(days=30)).isoformat(), "effective_price_1m": 0.1}
     today_obs = {"date": TODAY.isoformat(), "effective_price_1m": 0.1}
     assert set(valid_observations([edge, today_obs], TODAY)) == {TODAY - timedelta(days=30), TODAY}
+
+
+# --- Review remediation: authoritative observations, unavailable baselines ---
+
+def test_stored_today_observation_overrides_a_separate_current_quote():
+    series = {n: 1.0 for n in range(14)}  # includes today (days_ago 0)
+    an = run("some/model", 2.0, series)
+    assert an.profile != "VOLATILE"
+    assert an.volatility_cv_pct == 0.0
+    assert an.current_price_source == "observation"
+    assert an.current_price_used == 1.0
+
+
+def test_quote_is_used_and_labelled_only_when_today_has_no_observation():
+    an = run("some/model", 2.0, {n: 1.0 for n in range(1, 15)})
+    assert an.current_price_source == "quote"
+    assert an.current_price_used == 2.0
+    assert an.price_max_30d == 2.0
+
+
+def test_missing_30d_baseline_is_unavailable_not_fabricated():
+    an = run("some/model", 1.1, {n: 1.0 for n in range(1, 15)})  # days 1..14 only
+    assert an.profile != "CREEPING_INFLATION"
+    assert an.change_vs_30d_pct is None
+    assert an.to_dict()["change_vs_30d_pct"] is None
+    assert "n/a" in an.trajectory_sparkline
+    assert "30d" not in an.recommendation
+
+
+def test_baseline_dependent_profiles_require_their_baselines():
+    # DISCOUNTED and SUNSETTING need a real 30-day baseline.
+    discount = run("some/model", 1.5, {n: (1.5 if n <= 3 else 3.0) for n in range(1, 15)})
+    assert discount.profile != "DISCOUNTED"
+    sibling = run("google/gemini-3.7-flash", 0.76, {n: 0.76 for n in range(1, 15)},
+                  candidate_prices={"google/gemini-3.7-flash": 0.76, "google/gemini-3.8-flash": 0.76})
+    assert sibling.profile != "SUNSETTING"
+    # With a day-30 observation the same series classifies normally.
+    with_baseline = run("google/gemini-3.7-flash", 0.76, {n: 0.76 for n in [*range(1, 15), 30]},
+                        candidate_prices={"google/gemini-3.7-flash": 0.76, "google/gemini-3.8-flash": 0.76})
+    assert with_baseline.profile == "SUNSETTING"
+    assert with_baseline.change_vs_30d_pct == 0.0
+
+
+def test_promo_ended_without_30d_baseline_uses_the_available_baseline():
+    series = {n: (1.0 if n <= 3 else 0.5) for n in range(1, 15)}
+    an = run("some/model", 1.0, series)
+    assert an.profile == "PROMO_ENDED"
+    assert an.change_vs_30d_pct is None
+    assert "+100.0%" in an.recommendation

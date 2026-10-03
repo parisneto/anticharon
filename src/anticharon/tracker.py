@@ -19,6 +19,7 @@ import requests
 from anticharon.analytics import calculate_model_analytics
 from anticharon.config import (
     default_model,
+    entry_by_model as entry_by_model_map,
     get_config_path,
     get_history_path,
     load_config,
@@ -386,7 +387,7 @@ def _recompute_next_fallback_alert(
     """
     if not current_default:
         return None
-    default_entry = next((entry for entry in entries if entry["model"] == current_default), None)
+    default_entry = entry_by_model_map(entries).get(current_default)
     if not default_entry or default_entry.get("source") != "hermes":
         return None
     fallback_entries = sorted(
@@ -565,7 +566,7 @@ def run_tracker(
     if dry_run:
         messages.append(PREVIEW_ONLY_RUN_MESSAGE)
     current_default = default_model(cfg.get("_shortlist_entries", []))
-    entry_by_model = {entry["model"]: entry for entry in cfg.get("_shortlist_entries", [])}
+    entry_by_model = entry_by_model_map(cfg.get("_shortlist_entries", []))
     if current_default is None:
         messages.append(AgentMessage("info", "NO_DEFAULT",
             "No default model is set; default-based alerts are off. Set one with model add --default."))
@@ -973,7 +974,7 @@ def read_check_result(
         messages.append(AgentMessage("info", "NO_DEFAULT",
             "No default model is set; default-based alerts are off. Set one with model add --default."))
 
-    entry_by_model = {entry["model"]: entry for entry in cfg.get("_shortlist_entries", [])}
+    entry_by_model = entry_by_model_map(cfg.get("_shortlist_entries", []))
     history = read_history(hist_path)
     effective_store = read_effective_prices(get_effective_prices_path(hist_path.parent))
     alerts_store = read_alerts(get_alerts_path(hist_path.parent))

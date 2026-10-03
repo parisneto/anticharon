@@ -11,6 +11,8 @@ from anticharon.hermes import (
     sync_hermes_to_config,
 )
 from anticharon.manager import list_models
+from anticharon.storage import write_history
+from anticharon.tracker import read_check_result
 
 SEQUENCE = ["a/default-1", "b/fallback-2", "c/fallback-3"]
 
@@ -124,3 +126,27 @@ def test_hermes_default_change_replaces_hermes_entries_only(tmp_path):
         {"model": "m/manual", "source": "manual", "order": 0},
     ]
     assert default_model(load_config(path)["_shortlist_entries"]) == "n/new-default"
+
+
+def test_overlapping_manual_and_hermes_slug_exposes_one_effective_default(tmp_path, monkeypatch):
+    """A manual default later imported by Hermes under the same slug: the manual
+    preference stays stored, but listing and run output show one default."""
+    path = _write(tmp_path, [{"model": SEQUENCE[0], "source": "manual", "order": 0}])
+
+    sync_hermes_to_config(_detected(), config_path=path)
+
+    stored = _stored(path)
+    assert {"model": SEQUENCE[0], "source": "manual", "order": 0} in stored  # preference preserved
+    assert [e["model"] for e in stored].count(SEQUENCE[0]) == 2
+
+    monkeypatch.setattr("anticharon.manager.get_hermes_models", lambda **kw: None)
+    monkeypatch.setenv("ANTICHARON_DATA_DIR", str(tmp_path))
+    listed = list_models(config_path=path)
+    assert [(e["model"], e["source"]) for e in listed.entries if e["is_default"]] == [(SEQUENCE[0], "hermes")]
+    assert listed.shortlist == SEQUENCE  # one slug, one tracked row
+
+    now = "2026-09-16T10:00:00+00:00"
+    write_history([[m, now, 1.0, 1.0, 1.0, 1.0, 1.0] + [None] * 9 for m in SEQUENCE], tmp_path / "history.csv")
+    rows = read_check_result(config_path=path, history_path=tmp_path / "history.csv", no_hermes=True).prices_shortlist
+    assert [(r.model, r.source) for r in rows if r.is_default] == [(SEQUENCE[0], "hermes")]
+    assert len(rows) == len(SEQUENCE)

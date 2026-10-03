@@ -118,7 +118,7 @@ class ModelAnalytics:
     volatility_cv_pct: float
     price_min_30d: float
     price_max_30d: float
-    change_vs_30d_pct: float
+    change_vs_30d_pct: float | None
     trajectory_sparkline: str
     recommendation: str
     secondary_badge: str | None = None
@@ -129,6 +129,8 @@ class ModelAnalytics:
     latest_observation: str | None = None
     coverage_days: int = 0
     classification_reason: str = ""
+    current_price_used: float | None = None
+    current_price_source: str = "quote"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -139,7 +141,7 @@ class ModelAnalytics:
             "volatility_cv_pct": round(self.volatility_cv_pct, 2),
             "price_min_30d": round(self.price_min_30d, 5),
             "price_max_30d": round(self.price_max_30d, 5),
-            "change_vs_30d_pct": round(self.change_vs_30d_pct, 2),
+            "change_vs_30d_pct": round(self.change_vs_30d_pct, 2) if self.change_vs_30d_pct is not None else None,
             "trajectory_sparkline": self.trajectory_sparkline,
             "recommendation": self.recommendation,
             "sibling_alternatives": [s.to_dict() for s in self.sibling_alternatives],
@@ -149,6 +151,8 @@ class ModelAnalytics:
             "latest_observation": self.latest_observation,
             "coverage_days": self.coverage_days,
             "classification_reason": self.classification_reason,
+            "current_price_used": self.current_price_used,
+            "current_price_source": self.current_price_source,
         }
 
 

@@ -404,9 +404,9 @@ def sync_hermes_to_config(
 
     if changed and not dry_run:
         saved_path = update_config_shortlist([e["model"] for e in entries], target_path, entries=entries)
-        return True, [e["model"] for e in entries], saved_path
+        return True, list(dict.fromkeys(e["model"] for e in entries)), saved_path
 
-    return changed, [e["model"] for e in entries], target_path
+    return changed, list(dict.fromkeys(e["model"] for e in entries)), target_path
 
 
 def _stored_shortlist(path: Path) -> list[Any] | None:

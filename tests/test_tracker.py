@@ -747,3 +747,68 @@ def test_old_first_seen_does_not_mature_a_model_with_five_observed_days(monkeypa
     analytics = _analytics_profile_for_store(monkeypatch, tmp_path, 5, first_seen="2026-01-01")
     assert analytics.profile == "NEWLY_TRACKED"
     assert analytics.observation_count == 5
+
+
+def _seed_store_with_today(tmp_path, today, price=1.0, days=14):
+    (tmp_path / "effective_prices.json").write_text(json.dumps({
+        "openai/gpt-5.6-sol": {
+            "canonical_slug": "openai/gpt-5.6-sol-20260709",
+            "first_seen": "2026-08-01",
+            "last_synced": datetime(2026, 9, 16, 10, 0, 0, tzinfo=timezone.utc).isoformat(),
+            "observations": [
+                {"date": (today - timedelta(days=n)).isoformat(), "effective_price_1m": price}
+                for n in range(days)
+            ],
+        }
+    }), encoding="utf-8")
+
+
+def _freeze_tracker_clock(monkeypatch):
+    fixed_now = datetime(2026, 9, 16, 10, 0, 0, tzinfo=timezone.utc)
+
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now
+
+    monkeypatch.setattr("anticharon.tracker.datetime", _FixedDatetime)
+    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history",
+                        lambda *a, **kw: pytest.fail("fresh store must not refetch"))
+    return fixed_now
+
+
+def _write_export_with_quote(tmp_path, quote, now_iso):
+    from anticharon.storage import write_history
+    write_history([["openai/gpt-5.6-sol", now_iso, quote, quote, quote, quote, quote] + [None] * 9],
+                  tmp_path / "history.csv")
+
+
+def test_stored_observations_are_authoritative_in_run_fallback_and_history(monkeypatch, tmp_path):
+    """A separate current quote (live price or history.csv export) of 2.0 must not
+    override today's stored observation of 1.0 in volatility or profile."""
+    fixed_now = _freeze_tracker_clock(monkeypatch)
+    _seed_store_with_today(tmp_path, fixed_now.date())
+    _write_export_with_quote(tmp_path, 2.0, fixed_now.isoformat())
+    cfg = _write_shortlist(tmp_path, ["openai/gpt-5.6-sol"])
+    hist = tmp_path / "history.csv"
+
+    from anticharon.tracker import read_history_result
+    local = read_history_result(config_path=cfg, history_path=hist, no_hermes=True).prices_shortlist[0]
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {})
+    fallback = run_tracker(dry_run=True, config_path=cfg, history_path=hist, no_hermes=True,
+                           enable_analytics=True).prices_shortlist[0]
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {
+        "openai/gpt-5.6-sol": {
+            "id": "openai/gpt-5.6-sol", "canonical_slug": "openai/gpt-5.6-sol-20260709",
+            "pricing": {"prompt": "0.000002", "completion": "0.00001"},
+        },
+    })
+    live = run_tracker(dry_run=True, config_path=cfg, history_path=hist, no_hermes=True,
+                       enable_analytics=True).prices_shortlist[0]
+
+    for row in (local, fallback, live):
+        assert row.analytics.current_price_source == "observation"
+        assert row.analytics.current_price_used == 1.0
+        assert row.analytics.volatility_cv_pct == 0.0
+        assert row.analytics.profile != "VOLATILE"
+    assert local.price_1m == 2.0  # the separate quote is still reported as the quote
