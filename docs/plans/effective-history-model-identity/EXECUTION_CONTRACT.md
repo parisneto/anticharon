@@ -68,8 +68,8 @@ relevant changes require revalidation.
 | E-3 | AC-2: metadata, idempotence, default precedence, manual retention | PASS at `09ce27c` (sync, `list_models`, and check-output scope, including overlapping manual/Hermes slug; CLI `model list` renders the same `is_default`) | `tests/test_hermes_ownership.py` |
 | E-4 | AC-3: CLI/MCP/prompt analytics parity | PASS at `7673c81` (run/history/CLI/MCP/prompt parity; price provenance; local reads from the store without `history.csv`) | `tests/test_analytics_parity.py`, `tests/test_tracker.py` |
 | E-5 | AC-4: redirect persistence, retries, `NOT_TRACKED` output | NOT_RUN | Pending |
-| E-6 | AC-5: present/missing local resource, no network or mutation | NOT_RUN | Pending |
-| E-7 | AC-6: discovery exclusion and exact explicit add/import | NOT_RUN | Pending |
+| E-6 | AC-5: present/missing local resource, no network or mutation | PASS at `f58caea` (also corrupt store → `{}`) | `tests/test_mcp_w4.py` |
+| E-7 | AC-6: discovery exclusion and exact explicit add/import | PASS at `f58caea` | `tests/test_discovery.py`, `tests/test_manager.py`, `tests/test_hermes_ownership.py` |
 | E-8 | AC-7: primary/nested help forms and exit codes | NOT_RUN | Pending |
 | E-9 | Final deterministic suite, applicable quality checks, independent review | NOT_RUN | Pending |
 | E-10 | Preserved-backup VM verification (D-8) | PARTIAL: Wave 1 scope (AC-1, AC-2) verified at `9683b66`; W3/W4 scope not run; D-8 still OPEN | [vm_verification_wave1.md](evidence/vm_verification_wave1.md) |
@@ -96,7 +96,8 @@ OPEN decisions block only dependent work.
 |---|---|---|---|
 | W1 — Data contract (AC-1, AC-2) | IMPLEMENTED at `09ce27c`; independent re-review of audit remediation pending (E-9) | None for W2 start | Review W1; approve W2 start |
 | W2 — Analytics propagation (AC-3 + B) | IMPLEMENTED at `7673c81`; independent review pending (E-9) | None | Review W2 |
-| W3–W4 | NOT_STARTED | D-4…D-8 gate W3/W4 | Resolve D-4…D-8 before dependent work |
+| W3 — Identity and catalog boundaries | PARTIAL: AC-5, AC-6 IMPLEMENTED at `f58caea`; AC-4 NOT_STARTED | D-4, D-5, D-6 (AC-4) | Resolve D-4, D-5, D-6 |
+| W4 | NOT_STARTED | D-7, D-8 | Resolve D-7, D-8 before dependent work |
 
 Preserve only current truth; reference everything else. At wave end, update
 E-n, D-n, this row, and unresolved deferred items. Reference history rather
