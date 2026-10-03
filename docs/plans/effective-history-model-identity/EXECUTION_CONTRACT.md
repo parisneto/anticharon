@@ -69,7 +69,7 @@ relevant changes require revalidation.
 | E-7 | AC-6: discovery exclusion and exact explicit add/import | NOT_RUN | Pending |
 | E-8 | AC-7: primary/nested help forms and exit codes | NOT_RUN | Pending |
 | E-9 | Final deterministic suite, applicable quality checks, independent review | NOT_RUN | Pending |
-| E-10 | Preserved-backup VM verification (D-8) | NOT_RUN | Pending |
+| E-10 | Preserved-backup VM verification (D-8) | PARTIAL: Wave 1 scope (AC-1, AC-2) verified at `9683b66`; W3/W4 scope not run; D-8 still OPEN | [vm_verification_wave1.md](evidence/vm_verification_wave1.md) |
 
 ## 5. Decisions
 
