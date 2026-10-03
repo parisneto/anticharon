@@ -61,8 +61,8 @@ relevant changes require revalidation.
 | ID | Required proof | Current state/result | Evidence |
 |---|---|---|---|
 | E-1 | Protocol-update check before scope approval | PASS: checked 2026-10-02; `2026-07-28` is the current revision | [MCP versioning page](https://modelcontextprotocol.io/specification/versioning); PLAN.md, Protocol baseline check |
-| E-2 | AC-1: mature day-0, insufficient and gapped history | PASS at `e80a6f2` (analytics + tracker scope; also duplicate dates, zero and invalid prices) | `tests/test_analytics.py`, `tests/test_tracker.py` (`first_seen` independence) |
-| E-3 | AC-2: metadata, idempotence, default precedence, manual retention | PASS at `e80a6f2` (sync and `list_models` scope; CLI `model list` renders the same `is_default`) | `tests/test_hermes_ownership.py` |
+| E-2 | AC-1: mature day-0, insufficient and gapped history | PASS at `09ce27c` (analytics + tracker scope; also duplicate dates, zero and invalid prices, observation-authoritative current price, unavailable baselines) | `tests/test_analytics.py`, `tests/test_tracker.py` (`first_seen` independence; run/fallback/history parity) |
+| E-3 | AC-2: metadata, idempotence, default precedence, manual retention | PASS at `09ce27c` (sync, `list_models`, and check-output scope, including overlapping manual/Hermes slug; CLI `model list` renders the same `is_default`) | `tests/test_hermes_ownership.py` |
 | E-4 | AC-3: CLI/MCP/prompt analytics parity | NOT_RUN | Pending |
 | E-5 | AC-4: redirect persistence, retries, `NOT_TRACKED` output | NOT_RUN | Pending |
 | E-6 | AC-5: present/missing local resource, no network or mutation | NOT_RUN | Pending |
@@ -78,7 +78,7 @@ OPEN decisions block only dependent work.
 
 | ID | Decision | Current resolution | Applies to |
 |---|---|---|---|
-| D-1 | Minimum valid observation coverage for maturity | RESOLVED: `effective_prices.json` is the only analytics input (`history.csv` is a derived export). `NEWLY_TRACKED` iff distinct valid observed dates in the 30-day window < `min_tracking_days_for_profile` (default 14). Valid = ISO date within the window, finite price ≥ 0 (zero allowed); each date counts once; gaps preserved; `first_seen` has no role; no coverage-span threshold | AC-1, Wave 1 |
+| D-1 | Minimum valid observation coverage for maturity | RESOLVED: `effective_prices.json` is the only historical input to analytics (`history.csv` is a derived export; a separate current quote never overrides a stored observation dated today). `NEWLY_TRACKED` iff distinct valid observed dates in the 30-day window < `min_tracking_days_for_profile` (default 14). Valid = ISO date within the window, finite price ≥ 0 (zero allowed); each date counts once; gaps preserved; `first_seen` has no role; no coverage-span threshold. Unavailable comparison baselines stay unavailable | AC-1, Wave 1 |
 | D-2 | Rename, repurpose, or replace `min_tracking_days_for_profile` | RESOLVED: key kept; means minimum distinct observed calendar days, including backfill; no rename, second key, or deprecation | AC-1, Wave 1 |
 | D-3 | Manual-default preservation versus Hermes precedence | RESOLVED: a stored manual default preference is preserved while Hermes owns the effective default; only the effective default is `is_default`; authoritative removal restores the manual preference; temporary or incomplete detection preserves ownership | AC-2, Wave 1 |
 | D-4 | Persisted redirect identity schema | OPEN | AC-4, Wave 3 |
@@ -91,7 +91,7 @@ OPEN decisions block only dependent work.
 
 | Wave | Status | Blocking gate | PO action |
 |---|---|---|---|
-| W1 — Data contract (AC-1, AC-2) | IMPLEMENTED at `e80a6f2`; independent review pending (E-9) | None for W2 start | Review W1; approve W2 start |
+| W1 — Data contract (AC-1, AC-2) | IMPLEMENTED at `09ce27c`; independent re-review of audit remediation pending (E-9) | None for W2 start | Review W1; approve W2 start |
 | W2–W4 | NOT_STARTED | W2 follows W1 review; D-4…D-8 gate W3/W4 | Resolve D-4…D-8 before dependent work |
 
 Preserve only current truth; reference everything else. At wave end, update
@@ -101,7 +101,7 @@ than copying it. Scope/acceptance changes require PO approval before implementat
 ## 7. Deferred
 
 - Hermes detection has no explicit "Hermes owns no default" signal (an unreadable default is treated as unavailable), so authoritative removal is honored at the sync boundary (`complete` with no models) but no detector emits it yet.
-- Local reads (`check`, `history`, API-fallback) still take the latest-run price and moving averages from the derived `history.csv` export; moving them to `effective_prices.json` is needed to fully satisfy D-1 and is unscheduled.
+- Local reads (`check`, `history`, API-fallback) still display the latest-run price and moving averages from the derived `history.csv` export as the current quote; analytics calculations use dated observations only. Sourcing the displayed quote and moving averages from `effective_prices.json` is unscheduled.
 - Pre-existing lint debt is unchanged; changed-line gate passes against `219a766` (`docs/standards/lint_baseline_legacy.txt`).
 
 Non-goals: §3; OPEN decisions: §5;
