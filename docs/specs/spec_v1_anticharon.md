@@ -383,11 +383,11 @@ Anticharon's only historical input is the set of real dated daily observations i
 
 **Observation validity (D-1):** an observation counts when its `date` is a valid ISO date from `today − 30 days` through `today` and its `effective_price_1m` is a finite number ≥ 0 (a genuine zero price is valid). Each calendar date counts once (the minimum price wins). Gaps stay gaps — nothing is interpolated.
 
-**Historical comparison points:** `Price_dN` (N = 1, 7, 15, 30) is the latest real observation on or before N days ago within the window. When none exists the baseline is **unavailable** (never substituted by a newer observation or the current price). A zero baseline has no percentage either: with `Price_d30 = 0` and a positive current price `Delta_30d_Pct` is `null` and the sparkline shows `↑` (zero and still zero is `0.0`, flat). Unavailable baselines produce no conclusion that needs them: `Delta_30d_Pct` is `null` (`change_vs_30d_pct`) and the sparkline shows `n/a`; `SUNSETTING`, `DISCOUNTED`, and `CREEPING_INFLATION` require `Price_d30` (the last also `d7` and `d15`); `PROMO_ENDED` uses the minimum of the available `d7`/`d15`/`d30` baselines and requires `d1`. A 28-day backfill therefore has no 30-day baseline until a day-30 observation exists. `history_vector` reports exact-day observations only, `null` where the day was not observed.
+**Historical comparison points:** `Price_dN` (N = 7, 15, 30) is the latest real observation on or before N days ago within the window, which may be the current observation itself when it falls on or before that date; `Price_d1` is the latest observation before the current observation's date. When none exists the baseline is **unavailable** (never substituted by a newer observation or the current price). A zero baseline has no percentage either: with `Price_d30 = 0` and a positive current price `Delta_30d_Pct` is `null` and the sparkline shows `↑` (zero and still zero is `0.0`, flat). Unavailable baselines produce no conclusion that needs them: `Delta_30d_Pct` is `null` (`change_vs_30d_pct`) and the sparkline shows `n/a`; `SUNSETTING`, `DISCOUNTED`, and `CREEPING_INFLATION` require `Price_d30` (the last also `d7` and `d15`); `PROMO_ENDED` uses the minimum of the available `d7`/`d15`/`d30` baselines and requires `d1`. A 28-day backfill therefore has no 30-day baseline until a day-30 observation exists. `history_vector` reports exact-day observations only, `null` where the day was not observed.
 
 ### Metric Definitions:
 
-**Correction (PE2-009, 2026-09-17):** `N` below is the count of valid observations actually present in the window, plus today's current price (`src/anticharon/analytics.py`'s `calculate_model_analytics`, `len(all_prices)`), never a fixed `10` — an earlier revision of this section hardcoded `10`, which does not match the implementation and would silently misstate dispersion for any model with fewer or more valid observations (e.g. the single-observation golden case in §3, where the correct result is `CV = 0.0%` for `N = 1`, not division by `10`).
+**Correction (PE2-009, 2026-09-17; EH-1):** `N` below is the count of valid observations in the analytics series (`src/anticharon/analytics.py`'s `calculate_model_analytics`, `len(all_prices)`): each valid stored observation once, never a fixed `10`. Only with no observation at all is the series the single current quote, so the single-observation golden case in §3 gives `CV = 0.0%` for `N = 1`, not division by `10`.
 
 - **Mean Price:** `μ = sum(prices) / N`
 - **Standard Deviation:** `σ = sqrt(sum((p - μ)²) / N)`
@@ -395,8 +395,10 @@ Anticharon's only historical input is the set of real dated daily observations i
 - **30-Day Net Shift:** `Delta_30d_Pct = ((Current_Price - Price_d30) / Price_d30) × 100%`
 
 ### Deterministic Model Profile Categories:
+Profiles are evaluated in this order and the first match wins: `NEWLY_TRACKED`, `PROMO_ENDED`, `SUNSETTING`, `DISCOUNTED`, `VOLATILE`, `CREEPING_INFLATION`, `STABLE`, then `MODERATE` (normal fluctuation, the default). Sibling comparison prices on every surface are the latest stored observation per model (the row's own quote only for a model with no observation), so `run` and `history` agree.
+
 1. **`STABLE` (`🛡️ STABLE`):**
-   - Condition: `CV < 2.5%` and `|Delta_30d_Pct| < 5%`.
+   - Condition: `CV < 2.5%` and no earlier profile in the evaluation order applies. It needs no 30-day baseline.
    - Meaning: Mature, predictable pricing. Low budget risk for agents and scheduled cron pipelines.
 2. **`PROMO_ENDED` (`📈 PROMO_ENDED`):**
    - Condition: Prior baseline (`d15` or `d30`) was `≥ 25%` cheaper than current price, and current price has remained elevated for `≥ 2` days.
@@ -436,8 +438,9 @@ they make zero network calls, ever, and never recompute alerts:
   observation), `live_quote` (this `run`'s catalog quote), or `cached_quote`
   (the exported quote: `run`'s offline fallback or same-day reuse, and local
   reads of a model with no observation) — and `price_date`. `DATA_STALE` is
-  judged from the latest observation date (or the quote's date for a
-  `cached_quote` row). `history` human output adds an evidence section (observed
+  emitted when any returned row's date (its observation date, or the quote's
+  date for a `cached_quote` row) is older than today, so a fresh model never
+  masks a stale one. Local moving averages use only valid observations. `history` human output adds an evidence section (observed
   days, date span, price source) per model.
 
 Both `check` and `history` report `DATA_STALE` when the latest locally stored

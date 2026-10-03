@@ -136,13 +136,15 @@ def calculate_model_analytics(
     std_price = math.sqrt(var_price)
     cv_pct = (std_price / mean_price * 100) if mean_price > 0 else 0.0
 
-    past = [(d, by_day[d]) for d in observed_days if d < current_date]
-
-    def _ref(cutoff: date) -> float | None:
-        on_or_before = [p for d, p in past if d <= cutoff]
+    def _ref(cutoff: date, *, before_current: bool = False) -> float | None:
+        on_or_before = [by_day[d] for d in observed_days
+                        if d <= cutoff and not (before_current and d >= current_date)]
         return on_or_before[-1] if on_or_before else None
 
-    d1 = _ref(current_date - timedelta(days=1))
+    # d1: the observation before the current one. d7/d15/d30: the latest real
+    # observation on or before that many days ago, which may be the current
+    # observation itself when it falls on or before the cutoff.
+    d1 = _ref(current_date - timedelta(days=1), before_current=True)
     d7, d15, d30 = (_ref(today - timedelta(days=n)) for n in (7, 15, 30))
 
     price_min_30d = min(all_prices)

@@ -153,3 +153,63 @@ def test_price_provenance_and_evidence_fields_are_in_check_json(env):
     row = payload["prices_shortlist"][0]
     assert row["price_source"] == "observation"
     assert date.fromisoformat(row["price_date"]) == TODAY - timedelta(days=1)
+
+
+# --- Review remediation (second independent review) ---
+
+def seed_models(tmp_path, per_model):
+    """per_model: {slug: [(days_ago, price), ...]}"""
+    (tmp_path / "effective_prices.json").write_text(json.dumps({
+        slug: {
+            "canonical_slug": f"{slug}-20260709", "first_seen": TODAY.isoformat(),
+            "last_synced": NOW.isoformat(),
+            "observations": [{"date": (TODAY - timedelta(days=n)).isoformat(), "effective_price_1m": price}
+                             for n, price in obs],
+        } for slug, obs in per_model.items()
+    }), encoding="utf-8")
+
+
+def use_models(monkeypatch, tmp_path, slugs):
+    cfg = tmp_path / "shortlist.json"
+    cfg.write_text(json.dumps({"shortlist": [{"model": m, "source": "manual"} for m in slugs]}), encoding="utf-8")
+    monkeypatch.setenv("ANTICHARON_CONFIG", str(cfg))
+    return cfg
+
+
+def test_sibling_candidates_use_stored_prices_so_run_and_history_agree(env, monkeypatch):
+    tmp_path, _ = env
+    slugs = ["acme/model-1", "acme/model-2"]
+    cfg = use_models(monkeypatch, tmp_path, slugs)
+    seed_models(tmp_path, {s: [(n, 1.0) for n in range(1, 31)] for s in slugs})
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {
+        "acme/model-1": {"id": "acme/model-1", "canonical_slug": "acme/model-1-20260709",
+                         "pricing": {"prompt": "0.000002", "completion": "0.00001"}},
+        "acme/model-2": {"id": "acme/model-2", "canonical_slug": "acme/model-2-20260709",
+                         "pricing": {"prompt": "0.0002", "completion": "0.001"}},  # live quote 100x
+    })
+    live = {p.model: p for p in run_tracker(dry_run=True, config_path=cfg, history_path=tmp_path / "history.csv",
+                                            no_hermes=True, enable_analytics=True, force=True).prices_shortlist}
+    local = {p.model: p for p in read_history_result(no_hermes=True).prices_shortlist}
+
+    assert live["acme/model-1"].analytics.profile == "SUNSETTING"  # stored sibling price is equal
+    for slug in slugs:
+        assert live[slug].analytics.to_dict() == local[slug].analytics.to_dict()
+
+
+def test_invalid_stored_prices_do_not_enter_local_moving_averages(env):
+    tmp_path, _ = env
+    seed_models(tmp_path, {MODEL: [(0, 2.0), (1, -100.0)]})
+    for result in (read_check_result(no_hermes=True), read_history_result(no_hermes=True)):
+        row = result.prices_shortlist[0]
+        assert (row.price_1m, row.ma_3d, row.ma_7d) == (2.0, 2.0, 2.0)
+
+
+def test_one_fresh_model_does_not_mask_a_stale_one(env, monkeypatch):
+    tmp_path, _ = env
+    slugs = ["acme/fresh", "acme/stale"]
+    use_models(monkeypatch, tmp_path, slugs)
+    seed_models(tmp_path, {"acme/fresh": [(0, 1.0)], "acme/stale": [(3, 1.0)]})
+    for result in (read_check_result(no_hermes=True), read_history_result(no_hermes=True)):
+        assert "DATA_STALE" in [m.code for m in result.messages]
+    seed_models(tmp_path, {"acme/fresh": [(0, 1.0)], "acme/stale": [(0, 1.0)]})
+    assert "DATA_STALE" not in [m.code for m in read_check_result(no_hermes=True).messages]

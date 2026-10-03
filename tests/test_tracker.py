@@ -815,5 +815,10 @@ def test_stored_observations_are_authoritative_in_run_fallback_and_history(monke
     assert (local.price_1m, local.price_source) == (1.0, "observation")
     assert (fallback.price_1m, fallback.price_source) == (2.0, "cached_quote")
     assert live.price_source == "live_quote" and live.price_1m != 1.0
+    # Every price row reports its date: the live quote is dated today, the cached
+    # quote carries the export's date, the observation its own date.
+    assert live.price_date == "2026-09-16"
+    assert fallback.price_date == "2026-09-16"
+    assert local.price_date == "2026-09-16"
     # run, fallback and history classify the same stored evidence identically.
     assert live.analytics.to_dict() == fallback.analytics.to_dict() == local.analytics.to_dict()

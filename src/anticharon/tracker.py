@@ -335,19 +335,35 @@ def _analytics_for(
     )
 
 
+def _observation_list(valid: dict[date, float]) -> list[dict[str, Any]]:
+    """Valid observations (see `valid_observations`) back in stored-entry shape."""
+    return [{"date": d.isoformat(), "effective_price_1m": p} for d, p in sorted(valid.items())]
+
+
+def _candidate_prices(
+    prices: list[ModelPrice], store: dict[str, Any], today: date,
+) -> dict[str, float]:
+    """Sibling-comparison prices on the stored-evidence basis every surface shares:
+    the latest stored observation, else the row's own (quote) price."""
+    result = {}
+    for p in prices:
+        view = _stored_price_view(store, p.model, today)
+        result[p.model] = view[0] if view else p.price_1m
+    return result
+
+
 def _stored_price_view(
     store: dict[str, Any], model_id: str, today: date,
 ) -> tuple[float, date, float, float] | None:
     """(price, price_date, ma_3d, ma_7d) from a model's dated observations in the
     granular store: the latest valid observation and moving averages derived from
     the observations (same rule as `run`). `None` when the model has none."""
-    observations = (store.get(model_id) or {}).get("observations", [])
-    valid = valid_observations(observations, today)
+    valid = valid_observations((store.get(model_id) or {}).get("observations", []), today)
     if not valid:
         return None
     latest = max(valid)
     price = valid[latest]
-    derived = derive_history_window(observations, today=today)
+    derived = derive_history_window(_observation_list(valid), today=today)
     ma_3d = derived["ma_3d"] if derived["ma_3d"] is not None else price
     ma_7d = derived["ma_7d"] if derived["ma_7d"] is not None else price
     return price, latest, ma_3d, ma_7d
@@ -367,6 +383,11 @@ def _local_price_row(
         return None
     return (record.effective_price_1m, record.ma_3d, record.ma_7d, "cached_quote",
             _parse_record_date(record.last_updated))
+
+
+def _iso_date(last_updated: str) -> str | None:
+    parsed = _parse_record_date(last_updated)
+    return parsed.isoformat() if parsed else None
 
 
 def _parse_record_date(last_updated: str) -> date | None:
@@ -643,10 +664,11 @@ def run_tracker(
                     source=entry_by_model.get(fallback_model_id, {}).get("source"),
                     is_default=fallback_model_id == current_default,
                     price_source="cached_quote",
+                    price_date=_iso_date(rec.last_updated),
                 ))
         prices_shortlist.sort(key=lambda x: x.price_1m)
         if enable_analytics:
-            cand = {p.model: p.price_1m for p in prices_shortlist}
+            cand = _candidate_prices(prices_shortlist, effective_store, today)
             for p in prices_shortlist:
                 p.analytics = _analytics_for(effective_store, p.model, p.price_1m, today, cand, current_default, cfg)
         return TrackerResult(
@@ -712,6 +734,7 @@ def run_tracker(
                 source=entry_by_model.get(tracked_model_id, {}).get("source"),
                 is_default=tracked_model_id == current_default,
                 price_source="cached_quote",
+                price_date=_iso_date(existing_record.last_updated),
             ))
             continue
 
@@ -810,7 +833,8 @@ def run_tracker(
         sync_effective_prices_for_model(
             tracked_model_id, canonical_slug, effective_store, w_completion, timeout, now=now
         )
-        observations = (effective_store.get(tracked_model_id) or {}).get("observations", [])
+        observations = _observation_list(valid_observations(
+            (effective_store.get(tracked_model_id) or {}).get("observations", []), today))
         derived = derive_history_window(observations, today=today)
         ma_3d = derived["ma_3d"] if derived["ma_3d"] is not None else effective_price_1m
         ma_7d = derived["ma_7d"] if derived["ma_7d"] is not None else effective_price_1m
@@ -852,6 +876,7 @@ def run_tracker(
             source=entry_by_model.get(tracked_model_id, {}).get("source"),
             is_default=tracked_model_id == current_default,
             price_source="live_quote",
+            price_date=today.isoformat(),
         ))
 
         updated_records.append([
@@ -926,7 +951,7 @@ def run_tracker(
         warnings.append(next_fallback_alert)
 
     if enable_analytics:
-        cand = {p.model: p.price_1m for p in prices_shortlist}
+        cand = _candidate_prices(prices_shortlist, effective_store, today)
         for p in prices_shortlist:
             p.analytics = _analytics_for(effective_store, p.model, p.price_1m, today, cand, current_default, cfg)
 
@@ -1022,15 +1047,14 @@ def read_check_result(
     today = now.date()
 
     prices_shortlist: list[ModelPrice] = []
-    latest_date: date | None = None
+    row_dates: list[date | None] = []
     for slug in shortlist:
         record = history.get(slug)
         row = _local_price_row(slug, record, effective_store, today)
         if row is None:
             continue
         price, ma_3d, ma_7d, source, price_date = row
-        if latest_date is None or price_date is not None and price_date > latest_date:
-            latest_date = price_date
+        row_dates.append(price_date)
         delta_7d_pct = ((price - ma_7d) / ma_7d) * 100 if ma_7d > 0 else 0.0
         prices_shortlist.append(ModelPrice(
             model=slug,
@@ -1053,7 +1077,7 @@ def read_check_result(
         ))
     prices_shortlist.sort(key=lambda p: p.price_1m)
 
-    if latest_date is None or latest_date < today:
+    if not row_dates or any(d is None or d < today for d in row_dates):
         messages.append(DATA_STALE_MESSAGE)
 
     all_alerts = alerts_store.get("price_warnings", [])
@@ -1114,15 +1138,14 @@ def read_history_result(
     rows = {slug: _local_price_row(slug, history.get(slug), effective_store, today) for slug in shortlist}
     candidates = {slug: row[0] for slug, row in rows.items() if row}
     prices: list[ModelPrice] = []
-    latest_date: date | None = None
+    row_dates: list[date | None] = []
     for slug in ([target] if target else shortlist):
         row = rows.get(slug)
         if row is None:
             continue
         price, ma_3d, ma_7d, source, price_date = row
         record = history.get(slug)
-        if latest_date is None or price_date is not None and price_date > latest_date:
-            latest_date = price_date
+        row_dates.append(price_date)
         analytics = _analytics_for(effective_store, slug, price, today, candidates,
                                    configured_default, cfg)
         entry = next((item for item in entries if item["model"] == slug), {})
@@ -1146,7 +1169,7 @@ def read_history_result(
         ))
     prices.sort(key=lambda p: p.price_1m)
 
-    if latest_date is None or latest_date < today:
+    if not row_dates or any(d is None or d < today for d in row_dates):
         messages.append(DATA_STALE_MESSAGE)
 
     return TrackerResult(

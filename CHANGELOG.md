@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Review fixes (EH-3):** sibling comparisons use stored prices on every surface so `run` and `history` classify identically; a valid observation on a baseline cutoff date is a valid baseline; invalid stored prices no longer enter local moving averages; `DATA_STALE` fires when any row is stale; `run` price rows report `price_date`.
 - **Zero 30-day baseline:** a rise from a real `0.00` day-30 price to a positive price no longer reports a flat `0%` change; the percentage is unavailable (`null`) and the sparkline shows the rise.
 - **Day-0 backfill maturity (EH-1, #26):** an established model with 28–30 backfilled observations now gets a normal profile on its first Anticharon run instead of `NEWLY_TRACKED` for 14 days; models with too few observed days remain `NEWLY_TRACKED`.
 - **Hermes sync persistence (EH-2, #25):** a complete sync now rewrites a legacy flat shortlist with explicit `source`/`order` metadata even when the model sequence is unchanged, so repeated runs no longer report false `HERMES_DIVERGENT` or `NO_DEFAULT`.

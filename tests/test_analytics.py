@@ -263,3 +263,10 @@ def test_promo_ended_without_30d_baseline_uses_the_available_baseline():
     assert an.profile == "PROMO_ENDED"
     assert an.change_vs_30d_pct is None
     assert "+100.0%" in an.recommendation
+
+
+def test_single_observation_on_the_day_30_cutoff_is_a_valid_baseline():
+    an = run("some/model", None, {30: 2.0}, min_tracking_days_for_profile=1)
+    assert an.history_vector["d30"] == 2.0
+    assert an.change_vs_30d_pct == 0.0
+    assert "n/a" not in an.trajectory_sparkline
