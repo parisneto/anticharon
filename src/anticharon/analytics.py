@@ -140,13 +140,19 @@ def calculate_model_analytics(
 
     price_min_30d = min(all_prices)
     price_max_30d = max(all_prices)
-    delta_30d_pct = ((current_price - d30) / d30 * 100) if d30 is not None and d30 > 0 else (
-        0.0 if d30 is not None else None
-    )
+    # A percentage needs a positive baseline: a zero baseline is flat only when the
+    # price is still zero, and otherwise has no percentage (direction is still shown).
+    delta_30d_pct: float | None
+    if d30 is None or (d30 == 0 and current_price > 0):
+        delta_30d_pct = None
+    elif d30 == 0:
+        delta_30d_pct = 0.0
+    else:
+        delta_30d_pct = (current_price - d30) / d30 * 100
 
     # Sparkline trajectory formatting
     if delta_30d_pct is None:
-        arrow = "───"
+        arrow = "↑" if d30 == 0 else "───"  # zero baseline, positive price
     elif delta_30d_pct > 15.0:
         arrow = "↑"
     elif delta_30d_pct < -15.0:
@@ -207,7 +213,7 @@ def calculate_model_analytics(
         profile = "SUNSETTING"
         badge = "⚠️ SUNSETTING"
         secondary_badge = None
-        trend_direction = "rising" if delta_30d_pct > 0 else "flat"  # d30 is available here
+        trend_direction = "rising" if current_price > d30 else "flat"  # d30 is available here
         recommendation = f"Vendor pushing migration to {best_sibling.model} (same or lower cost)."
 
     elif (delta_30d_pct is not None and delta_30d_pct <= -20.0 and prior_baseline is not None

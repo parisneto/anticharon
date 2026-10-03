@@ -167,10 +167,17 @@ def test_zero_prices_are_valid_observations():
     assert an.history_vector["d1"] == 0.0
 
 
-def test_zero_baseline_then_paid_price_does_not_crash():
+def test_zero_baseline_then_paid_price_has_no_percentage_but_shows_the_rise():
     series = {n: 0.0 for n in range(1, 31)}
     an = run("free/model", 0.10, series)
     assert an.profile != "NEWLY_TRACKED"
+    assert an.change_vs_30d_pct is None
+    assert "↑" in an.trajectory_sparkline
+    assert an.profile not in {"DISCOUNTED", "CREEPING_INFLATION"}
+
+
+def test_zero_baseline_and_zero_price_is_flat():
+    an = run("free/model", 0.0, {n: 0.0 for n in range(1, 31)})
     assert an.change_vs_30d_pct == 0.0
 
 
