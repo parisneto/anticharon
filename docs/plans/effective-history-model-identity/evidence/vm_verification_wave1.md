@@ -25,13 +25,12 @@ Paths below are sanitized to `~/.anticharon/`.
 1. Already-persisted shortlist: two consecutive `anticharon model sync` runs both reported
    `SHORTLIST_UNCHANGED`. `model list --json` showed `source: hermes` and `order` 0–5 on
    all six entries and exactly one `is_default: true` (`openai/gpt-5.6-luna`).
-2. Preserved pre-fix backup restored over `~/.anticharon/shortlist.json` (backup copy of the
-   previous file kept alongside): the first `model sync` reported `SHORTLIST_UPDATED`
-   (the stored form was rewritten with explicit metadata); the second reported
-   `SHORTLIST_UNCHANGED`. Same six-model Hermes sequence, same single default.
+2. Preserved pre-fix backup restored over `~/.anticharon/shortlist.json` (the previous file
+   kept alongside). The backup stores `shortlist` as a flat list of six model-slug strings
+   with no `source` or `order`. The first `model sync` reported `SHORTLIST_UPDATED` (the
+   flat list was rewritten with explicit metadata for the same six-model sequence); the
+   second reported `SHORTLIST_UNCHANGED`. Same single default.
 
-Limits: the backup's exact stored format was not inspected, so this shows only that the
-stored form differed from the normalized entries and was then persisted idempotently.
-No `HERMES_DIVERGENT` or `NO_DEFAULT` message appeared in any output. Manual-entry
+Limits: No `HERMES_DIVERGENT` or `NO_DEFAULT` message appeared in any output. Manual-entry
 retention, manual-default preference, and authoritative removal were not exercised on the
 VM (covered by `tests/test_hermes_ownership.py`).
