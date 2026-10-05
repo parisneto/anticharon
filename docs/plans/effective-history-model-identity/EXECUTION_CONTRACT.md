@@ -70,7 +70,7 @@ relevant changes require revalidation.
 | E-5 | AC-4: redirect persistence, retries, `NOT_TRACKED` output | PASS at `7bbb0cb` (first detection, 24h reuse, force, unresolved, dry run, local reads, human/JSON/MCP output) | `tests/test_redirect_identity.py` |
 | E-6 | AC-5: present/missing local resource, no network or mutation | PASS at `f58caea` (also corrupt store → `{}`) | `tests/test_mcp_w4.py` |
 | E-7 | AC-6: discovery exclusion and exact explicit add/import | PASS at `f58caea` | `tests/test_discovery.py`, `tests/test_manager.py`, `tests/test_hermes_ownership.py` |
-| E-8 | AC-7: primary/nested help forms and exit codes | IMPLEMENTED; revision recorded at closeout | `tests/test_cli_help.py` |
+| E-8 | AC-7: primary/nested help forms and exit codes | PASS at `964ea36` (all 18 command paths, both forms, invalid forms) | `tests/test_cli_help.py` |
 | E-9 | Final deterministic suite, applicable quality checks, independent review | NOT_RUN | Pending |
 | E-10 | Preserved-backup VM verification (D-8) | PARTIAL: Wave 1 scope (AC-1, AC-2) verified at `9683b66`; W2–W3 behavior not run on the VM | [vm_verification_wave1.md](evidence/vm_verification_wave1.md) |
 
@@ -97,7 +97,7 @@ OPEN decisions block only dependent work.
 | W1 — Data contract (AC-1, AC-2) | IMPLEMENTED at `09ce27c`; independent re-review of audit remediation pending (E-9) | None for W2 start | Review W1; approve W2 start |
 | W2 — Analytics propagation (AC-3 + B) | IMPLEMENTED at `7673c81`; independent review pending (E-9) | None | Review W2 |
 | W3 — Identity and catalog boundaries | IMPLEMENTED at `7bbb0cb`; independent review pending (E-9) | None | Review W3 |
-| W4 — CLI ergonomics, release readiness | AC-7 IMPLEMENTED; E-9 independent review and SemVer/release closeout pending | None | Review; approve version bump and release |
+| W4 — CLI ergonomics, release readiness | AC-7 IMPLEMENTED at `964ea36`; E-9 independent review and SemVer/release closeout pending | None | Review; approve version bump and release |
 
 Preserve only current truth; reference everything else. At wave end, update
 E-n, D-n, this row, and unresolved deferred items. Reference history rather
