@@ -72,7 +72,7 @@ relevant changes require revalidation.
 | E-7 | AC-6: discovery exclusion and exact explicit add/import | PASS at `f58caea` | `tests/test_discovery.py`, `tests/test_manager.py`, `tests/test_hermes_ownership.py` |
 | E-8 | AC-7: primary/nested help forms and exit codes | NOT_RUN | Pending |
 | E-9 | Final deterministic suite, applicable quality checks, independent review | NOT_RUN | Pending |
-| E-10 | Preserved-backup VM verification (D-8) | PARTIAL: Wave 1 scope (AC-1, AC-2) verified at `9683b66`; W3/W4 scope not run; D-8 still OPEN | [vm_verification_wave1.md](evidence/vm_verification_wave1.md) |
+| E-10 | Preserved-backup VM verification (D-8) | PARTIAL: Wave 1 scope (AC-1, AC-2) verified at `9683b66`; W2–W3 behavior not run on the VM | [vm_verification_wave1.md](evidence/vm_verification_wave1.md) |
 
 ## 5. Decisions
 
@@ -88,7 +88,7 @@ OPEN decisions block only dependent work.
 | D-5 | `NOT_TRACKED` JSON shape and stable message code | RESOLVED: `not_tracked` list (`model`, `status`, `identity`, `resolved_id`, `code`, `diagnostic`, `source`, `is_default`); codes `REDIRECT_IDENTITY` (info), `NO_EXACT_MATCH` (warning); no price shown (PO choice) | AC-4, Wave 3 |
 | D-6 | Testable redirect retry/invalidation rule | RESOLVED: reuse stored redirect/unresolved state for 24h unless `run --force`; re-resolve afterwards; a slug now in the catalog is `exact` immediately | AC-4, Wave 3 |
 | D-7 | Support `--help`, `help <command>`, or both consistently | OPEN | AC-7, Wave 4 |
-| D-8 | Whether VM verification blocks completion | OPEN; planned verification retained | E-10, Wave 4 |
+| D-8 | Whether VM verification blocks completion | RESOLVED (PO, 2026-10-05): VM verification was completed with a preserved pre-v0.6.x shortlist; it covers Wave 1 only, see E-10 | E-10, Wave 4 |
 
 ## 6. Current Execution State
 
