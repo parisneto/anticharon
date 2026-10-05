@@ -452,18 +452,20 @@ def _stored_price_view(
 
 def _local_price_row(
     model_id: str, record: PriceRecord | None, store: dict[str, Any], today: date,
-) -> tuple[float, float, float, str, date | None] | None:
-    """(price, ma_3d, ma_7d, price_source, price_date) for a local read: the latest
-    stored observation when the model has any (`observation`), else the last
-    exported quote (`cached_quote`), else `None`."""
+) -> tuple[float, float, float, str, date | None, float | None, date | None] | None:
+    """(price, ma_3d, ma_7d, price_source, price_date, quote, quote_date) for a local
+    read: the latest stored observation when the model has any (`observation`, with
+    the last run's exported quote alongside when there is one), else the exported
+    quote itself (`cached_quote`), else `None`."""
     view = _stored_price_view(store, model_id, today)
+    quote_date = _parse_record_date(record.last_updated) if record else None
     if view is not None:
         price, price_date, ma_3d, ma_7d = view
-        return price, ma_3d, ma_7d, "observation", price_date
+        return (price, ma_3d, ma_7d, "observation", price_date,
+                record.effective_price_1m if record else None, quote_date)
     if record is None:
         return None
-    return (record.effective_price_1m, record.ma_3d, record.ma_7d, "cached_quote",
-            _parse_record_date(record.last_updated))
+    return (record.effective_price_1m, record.ma_3d, record.ma_7d, "cached_quote", quote_date, None, None)
 
 
 def _iso_date(last_updated: str) -> str | None:
@@ -779,6 +781,7 @@ def run_tracker(
             not force and not zdr_only and model_id is None
             and existing_record is not None
             and _parse_record_date(existing_record.last_updated) == today
+            and not _stored_untracked_identity(effective_store, tracked_model_id)
         )
         if reuse_existing:
             # Same-day rule (D-18/MCP-10): this model was already refreshed
@@ -793,12 +796,12 @@ def run_tracker(
             if reuse_delta_7d_pct >= threshold:
                 warnings.append(PriceWarning(
                     type="PRICE_SPIKE", model=tracked_model_id,
-                    message=f"Model {tracked_model_id} price spiked +{reuse_delta_7d_pct:.1f}% vs 7-day MA. Current: ${existing_record.effective_price_1m:.5f}/1M."
+                    message=f"Model {tracked_model_id} price spiked +{reuse_delta_7d_pct:.1f}% vs 7-day observed average. Current quote: ${existing_record.effective_price_1m:.5f}/1M."
                 ))
             elif reuse_delta_7d_pct <= -threshold:
                 warnings.append(PriceWarning(
                     type="PRICE_DROP", model=tracked_model_id,
-                    message=f"Model {tracked_model_id} price dropped {abs(reuse_delta_7d_pct):.1f}% vs 7-day MA. Current: ${existing_record.effective_price_1m:.5f}/1M."
+                    message=f"Model {tracked_model_id} price dropped {abs(reuse_delta_7d_pct):.1f}% vs 7-day observed average. Current quote: ${existing_record.effective_price_1m:.5f}/1M."
                 ))
             prices_shortlist.append(ModelPrice(
                 model=tracked_model_id,
@@ -823,6 +826,16 @@ def run_tracker(
             continue
 
         api_data = models_api.get(tracked_model_id)
+        if not api_data and not models_api:
+            # No catalog at all (fetch failure): nothing can be resolved. Never
+            # re-classify a model's identity from an empty catalog; keep stored state.
+            stored = _stored_untracked_identity(effective_store, tracked_model_id)
+            if stored:
+                not_tracked.append(_not_tracked(tracked_model_id, stored[0], stored[1], entry_by_model, current_default))
+            messages.append(AgentMessage(
+                "warning", "CATALOG_UNAVAILABLE",
+                f"OpenRouter's model catalog is unavailable; '{tracked_model_id}' was skipped.", model=tracked_model_id))
+            continue
         if not api_data:
             identity, resolved_id, state_changed = _resolve_unmatched_identity(
                 effective_store, tracked_model_id, models_api, now, force)
@@ -938,13 +951,13 @@ def run_tracker(
             warnings.append(PriceWarning(
                 type="PRICE_SPIKE",
                 model=tracked_model_id,
-                message=f"Model {tracked_model_id} price spiked +{delta_7d_pct:.1f}% vs 7-day MA. Current: ${effective_price_1m:.5f}/1M."
+                message=f"Model {tracked_model_id} price spiked +{delta_7d_pct:.1f}% vs 7-day observed average. Current quote: ${effective_price_1m:.5f}/1M."
             ))
         elif delta_7d_pct <= -threshold:
             warnings.append(PriceWarning(
                 type="PRICE_DROP",
                 model=tracked_model_id,
-                message=f"Model {tracked_model_id} price dropped {abs(delta_7d_pct):.1f}% vs 7-day MA. Current: ${effective_price_1m:.5f}/1M."
+                message=f"Model {tracked_model_id} price dropped {abs(delta_7d_pct):.1f}% vs 7-day observed average. Current quote: ${effective_price_1m:.5f}/1M."
             ))
 
         prices_shortlist.append(ModelPrice(
@@ -987,12 +1000,15 @@ def run_tracker(
     if not dry_run and updated_records:
         write_history(list(records_by_model.values()), hist_path)
         write_effective_prices(effective_store, effective_prices_path)
+    elif not dry_run and identity_changed:
+        write_effective_prices(effective_store, effective_prices_path)
+    if not dry_run and prices_shortlist:
+        # Also after an all-reuse run: the live response's default, fallback, and
+        # per-model alerts must be what `alerts.json` (and so `check`) reports.
         _persist_alerts(
             warnings, records_by_model, cfg.get("shortlist", []), cfg.get("_shortlist_entries", []), current_default, now_iso, model_id,
             get_alerts_path(hist_path.parent),
         )
-    elif not dry_run and identity_changed:
-        write_effective_prices(effective_store, effective_prices_path)
 
     # PE2-001/PE2-003 fix: rank by the policy-constrained price when a policy
     # filter is active. Three distinct cases per PLAN.md's graceful-degradation
@@ -1149,7 +1165,7 @@ def read_check_result(
         row = _local_price_row(slug, record, effective_store, today)
         if row is None:
             continue
-        price, ma_3d, ma_7d, source, price_date = row
+        price, ma_3d, ma_7d, source, price_date, quote, quote_date = row
         row_dates.append(price_date)
         delta_7d_pct = ((price - ma_7d) / ma_7d) * 100 if ma_7d > 0 else 0.0
         prices_shortlist.append(ModelPrice(
@@ -1170,6 +1186,8 @@ def read_check_result(
             is_default=slug == current_default,
             price_source=source,
             price_date=price_date.isoformat() if price_date else None,
+            quote_1m=quote,
+            quote_date=quote_date.isoformat() if quote_date else None,
         ))
     prices_shortlist.sort(key=lambda p: p.price_1m)
 
@@ -1241,7 +1259,7 @@ def read_history_result(
         row = rows.get(slug)
         if row is None:
             continue
-        price, ma_3d, ma_7d, source, price_date = row
+        price, ma_3d, ma_7d, source, price_date, quote, quote_date = row
         record = history.get(slug)
         row_dates.append(price_date)
         analytics = _analytics_for(effective_store, slug, price, today, candidates,
@@ -1259,6 +1277,8 @@ def read_history_result(
             is_default=slug == configured_default,
             price_source=source,
             price_date=price_date.isoformat() if price_date else None,
+            quote_1m=quote,
+            quote_date=quote_date.isoformat() if quote_date else None,
             price=PricePoint(
                 advertised_prompt_1m=record.advertised_prompt_1m,
                 advertised_completion_1m=record.advertised_completion_1m,

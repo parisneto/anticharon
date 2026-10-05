@@ -447,6 +447,8 @@ they make zero network calls, ever, and never recompute alerts:
 - `history` = the long-term 30-day view computed from `effective_prices.json`'s
   dated observations, plus all analytics/profile classification, which lives
   here and not in `check`.
+- **Quote vs observation:** the two are different price definitions (the catalog-derived effective quote vs the observed daily price) and can differ materially. `PRICE_SPIKE`/`PRICE_DROP` compare `run`'s quote with the 7-day *observed* average and say so in their text (`… vs 7-day observed average. Current quote: $…`). When a `check`/`history` row's price is an observation and an exported quote exists, the row also carries `last_run_quote_1m`/`last_run_quote_date` (human `check` prints `last run quote`; `history` evidence shows it), so both numbers are visible.
+- **Same-day reuse (`run`):** a model already refreshed today is reused from its stored row unless its stored identity is `redirect`/`unresolved` (then it is `NOT_TRACKED`). A `run` that only reuses models still persists `alerts.json` (including `default_model`) so `check` matches the live response.
 - Every price row reports `price_source` — `observation` (latest stored dated
   observation), `live_quote` (this `run`'s catalog quote), or `cached_quote`
   (the exported quote: `run`'s offline fallback or same-day reuse, and local
@@ -616,7 +618,7 @@ Codes emitted in 0.6.0 so far (the full catalog, including codes introduced by l
 | `SHORTLIST_UPDATED` / `SHORTLIST_UNCHANGED` | info (`SHORTLIST_UNCHANGED` is `warning` for a duplicate `model add`, `error` for `model remove` of an absent slug) | persisting `run`/default command (Hermes sync), `model sync`/`import_hermes_models`, `model add/remove`, `calibrate` | what was persisted to `shortlist.json` |
 | `NO_EXACT_MATCH` | error (`refused`) on `model add`; warning (per model) on `run` | exact catalog validation or a shortlist slug absent from the live catalog (and not a `~` redirect) | no prefix substitution; add refuses an invalid catalog slug and `run` lists the unmatched shortlisted slug as `NOT_TRACKED` → `discover_models` |
 | `REDIRECT_IDENTITY` | info (per model) | `run` | the shortlisted slug is absent but the catalog lists `~<slug>`: a redirect alias, listed as `NOT_TRACKED` with no price or history (§5.2) |
-| `CATALOG_UNAVAILABLE` | error | `model add` | catalog could not be queried; nothing is added → retry later |
+| `CATALOG_UNAVAILABLE` | error on `model add`; warning (per model) on `run` | `model add`; `run` with no usable catalog and no cached history | catalog could not be queried; nothing is added / the model is skipped. `run` never reclassifies a slug's identity from an empty catalog (§5.2) → retry later |
 | `NOT_MONITORED` | warning on local reads (`status: "not_monitored"`); error (`refused`) on a filtered live `run` | `run --model` (`refused`); `check --model`/`check_prices`, `history --model`/`get_model_history` (`not_monitored`) | slug is absent from shortlist; no catalog or price request is made → add the model explicitly |
 | `PRICE_UNAVAILABLE` / `PRICE_INVALID` | warning (per model) | `run` | model has no usable advertised price or its listed price is invalid; that model is skipped with an explicit reason |
 | `NO_DEFAULT` | info | `run`, local price views | no explicit `order: 0` entry; no default-based alert is produced |

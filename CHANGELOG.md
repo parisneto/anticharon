@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Independent-review fixes (EH-3/EH-4):** `check`/`history` rows show the last run's quote beside the observation-sourced price (`last_run_quote_1m`), and spike/drop alerts state that they compare a quote with an observed average; a `run` that only reuses same-day rows now persists `alerts.json` (including the default); an empty catalog no longer reclassifies a slug's identity or hides stored history (`CATALOG_UNAVAILABLE`); same-day reuse no longer shows a redirect slug as priced.
 - **Review fixes (EH-3):** sibling comparisons use stored prices on every surface so `run` and `history` classify identically; a valid observation on a baseline cutoff date is a valid baseline; invalid stored prices no longer enter local moving averages; `DATA_STALE` fires when any row is stale; `run` price rows report `price_date`.
 - **Zero 30-day baseline:** a rise from a real `0.00` day-30 price to a positive price no longer reports a flat `0%` change; the percentage is unavailable (`null`) and the sparkline shows the rise.
 - **Day-0 backfill maturity (EH-1, #26):** an established model with 28–30 backfilled observations now gets a normal profile on its first Anticharon run instead of `NEWLY_TRACKED` for 14 days; models with too few observed days remain `NEWLY_TRACKED`.

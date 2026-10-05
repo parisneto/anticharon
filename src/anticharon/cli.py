@@ -111,6 +111,8 @@ def format_human_output(result: TrackerResult, messages: list[dict], local_read:
             elif p.price.is_policy_routable is False:
                 detail += "  |  policy (ZDR): unroutable"
             print(detail)
+        if p.quote_1m is not None:
+            print(f"    ↳ last run quote: ${p.quote_1m:.5f}/1M ({p.quote_date}); row price is the stored observation")
 
     _print_not_tracked(result)
     print("-" * 74)
@@ -208,7 +210,8 @@ def format_analytics_human_output(result: TrackerResult, messages: list[dict], l
             an = p.analytics
             span = f"{an.earliest_observation} → {an.latest_observation}" if an.observation_count else "none"
             print(f"  • {p.model}: {an.observation_count} observed days ({span}); "
-                  f"price: {p.price_source or 'n/a'}{f' {p.price_date}' if p.price_date else ''}")
+                  f"price: {p.price_source or 'n/a'}{f' {p.price_date}' if p.price_date else ''}"
+                  + (f"; last run quote ${p.quote_1m:.5f}" if p.quote_1m is not None else ""))
 
     # Summary Insights
     print("\n📊 30-DAY VOLATILITY & SPREAD SUMMARY:")
