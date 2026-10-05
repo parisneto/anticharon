@@ -133,7 +133,7 @@ def _seed_redirect_with_stale_history(tmp_path):
         REDIRECT: {"identity": "redirect", "resolved_id": f"~{REDIRECT}", "identity_checked": NOW.isoformat(),
                    "canonical_slug": "old/canonical", "last_synced": NOW.isoformat(),
                    "observations": [{"date": (NOW.date() - timedelta(days=n)).isoformat(),
-                                     "effective_price_1m": 0.5} for n in range(0, 20)]},
+                                     "effective_price_1m": 0.5} for n in range(20)]},
         OK: {"identity": "exact", "resolved_id": OK, "canonical_slug": f"{OK}-1", "last_synced": NOW.isoformat(),
              "observations": [{"date": NOW.date().isoformat(), "effective_price_1m": 1.0}]},
     }), encoding="utf-8")
