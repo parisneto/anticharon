@@ -68,6 +68,13 @@ def _print_status_line(result: TrackerResult, local_read: bool) -> None:
         print("🟢 [STATUS: LIVE API] Latest OpenRouter prices fetched.")
 
 
+def _print_not_tracked(result: TrackerResult) -> None:
+    """Price-table rows for shortlisted slugs with no stable catalog identity."""
+    for row in result.not_tracked:
+        badge = " ★ [DEFAULT]" if row.is_default else ""
+        print(f"{row.model:<34} {'NOT_TRACKED':<13} {row.diagnostic}{badge}")
+
+
 def format_human_output(result: TrackerResult, messages: list[dict], local_read: bool = False) -> None:
     """Format and print human-readable CLI summary; `messages` are the envelope's."""
     print("\n" + "=" * 74)
@@ -105,6 +112,7 @@ def format_human_output(result: TrackerResult, messages: list[dict], local_read:
                 detail += "  |  policy (ZDR): unroutable"
             print(detail)
 
+    _print_not_tracked(result)
     print("-" * 74)
 
     # TUI ASCII Price Spectrum Chart
@@ -186,6 +194,10 @@ def format_analytics_human_output(result: TrackerResult, messages: list[dict], l
         print(f"{model_display:<33} ${p.price_1m:<9.5f} {spark:<18} {badge:<17} {rec}")
         if an and an.secondary_badge:
             print(f"{'':<33} {'':<10} {'':<18} {an.secondary_badge:<17}")
+
+    for row in result.not_tracked:
+        badge = " ★[DEF]" if row.is_default else ""
+        print(f"{row.model + badge:<33} {'—':<10} {'—':<18} {'NOT_TRACKED':<17} {row.diagnostic}")
 
     print("-" * 104)
 

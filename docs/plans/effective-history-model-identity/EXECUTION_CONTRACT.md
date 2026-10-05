@@ -67,7 +67,7 @@ relevant changes require revalidation.
 | E-2 | AC-1: mature day-0, insufficient and gapped history | PASS at `7673c81` (analytics + tracker scope, revalidated after W2; also duplicate dates, zero and invalid prices, observation-authoritative current price, unavailable baselines) | `tests/test_analytics.py`, `tests/test_tracker.py` (`first_seen` independence; run/fallback/history parity) |
 | E-3 | AC-2: metadata, idempotence, default precedence, manual retention | PASS at `09ce27c` (sync, `list_models`, and check-output scope, including overlapping manual/Hermes slug; CLI `model list` renders the same `is_default`) | `tests/test_hermes_ownership.py` |
 | E-4 | AC-3: CLI/MCP/prompt analytics parity | PASS at `7673c81` (run/history/CLI/MCP/prompt parity; price provenance; local reads from the store without `history.csv`) | `tests/test_analytics_parity.py`, `tests/test_tracker.py` |
-| E-5 | AC-4: redirect persistence, retries, `NOT_TRACKED` output | NOT_RUN | Pending |
+| E-5 | AC-4: redirect persistence, retries, `NOT_TRACKED` output | IMPLEMENTED; revision recorded at closeout | `tests/test_redirect_identity.py` |
 | E-6 | AC-5: present/missing local resource, no network or mutation | PASS at `f58caea` (also corrupt store → `{}`) | `tests/test_mcp_w4.py` |
 | E-7 | AC-6: discovery exclusion and exact explicit add/import | PASS at `f58caea` | `tests/test_discovery.py`, `tests/test_manager.py`, `tests/test_hermes_ownership.py` |
 | E-8 | AC-7: primary/nested help forms and exit codes | NOT_RUN | Pending |
@@ -84,9 +84,9 @@ OPEN decisions block only dependent work.
 | D-1 | Minimum valid observation coverage for maturity | RESOLVED: `effective_prices.json` is the only historical input to analytics (`history.csv` is a derived export; a separate current quote never overrides a stored observation dated today). `NEWLY_TRACKED` iff distinct valid observed dates in the 30-day window < `min_tracking_days_for_profile` (default 14). Valid = ISO date within the window, finite price ≥ 0 (zero allowed); each date counts once; gaps preserved; `first_seen` has no role; no coverage-span threshold. Unavailable comparison baselines stay unavailable | AC-1, Wave 1 |
 | D-2 | Rename, repurpose, or replace `min_tracking_days_for_profile` | RESOLVED: key kept; means minimum distinct observed calendar days, including backfill; no rename, second key, or deprecation | AC-1, Wave 1 |
 | D-3 | Manual-default preservation versus Hermes precedence | RESOLVED: a stored manual default preference is preserved while Hermes owns the effective default; only the effective default is `is_default`; authoritative removal restores the manual preference; temporary or incomplete detection preserves ownership | AC-2, Wave 1 |
-| D-4 | Persisted redirect identity schema | OPEN | AC-4, Wave 3 |
-| D-5 | `NOT_TRACKED` JSON shape and stable message code | OPEN | AC-4, Wave 3 |
-| D-6 | Testable redirect retry/invalidation rule | OPEN | AC-4, Wave 3 |
+| D-4 | Persisted redirect identity schema | RESOLVED: per-slug store entry `identity` (`exact`/`redirect`/`unresolved`), `resolved_id`, `identity_checked`; redirect = catalog lists exactly `~<slug>`; slug never rewritten; no canonical slug, backfill, or history for redirect/unresolved | AC-4, Wave 3 |
+| D-5 | `NOT_TRACKED` JSON shape and stable message code | RESOLVED: `not_tracked` list (`model`, `status`, `identity`, `resolved_id`, `code`, `diagnostic`, `source`, `is_default`); codes `REDIRECT_IDENTITY` (info), `NO_EXACT_MATCH` (warning); no price shown (PO choice) | AC-4, Wave 3 |
+| D-6 | Testable redirect retry/invalidation rule | RESOLVED: reuse stored redirect/unresolved state for 24h unless `run --force`; re-resolve afterwards; a slug now in the catalog is `exact` immediately | AC-4, Wave 3 |
 | D-7 | Support `--help`, `help <command>`, or both consistently | OPEN | AC-7, Wave 4 |
 | D-8 | Whether VM verification blocks completion | OPEN; planned verification retained | E-10, Wave 4 |
 
@@ -96,7 +96,7 @@ OPEN decisions block only dependent work.
 |---|---|---|---|
 | W1 — Data contract (AC-1, AC-2) | IMPLEMENTED at `09ce27c`; independent re-review of audit remediation pending (E-9) | None for W2 start | Review W1; approve W2 start |
 | W2 — Analytics propagation (AC-3 + B) | IMPLEMENTED at `7673c81`; independent review pending (E-9) | None | Review W2 |
-| W3 — Identity and catalog boundaries | PARTIAL: AC-5, AC-6 IMPLEMENTED at `f58caea`; AC-4 NOT_STARTED | D-4, D-5, D-6 (AC-4) | Resolve D-4, D-5, D-6 |
+| W3 — Identity and catalog boundaries | IMPLEMENTED; independent review pending (E-9) | None | Review W3 |
 | W4 | NOT_STARTED | D-7, D-8 | Resolve D-7, D-8 before dependent work |
 
 Preserve only current truth; reference everything else. At wave end, update

@@ -312,6 +312,32 @@ class HermesIntegrationStatus:
 
 
 @dataclass
+class NotTrackedModel:
+    """A shortlisted slug with no stable catalog identity (redirect alias or
+    unresolved): shown as `NOT_TRACKED` with a diagnostic, never priced and never
+    given history. The user's exact slug is preserved."""
+    model: str
+    identity: str  # "redirect" | "unresolved"
+    code: str  # REDIRECT_IDENTITY | NO_EXACT_MATCH
+    diagnostic: str
+    resolved_id: str | None = None
+    source: str | None = None
+    is_default: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "model": self.model,
+            "status": "NOT_TRACKED",
+            "identity": self.identity,
+            "resolved_id": self.resolved_id,
+            "code": self.code,
+            "diagnostic": self.diagnostic,
+            "source": self.source,
+            "is_default": self.is_default,
+        }
+
+
+@dataclass
 class TrackerResult:
     """Full execution output from the price tracker."""
     status: str
@@ -325,6 +351,7 @@ class TrackerResult:
     analytics_mode: bool = False
     hints_enabled: bool = False
     messages: list[AgentMessage] = field(default_factory=list)
+    not_tracked: list[NotTrackedModel] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Payload only; callers wrap it with `build_envelope(payload, self.messages, started)`."""
@@ -336,6 +363,7 @@ class TrackerResult:
             "fallback": self.fallback,
             "prices_shortlist": [p.to_dict() for p in self.prices_shortlist],
             "price_warnings": [w.to_dict() for w in self.price_warnings],
+            "not_tracked": [m.to_dict() for m in self.not_tracked],
         }
         if self.analytics_mode:
             data["analytics_mode"] = True

@@ -233,6 +233,18 @@ Same data directory as `history.csv`, same path-resolution hierarchy (§6.1). Th
 - 28-day backfill source: `GET /api/frontend/v1/stats/effective-pricing?permaslug={canonical_slug}&shape=v7&variant=standard&range=1m`. **The `range=1m` parameter is required** — live-verified 2026-09-16: the bare/default call (no `range`) only returns the last ~8 days, not ~30.
 - Graceful degradation: a `~`-prefixed router alias (e.g. `~deepseek/deepseek-pro-latest`) returns an empty-but-200-OK payload (live-verified — "latest" has no fixed permaslug identity to have history against). A transient failure never overwrites previously accumulated real `observations` with empty data; `last_synced` still advances so a permanently-empty model isn't re-fetched every run.
 
+**Model identity (EH-4, D-4):** each shortlisted slug's entry also records its catalog identity, separate from exact-match validation:
+
+- `identity`: `exact` (the slug is a catalog id), `redirect` (absent, but the catalog lists exactly `~<slug>` — an alias with no fixed model identity), or `unresolved` (neither).
+- `resolved_id`: the catalog id for `exact` (the slug) and `redirect` (`~<slug>`); `null` for `unresolved`.
+- `identity_checked`: ISO timestamp of the last resolution.
+
+The user's/Hermes' exact slug is never rewritten. A `redirect` or `unresolved` entry never receives a `canonical_slug`, backfill fetch, or observations from Anticharon, and its identity state overrides any observations that remain in the store: it is never priced, analyzed, or given history on any surface. Only `~<slug>` is tried; no other name is guessed. (An exact catalog id whose `canonical_slug` changes over time is not covered by this policy.)
+
+**Retry rule (D-6):** a stored `redirect`/`unresolved` state younger than 24 hours is reused as-is (no re-resolution) unless `run --force`; after 24 hours the next `run` re-resolves it. A slug that appears in the catalog is `exact` immediately, and an `exact` identity is re-recorded on every `run`. Dry runs persist nothing.
+
+**`NOT_TRACKED` output (D-5):** every price table (`run`, `check`, `history`, human and `--json`/MCP) lists such slugs in `not_tracked` (always present, possibly empty) as `{"model", "status": "NOT_TRACKED", "identity", "resolved_id", "code", "diagnostic", "source", "is_default"}` — never in `prices_shortlist`, with no price or analytics. `code` is `REDIRECT_IDENTITY` (message level `info`) for a redirect and `NO_EXACT_MATCH` (level `warning`) for an unresolved slug. Human tables show a `NOT_TRACKED` row with the diagnostic.
+
 ### 5.3 `alerts.json` — latest persisted alerts (D-22)
 
 Same data directory as `history.csv`/`effective_prices.json`, same path-resolution hierarchy (§6.1). Written **only** by `run`/`run_prices` (the only fetch-and-write path, §10.2); `check`/`check_prices` and `history`/`get_model_history` read it verbatim and never recompute it (D-19).
@@ -594,7 +606,8 @@ Codes emitted in 0.6.0 so far (the full catalog, including codes introduced by l
 | `COMPLETED` | info | every command/tool | always last; elapsed time |
 | `PREVIEW_ONLY` | info | any dry run (`check`, `history`, `run --dry-run`, `check_prices`, `get_model_history`, `model add/remove/sync --dry-run`, `calibrate --dry-run`, `import_hermes_models`) | work done for this response only; nothing persisted → repeat without dry run |
 | `SHORTLIST_UPDATED` / `SHORTLIST_UNCHANGED` | info (`SHORTLIST_UNCHANGED` is `warning` for a duplicate `model add`, `error` for `model remove` of an absent slug) | persisting `run`/default command (Hermes sync), `model sync`/`import_hermes_models`, `model add/remove`, `calibrate` | what was persisted to `shortlist.json` |
-| `NO_EXACT_MATCH` | error (`refused`) on `model add`; warning (per model) on `run` | exact catalog validation or a shortlist slug absent from the live catalog | no prefix substitution; add refuses an invalid catalog slug and `run` skips the unmatched shortlisted slug → `discover_models` |
+| `NO_EXACT_MATCH` | error (`refused`) on `model add`; warning (per model) on `run` | exact catalog validation or a shortlist slug absent from the live catalog (and not a `~` redirect) | no prefix substitution; add refuses an invalid catalog slug and `run` lists the unmatched shortlisted slug as `NOT_TRACKED` → `discover_models` |
+| `REDIRECT_IDENTITY` | info (per model) | `run` | the shortlisted slug is absent but the catalog lists `~<slug>`: a redirect alias, listed as `NOT_TRACKED` with no price or history (§5.2) |
 | `CATALOG_UNAVAILABLE` | error | `model add` | catalog could not be queried; nothing is added → retry later |
 | `NOT_MONITORED` | warning on local reads (`status: "not_monitored"`); error (`refused`) on a filtered live `run` | `run --model` (`refused`); `check --model`/`check_prices`, `history --model`/`get_model_history` (`not_monitored`) | slug is absent from shortlist; no catalog or price request is made → add the model explicitly |
 | `PRICE_UNAVAILABLE` / `PRICE_INVALID` | warning (per model) | `run` | model has no usable advertised price or its listed price is invalid; that model is skipped with an explicit reason |

@@ -35,6 +35,11 @@ is experimental and may require a host restart.
   null` means no usable 30-day baseline. Each result carries
   `classification_reason`; each price row carries `price_source`
   (`observation`, `live_quote`, `cached_quote`) and `price_date`.
+- A shortlisted slug with no stable catalog identity (a redirect alias such as
+  `x/y-latest` listed as `~x/y-latest`, or an unmatched slug) appears in
+  `not_tracked` with `status: "NOT_TRACKED"`, `identity`, `code`
+  (`REDIRECT_IDENTITY` or `NO_EXACT_MATCH`), and a diagnostic. It has no price
+  or history; the slug is never rewritten.
 - A write saves by default. Use `dry_run=true` (or CLI `--dry-run`) only to
   preview a write.
 - `add_model` validates an exact live catalog slug. `remove_model` refuses

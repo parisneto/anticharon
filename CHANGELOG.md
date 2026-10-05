@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Redirect identity (EH-4, #29):** shortlisted slugs that are only listed as a `~<slug>` redirect alias, or have no catalog match, are recorded in `effective_prices.json` (`identity`, `resolved_id`, `identity_checked`), reported in a new `not_tracked` list as `NOT_TRACKED` with a `REDIRECT_IDENTITY` / `NO_EXACT_MATCH` diagnostic in every price table and output format, and not re-resolved for 24 hours unless `run --force`. They get no price, history, or analytics, and the exact slug is never rewritten.
 - **MCP resource `anticharon://effective_prices.json` (EH-5, #28):** read-only, `application/json`; returns the local dated-observation store, or `{}` when absent, with no network call and no file mutation.
 - **Price provenance (EH-3):** price rows report `price_source` (`observation`, `live_quote`, `cached_quote`) and `price_date`; `history` output shows an evidence section.
 - Analytics results expose `observation_count`, `earliest_observation`, `latest_observation`, `coverage_days`, `current_price_used`, `current_price_source`, and `classification_reason`.

@@ -35,6 +35,7 @@ from anticharon.models import (
     HermesIntegrationStatus,
     ModelAnalytics,
     ModelPrice,
+    NotTrackedModel,
     PricePoint,
     PriceRecord,
     PriceWarning,
@@ -333,6 +334,86 @@ def _analytics_for(
         current_default=current_default,
         min_tracking_days_for_profile=cfg.get("min_tracking_days_for_profile", 14),
     )
+
+
+IDENTITY_TTL_HOURS = 24.0
+
+
+def _identity_diagnostic(slug: str, identity: str, resolved_id: str | None) -> tuple[str, str]:
+    if identity == "redirect":
+        return "REDIRECT_IDENTITY", (
+            f"'{slug}' is a redirect alias (catalog id '{resolved_id}') with no fixed model identity; "
+            "no price or history is attributed to it.")
+    return "NO_EXACT_MATCH", (
+        f"'{slug}' has no exact catalog entry; it is not priced or tracked.")
+
+
+def _stored_untracked_identity(store: dict[str, Any], slug: str) -> tuple[str, str | None] | None:
+    """(identity, resolved_id) when the store records `slug` as a redirect or
+    unresolved slug, else None. Observations never override this state."""
+    entry = store.get(slug) or {}
+    if entry.get("identity") in ("redirect", "unresolved"):
+        return entry["identity"], entry.get("resolved_id")
+    return None
+
+
+def _not_tracked(
+    slug: str, identity: str, resolved_id: str | None,
+    entry_map: dict[str, dict[str, Any]], current_default: str | None,
+) -> NotTrackedModel:
+    code, diagnostic = _identity_diagnostic(slug, identity, resolved_id)
+    return NotTrackedModel(
+        model=slug, identity=identity, code=code, diagnostic=diagnostic, resolved_id=resolved_id,
+        source=entry_map.get(slug, {}).get("source"), is_default=slug == current_default,
+    )
+
+
+def _identity_is_fresh(entry: dict[str, Any], now: datetime) -> bool:
+    try:
+        checked = datetime.fromisoformat(entry["identity_checked"])
+    except (KeyError, ValueError, TypeError):
+        return False
+    if checked.tzinfo is None:
+        checked = checked.replace(tzinfo=timezone.utc)
+    return (now - checked).total_seconds() < IDENTITY_TTL_HOURS * 3600
+
+
+def _resolve_unmatched_identity(
+    store: dict[str, Any], slug: str, catalog: dict[str, Any], now: datetime, force: bool,
+) -> tuple[str, str | None, bool]:
+    """Identity of a slug absent from the catalog: `redirect` when OpenRouter lists
+    exactly `~<slug>`, else `unresolved`. A stored redirect/unresolved state younger
+    than 24h is reused without re-resolving unless `force`. Returns
+    (identity, resolved_id, store_changed); the slug is never rewritten."""
+    entry = store.get(slug) or {}
+    stored = _stored_untracked_identity(store, slug)
+    if stored and not force and _identity_is_fresh(entry, now):
+        return stored[0], stored[1], False
+    alias = f"~{slug}"
+    identity, resolved_id = ("redirect", alias) if alias in catalog else ("unresolved", None)
+    entry["identity"] = identity
+    entry["resolved_id"] = resolved_id
+    entry["identity_checked"] = now.isoformat()
+    store[slug] = entry
+    return identity, resolved_id, True
+
+
+def _record_exact_identity(store: dict[str, Any], slug: str, now: datetime) -> None:
+    entry = store.setdefault(slug, {})
+    entry["identity"] = "exact"
+    entry["resolved_id"] = slug
+    entry["identity_checked"] = now.isoformat()
+
+
+def _stored_not_tracked(
+    store: dict[str, Any], slugs: list[str], entry_map: dict[str, dict[str, Any]], current_default: str | None,
+) -> list[NotTrackedModel]:
+    rows = []
+    for slug in slugs:
+        stored = _stored_untracked_identity(store, slug)
+        if stored:
+            rows.append(_not_tracked(slug, stored[0], stored[1], entry_map, current_default))
+    return rows
 
 
 def _observation_list(valid: dict[date, float]) -> list[dict[str, Any]]:
@@ -645,7 +726,7 @@ def run_tracker(
     if not models_api and history:
         prices_shortlist = []
         for fallback_model_id in shortlist:
-            if fallback_model_id in history:
+            if fallback_model_id in history and not _stored_untracked_identity(effective_store, fallback_model_id):
                 rec = history[fallback_model_id]
                 delta_7d_pct = ((rec.effective_price_1m - rec.ma_7d) / rec.ma_7d) * 100 if rec.ma_7d > 0 else 0.0
                 prices_shortlist.append(ModelPrice(
@@ -683,11 +764,14 @@ def run_tracker(
             analytics_mode=enable_analytics,
             hints_enabled=hints_enabled,
             messages=[API_FALLBACK_MESSAGE, *messages],
+            not_tracked=_stored_not_tracked(effective_store, shortlist, entry_by_model, current_default),
         )
 
     updated_records = []
     prices_shortlist = []
     warnings = []
+    not_tracked: list[NotTrackedModel] = []
+    identity_changed = False
 
     for tracked_model_id in shortlist:
         existing_record = history.get(tracked_model_id)
@@ -740,9 +824,15 @@ def run_tracker(
 
         api_data = models_api.get(tracked_model_id)
         if not api_data:
-            messages.append(AgentMessage("warning", "NO_EXACT_MATCH",
-                f"Model '{tracked_model_id}' is in the shortlist but has no exact catalog entry; it was skipped.",
-                action={"mcp": f"discover_models(query=\"{tracked_model_id}\")", "cli": f"anticharon model discover \"{tracked_model_id}\""}, model=tracked_model_id))
+            identity, resolved_id, state_changed = _resolve_unmatched_identity(
+                effective_store, tracked_model_id, models_api, now, force)
+            identity_changed = identity_changed or state_changed
+            row = _not_tracked(tracked_model_id, identity, resolved_id, entry_by_model, current_default)
+            not_tracked.append(row)
+            messages.append(AgentMessage(
+                "info" if identity == "redirect" else "warning", row.code, row.diagnostic,
+                action={"mcp": f"discover_models(query=\"{tracked_model_id}\")", "cli": f"anticharon model discover \"{tracked_model_id}\""},
+                model=tracked_model_id))
             continue
 
         # PE2-002: prompt/completion are required bulk-catalog fields -- a
@@ -833,6 +923,7 @@ def run_tracker(
         sync_effective_prices_for_model(
             tracked_model_id, canonical_slug, effective_store, w_completion, timeout, now=now
         )
+        _record_exact_identity(effective_store, tracked_model_id, now)
         observations = _observation_list(valid_observations(
             (effective_store.get(tracked_model_id) or {}).get("observations", []), today))
         derived = derive_history_window(observations, today=today)
@@ -900,6 +991,8 @@ def run_tracker(
             warnings, records_by_model, cfg.get("shortlist", []), cfg.get("_shortlist_entries", []), current_default, now_iso, model_id,
             get_alerts_path(hist_path.parent),
         )
+    elif not dry_run and identity_changed:
+        write_effective_prices(effective_store, effective_prices_path)
 
     # PE2-001/PE2-003 fix: rank by the policy-constrained price when a policy
     # filter is active. Three distinct cases per PLAN.md's graceful-degradation
@@ -967,6 +1060,7 @@ def run_tracker(
         analytics_mode=enable_analytics,
         hints_enabled=hints_enabled,
         messages=messages,
+        not_tracked=not_tracked,
     )
 
 
@@ -1049,6 +1143,8 @@ def read_check_result(
     prices_shortlist: list[ModelPrice] = []
     row_dates: list[date | None] = []
     for slug in shortlist:
+        if _stored_untracked_identity(effective_store, slug):
+            continue
         record = history.get(slug)
         row = _local_price_row(slug, record, effective_store, today)
         if row is None:
@@ -1102,6 +1198,7 @@ def read_check_result(
         analytics_mode=False,
         hints_enabled=hints_enabled,
         messages=messages,
+        not_tracked=_stored_not_tracked(effective_store, shortlist, entry_by_model, current_default),
     )
 
 
@@ -1135,7 +1232,8 @@ def read_history_result(
         messages.append(AgentMessage("info", "NO_DEFAULT", "No default model is set; default-based alerts are off."))
 
     today = datetime.now(timezone.utc).date()
-    rows = {slug: _local_price_row(slug, history.get(slug), effective_store, today) for slug in shortlist}
+    rows = {slug: _local_price_row(slug, history.get(slug), effective_store, today)
+            for slug in shortlist if not _stored_untracked_identity(effective_store, slug)}
     candidates = {slug: row[0] for slug, row in rows.items() if row}
     prices: list[ModelPrice] = []
     row_dates: list[date | None] = []
@@ -1184,4 +1282,6 @@ def read_history_result(
         analytics_mode=True,
         hints_enabled=hints_enabled,
         messages=messages,
+        not_tracked=_stored_not_tracked(effective_store, [target] if target else shortlist,
+                                        entry_by_model_map(entries), configured_default),
     )
