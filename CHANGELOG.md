@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-05
+
 ### Changed
 
 - **Batch variants hidden from discovery (EH-6, #30):** `model discover` and `discover_models` silently exclude catalog ids ending in `:batch`. These are asynchronous Batch API variants: requests are queued and results may take up to 24 hours, so they are unsuitable as interactive or fallback models. Exact `model add <slug>:batch` and explicitly configured Hermes batch slugs are unchanged and are never rewritten or removed. Anticharon does not submit or poll Batch API jobs.
