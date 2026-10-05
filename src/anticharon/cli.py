@@ -620,11 +620,17 @@ def cmd_help(
     primary = target[0]
     if primary in subparsers.choices:
         sub = subparsers.choices[primary]
-        if len(target) > 1 and primary == "model" and target[1] in model_subparsers.choices:
-            model_subparsers.choices[target[1]].print_help()
+        nested = model_subparsers.choices if primary == "model" else {}
+        if len(target) == 1:
+            sub.print_help()
             return 0
-        sub.print_help()
-        return 0
+        if len(target) == 2 and target[1] in nested:
+            nested[target[1]].print_help()
+            return 0
+        valid = f" Valid model subcommands: {', '.join(nested)}." if nested else ""
+        print(f"anticharon: error: unknown help target '{' '.join(target)}'.{valid} "
+              "Run 'anticharon help' for available commands.", file=sys.stderr)
+        return 2
 
     print(
         f"anticharon: error: unknown help target '{primary}'. Run 'anticharon help' for available commands.",
@@ -819,9 +825,34 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse._SubParsersAction,
     return parser, subparsers, model_subparsers
 
 
+_HELP_PATHS = {
+    ("run",), ("check",), ("history",), ("info",), ("mcp",), ("test",), ("check-updates",), ("update",),
+    ("model",), ("model", "add"), ("model", "remove"), ("model", "list"), ("model", "import-hermes"),
+    ("model", "sync"),
+}
+
+
+def misplaced_help_hint(argv: list[str]) -> str | None:
+    """Error text for `<command> help` / `model help [<sub>]`, which are not help
+    forms (supported: `<command> [sub] -h|--help` and `help <command> [sub]`);
+    None otherwise. Commands taking a free positional (`discover`, `calibrate`,
+    `prompt`, `help`) are exempt so a literal "help" argument still works."""
+    words = [a for a in argv if not a.startswith("-")]
+    if words[:2] == ["model", "help"] and len(words) <= 3:
+        return "help " + " ".join(["model", *words[2:]])
+    if len(words) >= 2 and words[-1] == "help" and tuple(words[:-1]) in _HELP_PATHS:
+        return "help " + " ".join(words[:-1])
+    return None
+
+
 def main() -> None:
     """Main CLI entrypoint."""
     parser, subparsers, model_subparsers = build_parser()
+    hint = misplaced_help_hint(sys.argv[1:])
+    if hint:
+        print(f"anticharon: error: 'help' is not an argument here. Use 'anticharon {hint}' "
+              f"or 'anticharon {hint.removeprefix('help ')} -h'.", file=sys.stderr)
+        sys.exit(2)
     args = parser.parse_args()
 
     if args.command == "help":

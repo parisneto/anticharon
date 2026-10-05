@@ -459,6 +459,14 @@ they make zero network calls, ever, and never recompute alerts:
 Both `check` and `history` report `DATA_STALE` when the latest locally stored
 observation is older than today, pointing back to `run`.
 
+### Help contract (EH-7, D-7)
+Every primary command (`run`, `check`, `history`, `info`, `mcp`, `test`, `calibrate`, `check-updates`, `update`, `prompt`, `help`, `model`) and nested `model` command (`import-hermes`, `sync`, `add`, `remove`, `list`, `discover`) supports exactly two help forms, both exiting `0` and printing that command's own usage and options:
+
+- `anticharon <command> [<subcommand>] -h` (or `--help`)
+- `anticharon help [<command> [<subcommand>]]` (no target prints the top-level help)
+
+`model sync` is an alias of `model import-hermes` and prints its usage. Any other form fails with exit `2` and a hint: `anticharon <command> help` and `anticharon model help [<sub>]` (including `model add help`, which is never treated as a model slug) report `use 'anticharon help <command>' or 'anticharon <command> -h'`; unknown or over-long targets (`help foo`, `help model foo`, `help run extra`) report `unknown help target`. A free positional that happens to be `help` (`model discover help`, `calibrate help`, `prompt help`) is an ordinary argument, not a help request. `anticharon -h <command>` prints the top-level help. Top-level options (`--json`, `--hints`, `--profile`, `--history-csv`, `--hermes-config`, `--no-hermes`) are unchanged.
+
 ### Primary Commands & Options:
 ```bash
 # 1. Standard execution: fetch OpenRouter, persist history/effective_prices/alerts, print report

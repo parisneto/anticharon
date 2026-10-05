@@ -70,7 +70,7 @@ relevant changes require revalidation.
 | E-5 | AC-4: redirect persistence, retries, `NOT_TRACKED` output | PASS at `7bbb0cb` (first detection, 24h reuse, force, unresolved, dry run, local reads, human/JSON/MCP output) | `tests/test_redirect_identity.py` |
 | E-6 | AC-5: present/missing local resource, no network or mutation | PASS at `f58caea` (also corrupt store → `{}`) | `tests/test_mcp_w4.py` |
 | E-7 | AC-6: discovery exclusion and exact explicit add/import | PASS at `f58caea` | `tests/test_discovery.py`, `tests/test_manager.py`, `tests/test_hermes_ownership.py` |
-| E-8 | AC-7: primary/nested help forms and exit codes | NOT_RUN | Pending |
+| E-8 | AC-7: primary/nested help forms and exit codes | IMPLEMENTED; revision recorded at closeout | `tests/test_cli_help.py` |
 | E-9 | Final deterministic suite, applicable quality checks, independent review | NOT_RUN | Pending |
 | E-10 | Preserved-backup VM verification (D-8) | PARTIAL: Wave 1 scope (AC-1, AC-2) verified at `9683b66`; W2–W3 behavior not run on the VM | [vm_verification_wave1.md](evidence/vm_verification_wave1.md) |
 
@@ -87,7 +87,7 @@ OPEN decisions block only dependent work.
 | D-4 | Persisted redirect identity schema | RESOLVED: per-slug store entry `identity` (`exact`/`redirect`/`unresolved`), `resolved_id`, `identity_checked`; redirect = catalog lists exactly `~<slug>`; slug never rewritten; no canonical slug, backfill, or history for redirect/unresolved | AC-4, Wave 3 |
 | D-5 | `NOT_TRACKED` JSON shape and stable message code | RESOLVED: `not_tracked` list (`model`, `status`, `identity`, `resolved_id`, `code`, `diagnostic`, `source`, `is_default`); codes `REDIRECT_IDENTITY` (info), `NO_EXACT_MATCH` (warning); no price shown (PO choice) | AC-4, Wave 3 |
 | D-6 | Testable redirect retry/invalidation rule | RESOLVED: reuse stored redirect/unresolved state for 24h unless `run --force`; re-resolve afterwards; a slug now in the catalog is `exact` immediately | AC-4, Wave 3 |
-| D-7 | Support `--help`, `help <command>`, or both consistently | OPEN | AC-7, Wave 4 |
+| D-7 | Support `--help`, `help <command>`, or both consistently | RESOLVED (PO): both `<command> [sub] -h/--help` and `help <command> [sub]`; other forms (`<command> help`, `model help`) exit 2 with a hint; top-level options unchanged | AC-7, Wave 4 |
 | D-8 | Whether VM verification blocks completion | RESOLVED (PO, 2026-10-05): VM verification was completed with a preserved pre-v0.6.x shortlist; it covers Wave 1 only, see E-10 | E-10, Wave 4 |
 
 ## 6. Current Execution State
@@ -97,7 +97,7 @@ OPEN decisions block only dependent work.
 | W1 — Data contract (AC-1, AC-2) | IMPLEMENTED at `09ce27c`; independent re-review of audit remediation pending (E-9) | None for W2 start | Review W1; approve W2 start |
 | W2 — Analytics propagation (AC-3 + B) | IMPLEMENTED at `7673c81`; independent review pending (E-9) | None | Review W2 |
 | W3 — Identity and catalog boundaries | IMPLEMENTED at `7bbb0cb`; independent review pending (E-9) | None | Review W3 |
-| W4 | NOT_STARTED | D-7, D-8 | Resolve D-7, D-8 before dependent work |
+| W4 — CLI ergonomics, release readiness | AC-7 IMPLEMENTED; E-9 independent review and SemVer/release closeout pending | None | Review; approve version bump and release |
 
 Preserve only current truth; reference everything else. At wave end, update
 E-n, D-n, this row, and unresolved deferred items. Reference history rather
