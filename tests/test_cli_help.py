@@ -23,7 +23,7 @@ def _usage(path):
 
 
 def test_every_command_is_covered_by_the_help_contract():
-    parser, subparsers, model_subparsers = build_parser()
+    _, subparsers, model_subparsers = build_parser()
     expected = {(name,) for name in subparsers.choices} | {("model", n) for n in model_subparsers.choices}
     assert expected == set(PATHS)
 
