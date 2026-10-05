@@ -72,7 +72,7 @@ relevant changes require revalidation.
 | E-7 | AC-6: discovery exclusion and exact explicit add/import | PASS at `f58caea` | `tests/test_discovery.py`, `tests/test_manager.py`, `tests/test_hermes_ownership.py` |
 | E-8 | AC-7: primary/nested help forms and exit codes | PASS at `964ea36` (all 18 command paths, both forms, invalid forms) | `tests/test_cli_help.py` |
 | E-9 | Final deterministic suite, applicable quality checks, independent review | NOT_RUN | Pending |
-| E-10 | Preserved-backup VM verification (D-8) | PARTIAL: Wave 1 scope (AC-1, AC-2) verified at `9683b66`; W2–W3 run on the VM at `ee77f65` (tables and JSON; findings open, see below) | [vm_verification_wave1.md](evidence/vm_verification_wave1.md) |
+| E-10 | Preserved-backup VM verification (D-8) | PARTIAL: Wave 1 scope (AC-1, AC-2) verified at `9683b66`; W2–W3 run on the VM at `ee77f65` (tables and JSON; see Deferred) | [vm_verification_wave1.md](evidence/vm_verification_wave1.md) |
 
 ## 5. Decisions
 
@@ -106,6 +106,8 @@ than copying it. Scope/acceptance changes require PO approval before implementat
 ## 7. Deferred
 
 - Hermes detection has no explicit "Hermes owns no default" signal (an unreadable default is treated as unavailable), so authoritative removal is honored at the sync boundary (`complete` with no models) but no detector emits it yet.
+- `run` shows a catalog-derived quote while `check`/`history` show the latest stored observation (`price_source`); on the VM they differ by up to 2.6× for the same model and day, and persisted PRICE_SPIKE/DROP alerts compare the quote with an observation-derived average. Whether to show both prices or reconcile the two definitions is undecided.
+- A `run` where every model is reused under the same-day rule persists no alerts, so `alerts.json` can name a stale default while the live response names the current one; found on the VM, unconfirmed (compare `alerts.json` `timestamp`/`default_model`).
 - Pre-existing lint debt is unchanged; changed-line gate passes against `219a766` (`docs/standards/lint_baseline_legacy.txt`).
 
 Non-goals: §3; OPEN decisions: §5;
