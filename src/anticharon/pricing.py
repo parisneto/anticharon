@@ -163,3 +163,60 @@ def calculate_legacy_cost(
         (prompt_tokens / 1_000_000) * prompt_price_1m
         + (completion_tokens / 1_000_000) * completion_price_1m
     )
+
+
+# Service-tier tokens in an endpoint `tag` (e.g. `openai/flex`, `google-vertex/global/priority`).
+# Quantization (`fp8`), region (`eu`, `global`) and `zdr` segments are NOT tiers (EH-8, D-9).
+SERVICE_TIER_TOKENS = frozenset({"flex", "fast", "priority", "ultrafast", "turbo", "batch"})
+
+
+def is_service_tier_tag(tag: str | None) -> bool:
+    """True when any `/`-separated segment of an endpoint tag is a service-tier token."""
+    return any(segment in SERVICE_TIER_TOKENS for segment in (tag or "").split("/"))
+
+
+def map_endpoint_tags(series: list[dict], endpoints: list[dict]) -> dict[str, str]:
+    """Endpoint UUID -> tag, joining the frontend listed-pricing series to the public
+    endpoints API at each series' latest point.
+
+    Join key: (tag prefix, input $/1M, output $/1M), then (prefix, input), then
+    (prefix, output). The tag prefix equals the frontend `providerSlug`; the public
+    `provider_name` does not ("Google" vs "google-vertex"). When several tags match
+    and disagree on tier class, a service-tier tag wins (non-standard). Unmatched
+    UUIDs are omitted."""
+    full: dict[tuple, set[str]] = {}
+    by_in: dict[tuple, set[str]] = {}
+    by_out: dict[tuple, set[str]] = {}
+    for ep in endpoints:
+        tag = ep.get("tag") or ""
+        prefix = tag.split("/")[0]
+        pricing = ep.get("pricing") or {}
+        try:
+            p_in = round(float(pricing["prompt"]) * 1_000_000, 4)
+            p_out = round(float(pricing["completion"]) * 1_000_000, 4)
+        except (KeyError, TypeError, ValueError):
+            continue
+        full.setdefault((prefix, p_in, p_out), set()).add(tag)
+        by_in.setdefault((prefix, p_in), set()).add(tag)
+        by_out.setdefault((prefix, p_out), set()).add(tag)
+
+    def latest(item: dict, key: str) -> float | None:
+        points = item.get(key) or []
+        try:
+            return round(float(points[-1]["value"]), 4)
+        except (IndexError, KeyError, TypeError, ValueError):
+            return None
+
+    result: dict[str, str] = {}
+    for item in series:
+        uuid, slug = item.get("endpointId"), item.get("providerSlug") or ""
+        p_in, p_out = latest(item, "input"), latest(item, "output")
+        if not uuid or p_in is None:
+            continue
+        candidates = (full.get((slug, p_in, p_out)) or by_in.get((slug, p_in))
+                      or (by_out.get((slug, p_out)) if p_out is not None else None))
+        if not candidates:
+            continue
+        tier_tags = sorted(t for t in candidates if is_service_tier_tag(t))
+        result[uuid] = tier_tags[0] if tier_tags else sorted(candidates)[0]
+    return result

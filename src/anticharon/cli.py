@@ -106,6 +106,8 @@ def format_human_output(result: TrackerResult, messages: list[dict], local_read:
             # Advertised is a raw (never blended) prompt/completion pair -- a
             # transparency anchor only, distinct from the effective blend above.
             detail = f"    ↳ advertised: ${p.price.advertised_prompt_1m:.4f} in / ${p.price.advertised_completion_1m:.4f} out /1M"
+            if p.price.endpoint_tag:
+                detail += f"  |  endpoint: {p.price.endpoint_tag}"
             if p.price.policy_price_1m is not None:
                 detail += f"  |  policy (ZDR): ${p.price.policy_price_1m:.5f}/1M"
             elif p.price.is_policy_routable is False:

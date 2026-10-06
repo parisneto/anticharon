@@ -721,7 +721,7 @@ def _analytics_profile_for_store(monkeypatch, tmp_path, observation_days, first_
         }
     }), encoding="utf-8")
     monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history",
-                        lambda *a, **kw: pytest.fail("fresh store must not refetch"))
+                        lambda *a, **kw: {})  # `force=True` runs refresh; no data keeps the seeded store
 
     class _FixedDatetime(datetime):
         @classmethod
@@ -775,7 +775,7 @@ def _freeze_tracker_clock(monkeypatch):
 
     monkeypatch.setattr("anticharon.tracker.datetime", _FixedDatetime)
     monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history",
-                        lambda *a, **kw: pytest.fail("fresh store must not refetch"))
+                        lambda *a, **kw: {})  # `force=True` runs refresh; no data keeps the seeded store
     return fixed_now
 
 

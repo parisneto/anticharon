@@ -44,7 +44,9 @@ from anticharon.models import (
 from anticharon.pricing import (
     blended_rate_1m,
     derive_cache_hit_rate,
+    is_service_tier_tag,
     is_valid_listed_price,
+    map_endpoint_tags,
     parse_required_price_1m,
     resolve_cache_read_price_1m,
 )
@@ -67,6 +69,7 @@ OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 # pricing data source" and "28-Day Backfill").
 OPENROUTER_ENDPOINT_STATS_URL = "https://openrouter.ai/api/frontend/v1/stats/endpoint"
 OPENROUTER_EFFECTIVE_PRICING_URL = "https://openrouter.ai/api/frontend/v1/stats/effective-pricing"
+OPENROUTER_LISTED_PRICING_URL = "https://openrouter.ai/api/frontend/v1/stats/listed-pricing"
 
 PREVIEW_ONLY_RUN_MESSAGE = AgentMessage(
     "info", "PREVIEW_ONLY",
@@ -183,6 +186,23 @@ def fetch_effective_pricing_history(canonical_slug: str, timeout: float = 10.0) 
         return {}
 
 
+def fetch_listed_pricing(canonical_slug: str, timeout: float = 10.0) -> dict[str, Any]:
+    """Frontend `listed-pricing` series: per endpoint (same UUIDs as the effective
+    route), step-change lists of posted input/output/cacheRead/cacheWrite/discount
+    prices, discounts applied, no cache-hit effect. `{}` on any failure."""
+    try:
+        resp = requests.get(
+            OPENROUTER_LISTED_PRICING_URL,
+            params={"permaslug": canonical_slug, "shape": "v7", "variant": "standard", "range": "1m"},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", {})
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
 def _endpoint_blended_rate_1m(
     endpoint: dict[str, Any], w_uncached: float, w_cached: float, w_completion: float
 ) -> float | None:
@@ -219,15 +239,26 @@ def resolve_policy_pricing(
     data is available). policy_price_1m/is_policy_routable/excluded_providers are
     only populated when `zdr_only` is active -- an inactive policy filter means
     there's no policy price at all (see PLAN.md "Core pricing semantics")."""
+    # EH-8 (D-9): the price is the cheapest *standard-tier* endpoint. Service-tier
+    # endpoints (flex/fast/priority/...) are different products, not cheaper standard
+    # ones. With no usable standard endpoint, fall back to all endpoints and say so.
+    standard = [ep for ep in endpoints if not is_service_tier_tag(ep.get("tag"))]
+    only_non_standard = bool(endpoints) and not any(
+        _endpoint_blended_rate_1m(ep, w_uncached, w_cached, w_completion) is not None for ep in standard)
+    usable = endpoints if only_non_standard else standard
+
     rates: list[float] = []
     zdr_rates: list[float] = []
     excluded_providers: list[str] = []
+    best: tuple[float, str | None] | None = None
 
-    for ep in endpoints:
+    for ep in usable:
         rate = _endpoint_blended_rate_1m(ep, w_uncached, w_cached, w_completion)
         if rate is None:
             continue
         rates.append(rate)
+        if best is None or rate < best[0]:
+            best = (rate, ep.get("tag"))
         if zdr_only:
             data_policy = (ep.get("provider_info") or {}).get("dataPolicy") or {}
             if data_policy.get("retainsPrompts") is False:
@@ -237,6 +268,8 @@ def resolve_policy_pricing(
 
     result: dict[str, Any] = {
         "effective_price_1m": min(rates) if rates else None,
+        "effective_endpoint_tag": best[1] if best else None,
+        "only_non_standard_tiers": only_non_standard and bool(rates),
         "policy_price_1m": None,
         "is_policy_routable": None,
         "excluded_providers": [],
@@ -254,7 +287,9 @@ def resolve_policy_pricing(
     return result
 
 
-def _reduce_to_daily_observations(history_data: dict[str, Any], w_completion: float) -> list[dict[str, Any]]:
+def _reduce_to_daily_observations(
+    history_data: dict[str, Any], w_completion: float, excluded_endpoint_ids: frozenset[str] = frozenset(),
+) -> list[dict[str, Any]]:
     """Collapse the effective-pricing route's per-endpoint daily input/output series
     into one blended $/1M observation per calendar day (the cheapest endpoint that
     day). OpenRouter's per-endpoint series is already cache-weighted by that
@@ -276,6 +311,8 @@ def _reduce_to_daily_observations(history_data: dict[str, Any], w_completion: fl
 
         day_rates = []
         for endpoint_id, input_price in input_by_endpoint.items():
+            if endpoint_id in excluded_endpoint_ids:
+                continue
             output_price = output_by_endpoint.get(endpoint_id)
             if output_price is None:
                 continue
@@ -297,21 +334,35 @@ def sync_effective_prices_for_model(
     w_completion: float,
     timeout: float,
     now: datetime | None = None,
+    endpoints: list[dict[str, Any]] | None = None,
+    force: bool = False,
 ) -> None:
     """Backfill/refresh one model's granular observations in `store`, in place,
     respecting the store's own staleness policy (independent of history.csv's
-    per-run cadence). Mutates `store[model_id]`."""
-    if not is_model_backfill_stale(store, model_id, now=now):
+    per-run cadence); `force` refreshes regardless. Mutates `store[model_id]`.
+
+    Service-tier endpoints are excluded from the daily minimum (EH-8): with the live
+    `endpoints` list, frontend endpoint UUIDs are mapped to tags (`endpoint_tags`,
+    merged with what is already stored so removed endpoints keep their class)."""
+    if not force and not is_model_backfill_stale(store, model_id, now=now):
         return
 
     now = now or datetime.now(timezone.utc)
     history_data = fetch_effective_pricing_history(canonical_slug, timeout=timeout)
-    new_observations = _reduce_to_daily_observations(history_data, w_completion)
 
     entry = store.get(model_id) or {"canonical_slug": canonical_slug, "observations": []}
+    tags: dict[str, str] = dict(entry.get("endpoint_tags") or {})
+    if endpoints:
+        listed = fetch_listed_pricing(canonical_slug, timeout=timeout)
+        tags.update(map_endpoint_tags(listed.get("series") or [], endpoints))
+    excluded = frozenset(uuid for uuid, tag in tags.items() if is_service_tier_tag(tag))
+    new_observations = _reduce_to_daily_observations(history_data, w_completion, excluded)
+
     entry.setdefault("first_seen", now.date().isoformat())
     entry["canonical_slug"] = canonical_slug
     entry["last_synced"] = now.isoformat()
+    if tags:
+        entry["endpoint_tags"] = tags
     if new_observations:
         # Only overwrite when the fetch actually returned data -- a transient
         # failure or a router alias with no fixed history must not destroy
@@ -914,6 +965,11 @@ def run_tracker(
 
         policy_price_1m = policy_result["policy_price_1m"]
         is_policy_routable = policy_result["is_policy_routable"]
+        if policy_result["only_non_standard_tiers"]:
+            messages.append(AgentMessage(
+                "warning", "ONLY_NON_STANDARD_TIERS",
+                f"'{tracked_model_id}' lists only non-standard service tiers (flex/fast/priority/...); "
+                "its price comes from one of them.", model=tracked_model_id))
 
         if zdr_only and is_policy_routable is False:
             warnings.append(PriceWarning(
@@ -956,7 +1012,8 @@ def run_tracker(
         # d1..d30/MA columns fresh from it -- this is what makes a same-day rerun
         # a no-op for d1..d30 (there is no "shift" left to double-apply).
         sync_effective_prices_for_model(
-            tracked_model_id, canonical_slug, effective_store, w_completion, timeout, now=now
+            tracked_model_id, canonical_slug, effective_store, w_completion, timeout, now=now,
+            endpoints=endpoints, force=force,
         )
         _record_exact_identity(effective_store, tracked_model_id, now)
         observations = _observation_list(valid_observations(
@@ -990,6 +1047,7 @@ def run_tracker(
                 policy_price_1m=policy_price_1m,
                 is_policy_routable=is_policy_routable,
                 cache_hit_rate_used=cache_hit_rate,
+                endpoint_tag=policy_result["effective_endpoint_tag"],
             ),
             canonical_slug=canonical_slug,
             source=entry_by_model.get(tracked_model_id, {}).get("source"),

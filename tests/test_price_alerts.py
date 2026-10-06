@@ -30,7 +30,7 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr("anticharon.tracker.get_hermes_models", lambda **kw: None)
     monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **k: [])
     monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history",
-                        lambda *a, **k: pytest.fail("a fresh store must not refetch"))
+                        lambda *a, **k: {})  # `force=True` runs refresh; no data keeps the seeded store
     return tmp_path, cfg
 
 

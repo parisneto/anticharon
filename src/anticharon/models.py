@@ -178,6 +178,8 @@ class PricePoint:
     # (cached tokens / ALL tokens, including completion), which is a different
     # number. See anticharon.pricing.derive_cache_hit_rate for the derivation.
     cache_hit_rate_used: float = 0.0
+    # Tag of the standard-tier endpoint the effective price comes from (EH-8).
+    endpoint_tag: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
@@ -186,6 +188,8 @@ class PricePoint:
             "effective_price_1m": round(self.effective_price_1m, 6),
             "cache_hit_rate_used": round(self.cache_hit_rate_used, 6),
         }
+        if self.endpoint_tag is not None:
+            data["endpoint_tag"] = self.endpoint_tag
         if self.policy_price_1m is not None:
             data["policy_price_1m"] = round(self.policy_price_1m, 6)
         if self.is_policy_routable is not None:
