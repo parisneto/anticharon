@@ -135,10 +135,12 @@ When a model is first added to the tracking shortlist:
 Anticharon evaluates percentage variation against the 7-day moving average:
 
 ```text
-Delta_7d_Pct = ((Effective_Price_1M - MA_7d) / MA_7d) × 100
+Delta_7d_Pct = ((Latest_Observed_Price - MA_7d) / MA_7d) × 100
 ```
 
-**Correction (PE2-001, 2026-09-16):** `Delta_7d_Pct` always uses the unconstrained `Effective_Price_1M`, even under an active policy filter — an earlier draft of this line claimed `Policy_Price_1M` replaced it, which is exactly the collapse-under-`--zdr` defect PE2-001 fixed. `MA_7d`/`MA_3d` are always derived from unconstrained effective historical observations (`effective_prices.json` never stores policy-price history), so comparing them against anything other than the unconstrained current effective price would be an apples-to-oranges comparison — see §3.1.
+**Correction (EH-3 release gate):** `Delta_7d_Pct` compares the **latest stored observation** with the observed 7-day average, in `run` (live, same-day reuse, offline fallback), `check`, `history`, and persisted alerts. The live quote never raises `PRICE_SPIKE`/`PRICE_DROP`: it is a different price definition (the catalog quote on your calibration, vs the observed daily price), so a quote far from flat observations is reported separately as `quote_vs_observed_pct` (never an alert). With no observation there is no alert. Alert text names its basis: `… vs 7-day observed average. Latest observed: $…/1M.` Policy prices never enter it.
+
+**Earlier correction (PE2-001, 2026-09-16, superseded where it names the quote):** `Delta_7d_Pct` always used the unconstrained `Effective_Price_1M`, even under an active policy filter — an earlier draft of this line claimed `Policy_Price_1M` replaced it, which is exactly the collapse-under-`--zdr` defect PE2-001 fixed. `MA_7d`/`MA_3d` are always derived from unconstrained effective historical observations (`effective_prices.json` never stores policy-price history), so comparing them against anything other than the unconstrained current effective price would be an apples-to-oranges comparison — see §3.1.
 
 #### Warning Trigger Rules:
 1. **`PRICE_SPIKE`**: Triggered when `Delta_7d_Pct ≥ +spike_threshold_pct` (default: `+20.0%`). Indicates a price hike.
@@ -447,7 +449,7 @@ they make zero network calls, ever, and never recompute alerts:
 - `history` = the long-term 30-day view computed from `effective_prices.json`'s
   dated observations, plus all analytics/profile classification, which lives
   here and not in `check`.
-- **Quote vs observation:** the two are different price definitions (the catalog-derived effective quote vs the observed daily price) and can differ materially. `PRICE_SPIKE`/`PRICE_DROP` compare `run`'s quote with the 7-day *observed* average and say so in their text (`… vs 7-day observed average. Current quote: $…`). When a `check`/`history` row's price is an observation and an exported quote exists, the row also carries `last_run_quote_1m`/`last_run_quote_date` (human `check` prints `last run quote`; `history` evidence shows it), so both numbers are visible.
+- **Quote vs observation:** the two are different price definitions (the catalog-derived effective quote vs the observed daily price) and can differ materially. `PRICE_SPIKE`/`PRICE_DROP` use observations only (§3.7). When a row shows an observation and an exported quote exists, the row carries `last_run_quote_1m`/`last_run_quote_date` and `quote_vs_observed_pct` (human `check` prints `last run quote`; `history` evidence shows it), so both numbers and their gap are visible without an alert.
 - **Same-day reuse (`run`):** a model already refreshed today is reused from its stored row unless its stored identity is `redirect`/`unresolved` (then it is `NOT_TRACKED`). A `run` that only reuses models still persists `alerts.json` (including `default_model`) so `check` matches the live response.
 - Every price row reports `price_source` — `observation` (latest stored dated
   observation), `live_quote` (this `run`'s catalog quote), or `cached_quote`

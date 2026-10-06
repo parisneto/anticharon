@@ -226,6 +226,9 @@ class ModelPrice:
     # (the two are different price definitions and can differ materially).
     quote_1m: float | None = None
     quote_date: str | None = None
+    # (quote - latest observation) / observation x 100 when both exist; a separate
+    # report, never an alert (the two are different price definitions).
+    quote_vs_observed_pct: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         # PE2-001 defense-in-depth: always serialize the true unconstrained
@@ -253,6 +256,8 @@ class ModelPrice:
         if self.quote_1m is not None:
             data["last_run_quote_1m"] = round(self.quote_1m, 5)
             data["last_run_quote_date"] = self.quote_date
+        if self.quote_vs_observed_pct is not None:
+            data["quote_vs_observed_pct"] = round(self.quote_vs_observed_pct, 2)
         if self.price:
             price_dict = self.price.to_dict()
             price_dict.pop("effective_price_1m", None)

@@ -90,7 +90,7 @@ def format_human_output(result: TrackerResult, messages: list[dict], local_read:
 
     default_model = next((p.model for p in result.prices_shortlist if p.is_default), None)
 
-    print(f"{'MODEL':<34} {'EFFECTIVE/1M':<13} {'MA 7D':<12} {'CHANGE (7D)':<10}")
+    print(f"{'MODEL':<34} {'EFFECTIVE/1M':<13} {'MA 7D (obs)':<12} {'CHG 7D (obs)':<10}")
     print("-" * 74)
 
     for idx, p in enumerate(result.prices_shortlist):

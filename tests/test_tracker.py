@@ -465,10 +465,12 @@ def test_run_tracker_zdr_delta_compares_effective_not_policy_price(monkeypatch, 
     assert policy is not None and policy != pytest.approx(effective)  # sanity: they really differ
 
     assert model_price.ma_7d == pytest.approx(known_ma_price)
-    expected_delta = ((effective - known_ma_price) / known_ma_price) * 100
-    wrong_delta_if_using_policy = ((policy - known_ma_price) / known_ma_price) * 100
-    assert model_price.change_vs_7d_pct == pytest.approx(expected_delta, abs=1e-4)
-    assert model_price.change_vs_7d_pct != pytest.approx(wrong_delta_if_using_policy, abs=1e-4)
+    # The 7-day change is observation vs observed average (flat 0.5 -> 0.0); neither the
+    # policy price nor the live quote enters it. The quote's gap to the observation is
+    # reported separately and uses the unconstrained effective price, never the policy one.
+    assert model_price.change_vs_7d_pct == pytest.approx(0.0)
+    assert model_price.quote_vs_observed_pct == pytest.approx((effective - known_ma_price) / known_ma_price * 100, abs=1e-4)
+    assert model_price.quote_vs_observed_pct != pytest.approx((policy - known_ma_price) / known_ma_price * 100, abs=1e-4)
 
 
 # --- PE2-002: missing/partial bulk-catalog pricing must never become a fabricated $0 ---

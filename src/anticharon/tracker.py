@@ -450,6 +450,36 @@ def _stored_price_view(
     return price, latest, ma_3d, ma_7d
 
 
+def _observed_move(
+    store: dict[str, Any], model_id: str, today: date,
+) -> tuple[float, float | None, float | None]:
+    """(delta_7d_pct, latest observation, observed 7-day average) for a model, all on
+    the observation basis. With no observations: (0.0, None, None) so no alert."""
+    view = _stored_price_view(store, model_id, today)
+    if view is None:
+        return 0.0, None, None
+    price, _date, _ma3, ma7 = view
+    return ((price - ma7) / ma7 * 100 if ma7 > 0 else 0.0), price, ma7
+
+
+def _price_move_alert(model_id: str, delta: float, observed: float | None, threshold: float) -> PriceWarning | None:
+    """PRICE_SPIKE/PRICE_DROP from an observation-vs-observed-average move (the live
+    quote never raises one)."""
+    if observed is None:
+        return None
+    if delta >= threshold:
+        return PriceWarning(type="PRICE_SPIKE", model=model_id,
+                            message=f"Model {model_id} price spiked +{delta:.1f}% vs 7-day observed average. Latest observed: ${observed:.5f}/1M.")
+    if delta <= -threshold:
+        return PriceWarning(type="PRICE_DROP", model=model_id,
+                            message=f"Model {model_id} price dropped {abs(delta):.1f}% vs 7-day observed average. Latest observed: ${observed:.5f}/1M.")
+    return None
+
+
+def _quote_vs_observed(quote: float | None, observed: float | None) -> float | None:
+    return (quote - observed) / observed * 100 if quote is not None and observed else None
+
+
 def _local_price_row(
     model_id: str, record: PriceRecord | None, store: dict[str, Any], today: date,
 ) -> tuple[float, float, float, str, date | None, float | None, date | None] | None:
@@ -730,13 +760,14 @@ def run_tracker(
         for fallback_model_id in shortlist:
             if fallback_model_id in history and not _stored_untracked_identity(effective_store, fallback_model_id):
                 rec = history[fallback_model_id]
-                delta_7d_pct = ((rec.effective_price_1m - rec.ma_7d) / rec.ma_7d) * 100 if rec.ma_7d > 0 else 0.0
+                delta_7d_pct, fb_observed, fb_ma7 = _observed_move(effective_store, fallback_model_id, today)
                 prices_shortlist.append(ModelPrice(
                     model=fallback_model_id,
                     price_1m=rec.effective_price_1m,
-                    ma_7d=rec.ma_7d,
+                    ma_7d=fb_ma7 if fb_ma7 is not None else rec.ma_7d,
                     ma_3d=rec.ma_3d,
                     change_vs_7d_pct=delta_7d_pct,
+                    quote_vs_observed_pct=_quote_vs_observed(rec.effective_price_1m, fb_observed),
                     price=PricePoint(
                         advertised_prompt_1m=rec.advertised_prompt_1m,
                         advertised_completion_1m=rec.advertised_completion_1m,
@@ -789,26 +820,17 @@ def run_tracker(
             # endpoint fetch. It keeps its existing history.csv row (no entry
             # in `updated_records`), but still counts toward this run's
             # display and cross-model alert computation.
-            reuse_delta_7d_pct = (
-                (existing_record.effective_price_1m - existing_record.ma_7d) / existing_record.ma_7d * 100
-                if existing_record.ma_7d > 0 else 0.0
-            )
-            if reuse_delta_7d_pct >= threshold:
-                warnings.append(PriceWarning(
-                    type="PRICE_SPIKE", model=tracked_model_id,
-                    message=f"Model {tracked_model_id} price spiked +{reuse_delta_7d_pct:.1f}% vs 7-day observed average. Current quote: ${existing_record.effective_price_1m:.5f}/1M."
-                ))
-            elif reuse_delta_7d_pct <= -threshold:
-                warnings.append(PriceWarning(
-                    type="PRICE_DROP", model=tracked_model_id,
-                    message=f"Model {tracked_model_id} price dropped {abs(reuse_delta_7d_pct):.1f}% vs 7-day observed average. Current quote: ${existing_record.effective_price_1m:.5f}/1M."
-                ))
+            reuse_delta_7d_pct, reuse_observed, reuse_ma7 = _observed_move(effective_store, tracked_model_id, today)
+            reuse_alert = _price_move_alert(tracked_model_id, reuse_delta_7d_pct, reuse_observed, threshold)
+            if reuse_alert is not None:
+                warnings.append(reuse_alert)
             prices_shortlist.append(ModelPrice(
                 model=tracked_model_id,
                 price_1m=existing_record.effective_price_1m,
-                ma_7d=existing_record.ma_7d,
+                ma_7d=reuse_ma7 if reuse_ma7 is not None else existing_record.ma_7d,
                 ma_3d=existing_record.ma_3d,
                 change_vs_7d_pct=reuse_delta_7d_pct,
+                quote_vs_observed_pct=_quote_vs_observed(existing_record.effective_price_1m, reuse_observed),
                 prompt_price_raw=existing_record.advertised_prompt_1m,
                 completion_price_raw=existing_record.advertised_completion_1m,
                 price=PricePoint(
@@ -944,21 +966,13 @@ def run_tracker(
         ma_7d = derived["ma_7d"] if derived["ma_7d"] is not None else effective_price_1m
         slots = derived["slots"]
 
-        delta_7d_pct = ((effective_price_1m - ma_7d) / ma_7d) * 100 if ma_7d > 0 else 0.0
+        delta_7d_pct, observed_price, _observed_ma7 = _observed_move(effective_store, tracked_model_id, today)
 
-        # Anomaly / Spikes / Drops detection
-        if delta_7d_pct >= threshold:
-            warnings.append(PriceWarning(
-                type="PRICE_SPIKE",
-                model=tracked_model_id,
-                message=f"Model {tracked_model_id} price spiked +{delta_7d_pct:.1f}% vs 7-day observed average. Current quote: ${effective_price_1m:.5f}/1M."
-            ))
-        elif delta_7d_pct <= -threshold:
-            warnings.append(PriceWarning(
-                type="PRICE_DROP",
-                model=tracked_model_id,
-                message=f"Model {tracked_model_id} price dropped {abs(delta_7d_pct):.1f}% vs 7-day observed average. Current quote: ${effective_price_1m:.5f}/1M."
-            ))
+        # Anomaly / Spikes / Drops: the latest observation against the 7-day observed
+        # average, never the live quote (a different price definition).
+        move_alert = _price_move_alert(tracked_model_id, delta_7d_pct, observed_price, threshold)
+        if move_alert is not None:
+            warnings.append(move_alert)
 
         prices_shortlist.append(ModelPrice(
             model=tracked_model_id,
@@ -966,6 +980,7 @@ def run_tracker(
             ma_7d=ma_7d,
             ma_3d=ma_3d,
             change_vs_7d_pct=delta_7d_pct,
+            quote_vs_observed_pct=_quote_vs_observed(effective_price_1m, observed_price),
             prompt_price_raw=advertised_prompt_1m,
             completion_price_raw=advertised_completion_1m,
             price=PricePoint(
@@ -1190,6 +1205,7 @@ def read_check_result(
             price_date=price_date.isoformat() if price_date else None,
             quote_1m=quote,
             quote_date=quote_date.isoformat() if quote_date else None,
+            quote_vs_observed_pct=_quote_vs_observed(quote, price) if source == "observation" else None,
         ))
     prices_shortlist.sort(key=lambda p: p.price_1m)
 
@@ -1282,6 +1298,7 @@ def read_history_result(
             price_date=price_date.isoformat() if price_date else None,
             quote_1m=quote,
             quote_date=quote_date.isoformat() if quote_date else None,
+            quote_vs_observed_pct=_quote_vs_observed(quote, price) if source == "observation" else None,
             price=PricePoint(
                 advertised_prompt_1m=record.advertised_prompt_1m,
                 advertised_completion_1m=record.advertised_completion_1m,

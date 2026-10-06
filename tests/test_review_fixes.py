@@ -84,10 +84,14 @@ def test_quote_is_shown_beside_the_observation_and_alerts_state_their_basis(env)
                                      hermes_config=None, hints=False, model_id=None, history_csv=False))
     assert "last run quote: $2.60000/1M" in buf.getvalue()
 
-    run_tracker(config_path=cfg, history_path=tmp_path / "history.csv", no_hermes=True, force=True)
-    messages = [w["message"] for w in _alerts(tmp_path)["price_warnings"] if w["type"] in ("PRICE_SPIKE", "PRICE_DROP")]
-    assert messages, "the 2.6 quote against 1.0 observations must raise a spike alert"
-    assert all("observed average" in m and "Current quote" in m for m in messages)
+    for result in (read_check_result(no_hermes=True), read_history_result(no_hermes=True)):
+        assert result.prices_shortlist[0].quote_vs_observed_pct == pytest.approx(160.0)
+        assert result.prices_shortlist[0].to_dict()["quote_vs_observed_pct"] == 160.0
+
+    # A quote far from flat observations is a divergence report, never a spike.
+    live = run_tracker(config_path=cfg, history_path=tmp_path / "history.csv", no_hermes=True, force=True)
+    assert not [w for w in live.price_warnings if w.type in ("PRICE_SPIKE", "PRICE_DROP")]
+    assert not [w for w in _alerts(tmp_path)["price_warnings"] if w["type"] in ("PRICE_SPIKE", "PRICE_DROP")]
 
 
 def test_all_reuse_run_still_persists_the_current_default(env):
