@@ -82,7 +82,7 @@ def test_quote_is_shown_beside_the_observation_and_alerts_state_their_basis(env)
     with redirect_stdout(buf):
         cmd_check(argparse.Namespace(json=False, no_hermes=True, config=None, data_dir=None,
                                      hermes_config=None, hints=False, model_id=None, history_csv=False))
-    assert "last run quote: $2.60000/1M" in buf.getvalue()
+    assert "last run quote: $2.60000/1M" in buf.getvalue()  # shown when it differs from the row price
 
     for result in (read_check_result(no_hermes=True), read_history_result(no_hermes=True)):
         assert result.prices_shortlist[0].quote_vs_observed_pct == pytest.approx(160.0)

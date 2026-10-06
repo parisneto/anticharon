@@ -113,7 +113,7 @@ def format_human_output(result: TrackerResult, messages: list[dict], local_read:
             elif p.price.is_policy_routable is False:
                 detail += "  |  policy (ZDR): unroutable"
             print(detail)
-        if p.quote_1m is not None:
+        if p.quote_1m is not None and abs(p.quote_1m - p.price_1m) > 1e-4 * abs(p.price_1m):
             print(f"    ↳ last run quote: ${p.quote_1m:.5f}/1M ({p.quote_date}); row price is the stored observation")
 
     _print_not_tracked(result)

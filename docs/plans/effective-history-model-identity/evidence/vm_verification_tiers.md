@@ -29,3 +29,13 @@ route carries the tag in `provider_slug`, not `tag` (fixed in `96689f3`).
 Two models (deepseek, glm) agree: their list prices really moved. Four differ because their
 list prices were flat and the effective series moved with traffic. nano's SUNSETTING compares
 stored observations (nano 0.0924 vs luna 0.0747); on quotes nano (0.04353) is cheaper than luna (0.06529).
+
+## Listed-price history basis (AC-9, D-10), build `c88b278`
+
+Run on the VM at 2026-10-06 23:52 UTC: `anticharon run --force && anticharon check && anticharon history`.
+
+- Cold upgrade from the effective-basis store: the 6 tracked models each have `basis: listed_blend`, 31 observations (2026-09-06 to 2026-10-06), `weights_used` equal to the default calibration, and 32 old observations kept as `legacy_effective_observations`; endpoint tags 7 / 26 / 8 / 3 / 1 / 33. Two entries of models off the shortlist were not touched.
+- `run` and `check` show identical prices (luna 0.06529, nano 0.04353, qwen 0.01194, gemini-3.1-flash-lite 0.08162, deepseek-0731 0.01070, glm 0.02279). `alerts.json` at 23:52:45 matches the run (default luna).
+- Profiles on the new history: luna, qwen, nano and gemini STABLE (list prices flat); deepseek-0731 VOLATILE (CV 33.1%) with a +20.5% spike against the 7-day average; glm VOLATILE (CV 23.2%). No quote-versus-observation alert, no false SUNSETTING on nano.
+- `effective_prices.json` 340,852 bytes (6 models with raw listed steps and the legacy series).
+- `shortlist.json` unchanged.
