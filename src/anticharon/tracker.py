@@ -45,6 +45,7 @@ from anticharon.pricing import (
     blended_rate_1m,
     derive_cache_hit_rate,
     derive_listed_daily_prices,
+    endpoint_tag,
     is_service_tier_tag,
     is_valid_listed_price,
     map_endpoint_tags,
@@ -243,7 +244,7 @@ def resolve_policy_pricing(
     # EH-8 (D-9): the price is the cheapest *standard-tier* endpoint. Service-tier
     # endpoints (flex/fast/priority/...) are different products, not cheaper standard
     # ones. With no usable standard endpoint, fall back to all endpoints and say so.
-    standard = [ep for ep in endpoints if not is_service_tier_tag(ep.get("tag"))]
+    standard = [ep for ep in endpoints if not is_service_tier_tag(endpoint_tag(ep))]
     only_non_standard = bool(endpoints) and not any(
         _endpoint_blended_rate_1m(ep, w_uncached, w_cached, w_completion) is not None for ep in standard)
     usable = endpoints if only_non_standard else standard
@@ -259,7 +260,7 @@ def resolve_policy_pricing(
             continue
         rates.append(rate)
         if best is None or rate < best[0]:
-            best = (rate, ep.get("tag"))
+            best = (rate, endpoint_tag(ep) or None)
         if zdr_only:
             data_policy = (ep.get("provider_info") or {}).get("dataPolicy") or {}
             if data_policy.get("retainsPrompts") is False:

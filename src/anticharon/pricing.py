@@ -170,6 +170,13 @@ def calculate_legacy_cost(
 SERVICE_TIER_TOKENS = frozenset({"flex", "fast", "priority", "ultrafast", "turbo", "batch"})
 
 
+def endpoint_tag(endpoint: dict) -> str:
+    """The endpoint's tag: `tag` on the public `/models/{slug}/endpoints` shape,
+    `provider_slug` (the same string, e.g. `openai/flex`) on the frontend
+    `/stats/endpoint` shape that the live quote is built from."""
+    return endpoint.get("tag") or endpoint.get("provider_slug") or ""
+
+
 def is_service_tier_tag(tag: str | None) -> bool:
     """True when any `/`-separated segment of an endpoint tag is a service-tier token."""
     return any(segment in SERVICE_TIER_TOKENS for segment in (tag or "").split("/"))
@@ -188,7 +195,7 @@ def map_endpoint_tags(series: list[dict], endpoints: list[dict]) -> dict[str, st
     by_in: dict[tuple, set[str]] = {}
     by_out: dict[tuple, set[str]] = {}
     for ep in endpoints:
-        tag = ep.get("tag") or ""
+        tag = endpoint_tag(ep)
         prefix = tag.split("/")[0]
         pricing = ep.get("pricing") or {}
         try:

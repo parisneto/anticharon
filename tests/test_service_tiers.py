@@ -6,6 +6,7 @@ are derived by hand from the default calibration 0.232622 / 0.764478 / 0.0029.
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -193,3 +194,56 @@ def test_run_reports_the_standard_quote_the_endpoint_tag_and_the_only_tier_warni
     codes = [(m.code, m.model) for m in result.messages]
     assert ("ONLY_NON_STANDARD_TIERS", "acme/onlyflex") in codes
     assert not [c for c in codes if c == ("ONLY_NON_STANDARD_TIERS", "acme/std")]
+
+
+# --- Real frontend `/stats/endpoint` shape: the tag lives in `provider_slug`, not `tag` ---
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _fixture_endpoints(name):
+    data = json.loads((FIXTURES / name).read_text(encoding="utf-8"))["data"]
+    return data if isinstance(data, list) else data["endpoints"]
+
+
+def test_real_luna_fixture_uses_provider_slug_as_the_tag():
+    endpoints = _fixture_endpoints("openrouter_endpoint_stats_gpt-5.6-luna_trimmed.json")
+    assert all("tag" not in e and e["provider_slug"] for e in endpoints)  # the shape that broke the VM run
+
+    result = resolve_policy_pricing(endpoints, *W, zdr_only=False)
+
+    assert result["effective_price_1m"] == pytest.approx(0.2 * W[0] + 0.02 * W[1] + 1.2 * W[2])  # 0.06529, not the flex 0.03265
+    assert result["effective_endpoint_tag"] in {"azure", "openai"}
+
+
+def test_frontend_shape_gemini_tags_from_the_live_route():
+    gemini = [{"provider_slug": slug, "provider_name": "Google",
+               "pricing": {"prompt": str(p / 1e6), "completion": str(c / 1e6), "input_cache_read": str(cr / 1e6)}}
+              for slug, p, c, cr in [
+                  ("google-vertex/global/flex", 0.125, 0.75, 0.0125), ("google-ai-studio/flex", 0.125, 0.75, 0.0125),
+                  ("google-ai-studio", 0.25, 1.5, 0.025), ("google-vertex/global", 0.25, 1.5, 0.025),
+                  ("google-vertex/eu", 0.275, 1.65, 0.0275), ("google-vertex/global/priority", 0.45, 2.7, 0.045)]]
+
+    result = resolve_policy_pricing(gemini, *W, zdr_only=False)
+
+    assert result["effective_price_1m"] == pytest.approx(0.25 * W[0] + 0.025 * W[1] + 1.5 * W[2])  # 0.08162
+    assert result["effective_endpoint_tag"] in {"google-ai-studio", "google-vertex/global"}
+
+
+def test_tag_join_works_with_frontend_shaped_endpoints_and_history_exclusion_follows(monkeypatch):
+    endpoints = _fixture_endpoints("openrouter_endpoint_stats_gpt-5.6-luna_trimmed.json")
+    series = [_series("flex-uuid", "openai", 0.10, 0.60), _series("std-uuid", "openai", 0.20, 1.20),
+              _series("fast-uuid", "openai", 0.40, 2.40)]
+    assert map_endpoint_tags(series, endpoints) == {
+        "flex-uuid": "openai/flex", "std-uuid": "openai", "fast-uuid": "openai/fast"}
+
+    payload = {"inputChartData": [{"x": "2026-09-15 00:00:00", "y": {"flex-uuid": 0.04, "std-uuid": 0.09, "fast-uuid": 0.05}}],
+               "outputChartData": [{"x": "2026-09-15 00:00:00", "y": {"flex-uuid": 0.6, "std-uuid": 1.2, "fast-uuid": 2.4}}]}
+    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", lambda *a, **k: payload)
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **k: {"series": series})
+    store = {}
+
+    sync_effective_prices_for_model("openai/m", "openai/m-1", store, 0.0029, 5.0, now=NOW, endpoints=endpoints)
+
+    assert store["openai/m"]["endpoint_tags"]["flex-uuid"] == "openai/flex"
+    assert store["openai/m"]["observations"][0]["effective_price_1m"] == pytest.approx(0.09 * 0.9971 + 1.2 * 0.0029)
