@@ -117,8 +117,8 @@ def history_env(monkeypatch, tmp_path):
 
     monkeypatch.setattr("anticharon.tracker.datetime", _Clock)
     effective = [{"date": (TODAY - timedelta(days=n)).isoformat(), "effective_price_1m": 0.05 + 0.01 * (n % 3)}
-                 for n in range(0, 20)]
-    listed_blend = [{"date": (TODAY - timedelta(days=n)).isoformat(), "effective_price_1m": 0.0653} for n in range(0, 20)]
+                 for n in range(20)]
+    listed_blend = [{"date": (TODAY - timedelta(days=n)).isoformat(), "effective_price_1m": 0.0653} for n in range(20)]
     store = {"m/x": {"canonical_slug": "m/x-1", "last_synced": NOW.isoformat(), "observations": effective,
                      "listed_blend": listed_blend},
              "m/y": {"canonical_slug": "m/y-1", "last_synced": NOW.isoformat(), "observations": effective}}
