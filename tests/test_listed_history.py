@@ -79,7 +79,7 @@ def test_days_before_any_point_have_no_value():
 
 
 def _sync(store, listed, *, weights=W, now=NOW, force=False, endpoints=None, model="m/x"):
-    import anticharon.tracker as tracker
+    from anticharon import tracker
 
     tracker.fetch_listed_pricing = lambda *a, **k: listed
     sync_effective_prices_for_model(model, f"{model}-1", store, weights, 5.0, now=now, force=force,
@@ -88,7 +88,7 @@ def _sync(store, listed, *, weights=W, now=NOW, force=False, endpoints=None, mod
 
 @pytest.fixture(autouse=True)
 def restore_fetch(monkeypatch):
-    import anticharon.tracker as tracker
+    from anticharon import tracker
 
     monkeypatch.setattr(tracker, "fetch_listed_pricing", tracker.fetch_listed_pricing)
 
@@ -115,7 +115,7 @@ def test_recalibration_rederives_stored_history_without_a_refetch():
     before = store["m/x"]["observations"][-1]["effective_price_1m"]
     assert before == pytest.approx(blend(0.2, 0.02, 1.2))
 
-    import anticharon.tracker as tracker
+    from anticharon import tracker
     tracker.fetch_listed_pricing = lambda *a, **k: pytest.fail("a fresh entry must not refetch on recalibration")
     new_weights = (0.5, 0.4968, 0.0032)
     sync_effective_prices_for_model("m/x", "m/x-1", store, new_weights, 5.0, now=NOW + timedelta(hours=1),
@@ -128,11 +128,11 @@ def test_recalibration_rederives_stored_history_without_a_refetch():
 
 def test_stale_entry_refetches_fresh_does_not_and_force_does():
     calls = []
-    import anticharon.tracker as tracker
+    from anticharon import tracker
 
     tracker.fetch_listed_pricing = lambda *a, **k: calls.append(1) or {"series": [STD]}
     store = {}
-    kwargs = dict(endpoints=endpoints_for(("openai", 0.2, 1.2)))
+    kwargs = {"endpoints": endpoints_for(("openai", 0.2, 1.2))}
     sync_effective_prices_for_model("m/x", "m/x-1", store, W, 5.0, now=NOW, **kwargs)
     sync_effective_prices_for_model("m/x", "m/x-1", store, W, 5.0, now=NOW + timedelta(hours=2), **kwargs)
     assert len(calls) == 1
