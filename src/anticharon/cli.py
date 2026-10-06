@@ -214,11 +214,6 @@ def format_analytics_human_output(result: TrackerResult, messages: list[dict], l
             print(f"  • {p.model}: {an.observation_count} observed days ({span}); "
                   f"price: {p.price_source or 'n/a'}{f' {p.price_date}' if p.price_date else ''}"
                   + (f"; last run quote ${p.quote_1m:.5f}" if p.quote_1m is not None else ""))
-            if p.listed_basis:
-                lb = p.listed_basis
-                lb_change = "n/a" if lb["change_vs_30d_pct"] is None else f"{lb['change_vs_30d_pct']:+.1f}%"
-                print(f"      listed basis (temporary comparison): ${lb['latest_1m']:.5f} {lb['profile']}, "
-                      f"CV {lb['volatility_cv_pct']:.1f}%, 30d {lb_change}")
 
     # Summary Insights
     print("\n📊 30-DAY VOLATILITY & SPREAD SUMMARY:")

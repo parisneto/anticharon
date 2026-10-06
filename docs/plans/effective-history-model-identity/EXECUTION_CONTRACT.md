@@ -55,6 +55,12 @@ Protocol baseline: MCP specification [2026-07-28](https://modelcontextprotocol.i
   `priority`, `ultrafast`, `turbo`, `batch` tag segments) never set it; quantization,
   region and `zdr` tags are not tiers. A model with only tier endpoints falls back
   and reports `ONLY_NON_STANDARD_TIERS`. Specified in spec §3.2b.
+- **AC-9 — Listed-price history basis (PO-approved D-10, 2026-10-06).**
+  Stored history is OpenRouter's listed endpoint prices blended with the calibration
+  (standard tiers), the same definition as the live quote; `run` stores its quote as
+  today's point so `check`/`history` right after it show the same prices; recalibration
+  re-derives from stored `listed`; legacy effective series are kept aside and never read.
+  Specified in spec §3.1, §3.2b, §5.2.
 
 ## 3. Non-Goals
 
@@ -79,6 +85,7 @@ relevant changes require revalidation.
 | E-8 | AC-7: primary/nested help forms and exit codes | PASS at `964ea36` (all 18 command paths, both forms, invalid forms) | `tests/test_cli_help.py` |
 | E-9 | Final deterministic suite, applicable quality checks, independent review | NOT_RUN | Pending |
 | E-11 | AC-8: classifier, standard-tier quote, tag join, history exclusion, fallback | PASS at `96689f3`; verified on the VM at `23b7443` (classifier, standard-tier quote, tag join, history exclusion, fallback) | `tests/test_service_tiers.py`, `tests/test_listed_basis.py` |
+| E-12 | AC-9: listed-basis history, upgrade of legacy entries, recalibration, run-then-check identity | IMPLEMENTED; revision recorded at closeout | `tests/test_listed_history.py`, `tests/test_tracker.py`, `tests/test_service_tiers.py` |
 | E-10 | Preserved-backup VM verification (D-8) | PARTIAL: Wave 1 scope (AC-1, AC-2) verified at `9683b66`; W2–W3 run on the VM at `ee77f65`; AC-8, gate fix and Phase A run on the VM at `23b7443` [vm_verification_wave1.md](evidence/vm_verification_wave1.md), [vm_verification_tiers.md](evidence/vm_verification_tiers.md) |
 
 ## 5. Decisions
@@ -95,7 +102,7 @@ OPEN decisions block only dependent work.
 | D-5 | `NOT_TRACKED` JSON shape and stable message code | RESOLVED: `not_tracked` list (`model`, `status`, `identity`, `resolved_id`, `code`, `diagnostic`, `source`, `is_default`); codes `REDIRECT_IDENTITY` (info), `NO_EXACT_MATCH` (warning); no price shown (PO choice) | AC-4, Wave 3 |
 | D-6 | Testable redirect retry/invalidation rule | RESOLVED: reuse stored redirect/unresolved state for 24h unless `run --force`; re-resolve afterwards; a slug now in the catalog is `exact` immediately | AC-4, Wave 3 |
 | D-7 | Support `--help`, `help <command>`, or both consistently | RESOLVED (PO): both `<command> [sub] -h/--help` and `help <command> [sub]`; other forms (`<command> help`, `model help`) exit 2 with a hint; top-level options unchanged | AC-7, Wave 4 |
-| D-10 | Promote listed prices + Anticharon blend to be the history source (replacing OpenRouter's effective price), and whether effective stays as a separate "market-realized" metric | OPEN; Phase A (`listed_basis`, temporary) provides the side-by-side evidence | Track 1 Phase B/C |
+| D-10 | Promote listed prices + Anticharon blend to be the history source (replacing OpenRouter's effective price) | RESOLVED (PO, 2026-10-06): yes. History = cheapest standard-tier endpoint's listed prices blended with the calibration; OpenRouter's effective series is dropped (not kept as a metric); stored `listed` steps and `weights_used` allow re-derivation; legacy entries keep their old series as `legacy_effective_observations` and are never read | AC-9 |
 | D-9 | Service-tier classification | RESOLVED (PO): a tag is non-standard when any `/` segment is `flex`, `fast`, `priority`, `ultrafast`, `turbo`, or `batch`; the slash rule is rejected (71% of sampled endpoints have slash tags); history joins endpoint UUIDs to tags by tag prefix + input/output price | AC-8 |
 | D-8 | Whether VM verification blocks completion | RESOLVED (PO, 2026-10-05): VM verification was completed with a preserved pre-v0.6.x shortlist; it covers Wave 1 only, see E-10 | E-10, Wave 4 |
 

@@ -165,7 +165,7 @@ def test_effective_prices_resource_returns_local_store_without_network_or_mutati
 
     store = {"a/model": {"canonical_slug": "a/model-1", "first_seen": "2026-09-16",
                          "last_synced": "2026-09-16T00:00:00+00:00",
-                         "observations": [{"date": "2026-09-15", "effective_price_1m": 0.5}]}}
+                         "basis": "listed_blend", "observations": [{"date": "2026-09-15", "effective_price_1m": 0.5}]}}
     path.write_text(json.dumps(store), encoding="utf-8")
     before = path.read_bytes()
     present = asyncio.run(mcp.server.read_resource("anticharon://effective_prices.json"))

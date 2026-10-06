@@ -29,7 +29,7 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr("anticharon.tracker.datetime", _Clock)
     monkeypatch.setattr("anticharon.tracker.get_hermes_models", lambda **kw: None)
     monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **k: [])
-    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history",
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing",
                         lambda *a, **k: {})  # `force=True` runs refresh; no data keeps the seeded store
     return tmp_path, cfg
 
@@ -47,7 +47,7 @@ def _seed(tmp_path, today_price, past_price=1.0, days=14):
     (tmp_path / "effective_prices.json").write_text(json.dumps({MODEL: {
         "canonical_slug": f"{MODEL}-1", "first_seen": TODAY.isoformat(), "last_synced": NOW.isoformat(),
         "identity": "exact", "resolved_id": MODEL, "identity_checked": NOW.isoformat(),
-        "observations": observations}}), encoding="utf-8")
+        "basis": "listed_blend", "observations": observations}}), encoding="utf-8")
 
 
 def _run(tmp_path, cfg):
@@ -106,7 +106,7 @@ def test_no_observations_means_no_alert(env, monkeypatch):
     tmp_path, cfg = env
     (tmp_path / "effective_prices.json").write_text(json.dumps({MODEL: {
         "canonical_slug": f"{MODEL}-1", "first_seen": TODAY.isoformat(), "last_synced": NOW.isoformat(),
-        "observations": []}}), encoding="utf-8")
+        "basis": "listed_blend", "observations": []}}), encoding="utf-8")
     _catalog(monkeypatch, "0.0000084116")
 
     result = _run(tmp_path, cfg)

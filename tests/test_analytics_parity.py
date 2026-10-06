@@ -36,7 +36,7 @@ def env(monkeypatch, tmp_path):
             return NOW
 
     monkeypatch.setattr("anticharon.tracker.datetime", _Frozen)
-    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history",
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing",
                         lambda *a, **kw: {})  # `force=True` runs refresh; no data keeps the seeded store
     return tmp_path, cfg
 
@@ -45,7 +45,7 @@ def seed(tmp_path, days_ago, price=1.0):
     (tmp_path / "effective_prices.json").write_text(json.dumps({MODEL: {
         "canonical_slug": f"{MODEL}-20260709", "first_seen": TODAY.isoformat(),
         "last_synced": NOW.isoformat(),
-        "observations": [{"date": (TODAY - timedelta(days=n)).isoformat(), "effective_price_1m": price}
+        "basis": "listed_blend", "observations": [{"date": (TODAY - timedelta(days=n)).isoformat(), "effective_price_1m": price}
                          for n in days_ago],
     }}), encoding="utf-8")
 
@@ -163,7 +163,7 @@ def seed_models(tmp_path, per_model):
         slug: {
             "canonical_slug": f"{slug}-20260709", "first_seen": TODAY.isoformat(),
             "last_synced": NOW.isoformat(),
-            "observations": [{"date": (TODAY - timedelta(days=n)).isoformat(), "effective_price_1m": price}
+            "basis": "listed_blend", "observations": [{"date": (TODAY - timedelta(days=n)).isoformat(), "effective_price_1m": price}
                              for n, price in obs],
         } for slug, obs in per_model.items()
     }), encoding="utf-8")

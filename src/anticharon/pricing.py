@@ -167,6 +167,8 @@ def calculate_legacy_cost(
 
 # Service-tier tokens in an endpoint `tag` (e.g. `openai/flex`, `google-vertex/global/priority`).
 # Quantization (`fp8`), region (`eu`, `global`) and `zdr` segments are NOT tiers (EH-8, D-9).
+BASIS_LISTED_BLEND = "listed_blend"
+
 SERVICE_TIER_TOKENS = frozenset({"flex", "fast", "priority", "ultrafast", "turbo", "batch"})
 
 

@@ -48,7 +48,7 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr("anticharon.tracker.get_hermes_models", lambda **kw: None)
     monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing",
                         lambda slug, *a, **kw: calls.append(("endpoints", slug)) or [])
-    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history",
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing",
                         lambda slug, *a, **kw: calls.append(("history", slug)) or {})
     return tmp_path, cfg, clock, calls
 
@@ -132,10 +132,10 @@ def _seed_redirect_with_stale_history(tmp_path):
     (tmp_path / "effective_prices.json").write_text(json.dumps({
         REDIRECT: {"identity": "redirect", "resolved_id": f"~{REDIRECT}", "identity_checked": NOW.isoformat(),
                    "canonical_slug": "old/canonical", "last_synced": NOW.isoformat(),
-                   "observations": [{"date": (NOW.date() - timedelta(days=n)).isoformat(),
+                   "basis": "listed_blend", "observations": [{"date": (NOW.date() - timedelta(days=n)).isoformat(),
                                      "effective_price_1m": 0.5} for n in range(20)]},
         OK: {"identity": "exact", "resolved_id": OK, "canonical_slug": f"{OK}-1", "last_synced": NOW.isoformat(),
-             "observations": [{"date": NOW.date().isoformat(), "effective_price_1m": 1.0}]},
+             "basis": "listed_blend", "observations": [{"date": NOW.date().isoformat(), "effective_price_1m": 1.0}]},
     }), encoding="utf-8")
 
 

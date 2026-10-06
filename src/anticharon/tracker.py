@@ -42,6 +42,7 @@ from anticharon.models import (
     TrackerResult,
 )
 from anticharon.pricing import (
+    BASIS_LISTED_BLEND,
     blended_rate_1m,
     derive_cache_hit_rate,
     derive_listed_daily_prices,
@@ -70,7 +71,6 @@ OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 # contract as every other network call in this codebase (see PLAN.md "Policy (ZDR)
 # pricing data source" and "28-Day Backfill").
 OPENROUTER_ENDPOINT_STATS_URL = "https://openrouter.ai/api/frontend/v1/stats/endpoint"
-OPENROUTER_EFFECTIVE_PRICING_URL = "https://openrouter.ai/api/frontend/v1/stats/effective-pricing"
 OPENROUTER_LISTED_PRICING_URL = "https://openrouter.ai/api/frontend/v1/stats/listed-pricing"
 
 PREVIEW_ONLY_RUN_MESSAGE = AgentMessage(
@@ -161,31 +161,6 @@ def extract_endpoint_listed_prices_1m(endpoints: list[dict[str, Any]]) -> list[f
         if p_in is not None and is_valid_listed_price(p_in):
             prices.append(p_in)
     return prices
-
-
-def fetch_effective_pricing_history(canonical_slug: str, timeout: float = 10.0) -> dict[str, Any]:
-    """28-day backfill source. `range=1m` is required for ~30 days of daily
-    observations -- live-verified: the bare/default call (no `range`) only
-    returns the last 8 days. Graceful degradation: {} on failure, or when the
-    model has no persistent history of its own (e.g. a `~`-prefixed router
-    alias like `~deepseek/deepseek-pro-latest`, live-verified to return an
-    empty-but-200-OK payload since "latest" has no fixed permaslug identity).
-    Also degrades to {} for a wrong-typed nested `data` payload (e.g. a list
-    instead of a mapping) -- never raise past this function into
-    `_reduce_to_daily_observations` (PE2-006)."""
-    try:
-        resp = requests.get(
-            OPENROUTER_EFFECTIVE_PRICING_URL,
-            params={"permaslug": canonical_slug, "shape": "v7", "variant": "standard", "range": "1m"},
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        data = resp.json().get("data", {})
-        if not isinstance(data, dict):
-            return {}
-        return data
-    except Exception:
-        return {}
 
 
 def fetch_listed_pricing(canonical_slug: str, timeout: float = 10.0) -> dict[str, Any]:
@@ -289,98 +264,79 @@ def resolve_policy_pricing(
     return result
 
 
-def _reduce_to_daily_observations(
-    history_data: dict[str, Any], w_completion: float, excluded_endpoint_ids: frozenset[str] = frozenset(),
-) -> list[dict[str, Any]]:
-    """Collapse the effective-pricing route's per-endpoint daily input/output series
-    into one blended $/1M observation per calendar day (the cheapest endpoint that
-    day). OpenRouter's per-endpoint series is already cache-weighted by that
-    provider's real traffic that day -- only the input/output combination is ours
-    to apply, via the locally calibrated `weight_completion` split."""
-    input_series = history_data.get("inputChartData") or []
-    output_series = history_data.get("outputChartData") or []
-    output_by_date: dict[str, dict[str, float]] = {
-        entry.get("x", "").split(" ")[0]: (entry.get("y") or {}) for entry in output_series
-    }
-
-    observations: list[dict[str, Any]] = []
-    for entry in input_series:
-        date_str = entry.get("x", "").split(" ")[0]
-        if not date_str:
-            continue
-        input_by_endpoint = entry.get("y") or {}
-        output_by_endpoint = output_by_date.get(date_str, {})
-
-        day_rates = []
-        for endpoint_id, input_price in input_by_endpoint.items():
-            if endpoint_id in excluded_endpoint_ids:
-                continue
-            output_price = output_by_endpoint.get(endpoint_id)
-            if output_price is None:
-                continue
-            try:
-                day_rates.append(float(input_price) * (1 - w_completion) + float(output_price) * w_completion)
-            except (ValueError, TypeError):
-                continue
-
-        if day_rates:
-            observations.append({"date": date_str, "effective_price_1m": min(day_rates)})
-
-    return observations
+def stored_observations(entry: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """A model's dated observations, only when they are on the listed-price,
+    Anticharon-blended basis. Entries from before that basis carry no marker and are
+    treated as having none, so the two bases are never mixed (their series is kept
+    as `legacy_effective_observations`)."""
+    entry = entry or {}
+    return entry.get("observations") or [] if entry.get("basis") == BASIS_LISTED_BLEND else []
 
 
 def sync_effective_prices_for_model(
     model_id: str,
     canonical_slug: str,
     store: dict[str, Any],
-    w_completion: float,
+    weights: tuple[float, float, float],
     timeout: float,
     now: datetime | None = None,
     endpoints: list[dict[str, Any]] | None = None,
     force: bool = False,
-    weights: tuple[float, float, float] | None = None,
 ) -> None:
-    """Backfill/refresh one model's granular observations in `store`, in place,
-    respecting the store's own staleness policy (independent of history.csv's
-    per-run cadence); `force` refreshes regardless. Mutates `store[model_id]`.
+    """Refresh one model's history in `store`, in place. History is OpenRouter's
+    *listed* prices (discounts applied, no cache-hit effect) per endpoint, blended
+    with the calibration: each UTC day is the cheapest standard-tier endpoint's
+    blend (`derive_listed_daily_prices`), the same definition as the live quote.
 
-    Service-tier endpoints are excluded from the daily minimum (EH-8): with the live
-    `endpoints` list, frontend endpoint UUIDs are mapped to tags (`endpoint_tags`,
-    merged with what is already stored so removed endpoints keep their class)."""
-    if not force and not is_model_backfill_stale(store, model_id, now=now):
-        return
-
+    The raw `listed` steps and the `weights_used` are stored, so a recalibration
+    re-derives every stored day without a refetch. Fetch happens when the entry is
+    stale (24 h), `force`, or legacy (no `basis` marker: its old observations move to
+    `legacy_effective_observations` and are never read). Service-tier endpoints are
+    excluded via `endpoint_tags` (EH-8), merged across refreshes. Without any known
+    tag for the model's endpoints nothing is derived (tiers could not be excluded)."""
     now = now or datetime.now(timezone.utc)
-    history_data = fetch_effective_pricing_history(canonical_slug, timeout=timeout)
+    entry = store.get(model_id) or {"canonical_slug": canonical_slug}
+    legacy = bool(entry.get("observations")) and entry.get("basis") != BASIS_LISTED_BLEND
+    if legacy:
+        entry["legacy_effective_observations"] = entry.pop("observations")
+        entry["observations"] = []
+        entry.pop("basis", None)
 
-    entry = store.get(model_id) or {"canonical_slug": canonical_slug, "observations": []}
     tags: dict[str, str] = dict(entry.get("endpoint_tags") or {})
-    listed_series: list[dict[str, Any]] = []
-    if endpoints:
-        listed = fetch_listed_pricing(canonical_slug, timeout=timeout)
-        listed_series = listed.get("series") or []
-        tags.update(map_endpoint_tags(listed_series, endpoints))
-    excluded = frozenset(uuid for uuid, tag in tags.items() if is_service_tier_tag(tag))
-    new_observations = _reduce_to_daily_observations(history_data, w_completion, excluded)
+    fetched = False
+    if force or legacy or is_model_backfill_stale({model_id: entry}, model_id, now=now):
+        listed_series = (fetch_listed_pricing(canonical_slug, timeout=timeout).get("series") or [])
+        if endpoints:
+            tags.update(map_endpoint_tags(listed_series, endpoints))
+        if listed_series:
+            entry["listed"] = [{k: item.get(k) for k in ("endpointId", "providerSlug", "input", "output", "cacheRead")}
+                               for item in listed_series]
+            fetched = True
+        if fetched or not legacy:
+            entry["last_synced"] = now.isoformat()
 
     entry.setdefault("first_seen", now.date().isoformat())
     entry["canonical_slug"] = canonical_slug
-    entry["last_synced"] = now.isoformat()
     if tags:
         entry["endpoint_tags"] = tags
-    if listed_series and weights is not None:
-        # Phase A (temporary): the listed-price, Anticharon-blended series next to the
-        # effective observations, plus the raw steps it derives from.
-        entry["listed"] = [{k: item.get(k) for k in ("endpointId", "providerSlug", "input", "output", "cacheRead")}
-                           for item in listed_series]
-        entry["listed_weights"] = list(weights)
-        entry["listed_blend"] = derive_listed_daily_prices(listed_series, excluded, weights, now.date(), now)
-    if new_observations:
-        # Only overwrite when the fetch actually returned data -- a transient
-        # failure or a router alias with no fixed history must not destroy
-        # previously accumulated real observations.
-        entry["observations"] = new_observations
+    if entry.get("listed") and (tags or endpoints):
+        excluded = frozenset(uuid for uuid, tag in tags.items() if is_service_tier_tag(tag))
+        derived = derive_listed_daily_prices(entry["listed"], excluded, weights, now.date(), now)
+        if derived:
+            entry["observations"] = derived
+            entry["basis"] = BASIS_LISTED_BLEND
+            entry["weights_used"] = list(weights)
     store[model_id] = entry
+
+
+def upsert_today_observation(entry: dict[str, Any], today: date, price: float) -> None:
+    """Today's point is the run's live quote, so the last stored point equals what
+    `run` showed (and `check`/`history` right after it). Only on the listed basis."""
+    if entry.get("basis") != BASIS_LISTED_BLEND:
+        return
+    day = today.isoformat()
+    others = [o for o in entry.get("observations") or [] if o.get("date") != day]
+    entry["observations"] = [*others, {"date": day, "effective_price_1m": price}]
 
 
 def _analytics_for(
@@ -391,7 +347,7 @@ def _analytics_for(
     return calculate_model_analytics(
         model_id=model_id,
         current_price=current_price,
-        observations=(store.get(model_id) or {}).get("observations", []),
+        observations=stored_observations(store.get(model_id)),
         today=today,
         candidate_prices=candidates,
         current_default=current_default,
@@ -502,7 +458,7 @@ def _stored_price_view(
     """(price, price_date, ma_3d, ma_7d) from a model's dated observations in the
     granular store: the latest valid observation and moving averages derived from
     the observations (same rule as `run`). `None` when the model has none."""
-    valid = valid_observations((store.get(model_id) or {}).get("observations", []), today)
+    valid = valid_observations(stored_observations(store.get(model_id)), today)
     if not valid:
         return None
     latest = max(valid)
@@ -511,33 +467,6 @@ def _stored_price_view(
     ma_3d = derived["ma_3d"] if derived["ma_3d"] is not None else price
     ma_7d = derived["ma_7d"] if derived["ma_7d"] is not None else price
     return price, latest, ma_3d, ma_7d
-
-
-def _listed_basis(
-    store: dict[str, Any], model_id: str, today: date, cfg: dict[str, Any],
-) -> dict[str, Any] | None:
-    """TEMPORARY side-by-side (Phase A): the model's analytics recomputed on its
-    stored `listed_blend` series (listed prices blended with the calibration), or
-    None when it has none."""
-    observations = (store.get(model_id) or {}).get("listed_blend") or []
-    view = _stored_price_view({model_id: {"observations": observations}}, model_id, today)
-    if view is None:
-        return None
-    analytics = calculate_model_analytics(
-        model_id=model_id, current_price=None, observations=observations, today=today,
-        min_tracking_days_for_profile=cfg.get("min_tracking_days_for_profile", 14),
-    )
-    price, _date, _ma3, ma7 = view
-    return {
-        "basis": "listed_blend",
-        "latest_1m": round(price, 6),
-        "ma_7d": round(ma7, 6),
-        "change_vs_7d_pct": round((price - ma7) / ma7 * 100, 2) if ma7 > 0 else 0.0,
-        "volatility_cv_pct": round(analytics.volatility_cv_pct, 2),
-        "change_vs_30d_pct": None if analytics.change_vs_30d_pct is None else round(analytics.change_vs_30d_pct, 2),
-        "profile": analytics.profile,
-        "observation_count": analytics.observation_count,
-    }
 
 
 def _observed_move(
@@ -1051,12 +980,14 @@ def run_tracker(
         # d1..d30/MA columns fresh from it -- this is what makes a same-day rerun
         # a no-op for d1..d30 (there is no "shift" left to double-apply).
         sync_effective_prices_for_model(
-            tracked_model_id, canonical_slug, effective_store, w_completion, timeout, now=now,
-            endpoints=endpoints, force=force, weights=(w_uncached, w_cached, w_completion),
+            tracked_model_id, canonical_slug, effective_store, (w_uncached, w_cached, w_completion), timeout,
+            now=now, endpoints=endpoints, force=force,
         )
         _record_exact_identity(effective_store, tracked_model_id, now)
+        if policy_result["effective_price_1m"] is not None:
+            upsert_today_observation(effective_store[tracked_model_id], today, effective_price_1m)
         observations = _observation_list(valid_observations(
-            (effective_store.get(tracked_model_id) or {}).get("observations", []), today))
+            stored_observations(effective_store.get(tracked_model_id)), today))
         derived = derive_history_window(observations, today=today)
         ma_3d = derived["ma_3d"] if derived["ma_3d"] is not None else effective_price_1m
         ma_7d = derived["ma_7d"] if derived["ma_7d"] is not None else effective_price_1m
@@ -1388,7 +1319,6 @@ def read_history_result(
             ma_3d=ma_3d,
             change_vs_7d_pct=((price - ma_7d) / ma_7d * 100) if ma_7d else 0.0,
             analytics=analytics,
-            listed_basis=_listed_basis(effective_store, slug, today, cfg),
             canonical_slug=(effective_store.get(slug) or {}).get("canonical_slug"),
             source=entry.get("source"),
             is_default=slug == configured_default,

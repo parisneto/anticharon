@@ -182,7 +182,7 @@ def test_run_prices_zdr_preserves_three_price_distinction_deterministic(monkeypa
         {"provider_name": "Azure", "pricing": {"prompt": "0.000005", "completion": "0.00003"},
          "provider_info": {"dataPolicy": {"retainsPrompts": False}}},
     ])
-    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", lambda *a, **kw: {})
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **kw: {})
 
     res = _run_async(server.call_tool("run_prices", {"dry_run": True, "zdr_only": True}))
     assert not res.is_error
@@ -225,7 +225,7 @@ def test_run_prices_zdr_unroutable_never_recommended_deterministic(monkeypatch, 
                  "provider_info": {"dataPolicy": {"retainsPrompts": True}}}]
 
     monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", fake_endpoints)
-    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", lambda *a, **kw: {})
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **kw: {})
 
     res = _run_async(server.call_tool("run_prices", {"dry_run": True, "zdr_only": True}))
     assert not res.is_error

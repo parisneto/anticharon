@@ -131,45 +131,47 @@ def test_unmatched_endpoints_are_omitted():
 
 
 NOW = datetime(2026, 9, 16, 10, 0, 0, tzinfo=timezone.utc)
+WEIGHTS = W
 
 
-def _effective_payload(std_id, flex_id):
-    """Two days: the flex endpoint is cheaper on both; the standard one sets the price."""
-    def day(d, std_in, flex_in):
-        return {"x": f"{d} 00:00:00", "y": {std_id: std_in, flex_id: flex_in}}
-
-    return {"inputChartData": [day("2026-09-14", 0.08, 0.03), day("2026-09-15", 0.09, 0.04)],
-            "outputChartData": [day("2026-09-14", 1.2, 0.6), day("2026-09-15", 1.2, 0.6)]}
+def _listed(*items):
+    return {"series": list(items)}
 
 
-def test_history_observations_exclude_the_flex_endpoint(monkeypatch):
-    payload = _effective_payload("std-uuid", "flex-uuid")
-    listed = {"series": [_series("std-uuid", "openai", 0.20, 1.20), _series("flex-uuid", "openai", 0.10, 0.60)]}
+def test_history_excludes_the_flex_endpoint_and_keeps_the_standard_one(monkeypatch):
+    std = _series("std-uuid", "openai", 0.20, 1.20)
+    flex = _series("flex-uuid", "openai", 0.10, 0.60)
+    for item, cache in ((std, 0.02), (flex, 0.01)):
+        item["cacheRead"] = [{"at": "2026-09-05T00:00:00Z", "value": cache}]
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **k: _listed(std, flex))
     endpoints = [ep("openai", 0.20, 1.20), ep("openai/flex", 0.10, 0.60)]
-    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", lambda *a, **k: payload)
-    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **k: listed)
     store = {}
 
-    sync_effective_prices_for_model("openai/m", "openai/m-1", store, 0.0029, 5.0, now=NOW, endpoints=endpoints)
+    sync_effective_prices_for_model("openai/m", "openai/m-1", store, WEIGHTS, 5.0, now=NOW, endpoints=endpoints)
 
-    observed = {o["date"]: o["effective_price_1m"] for o in store["openai/m"]["observations"]}
-    assert observed == {"2026-09-14": pytest.approx(0.08 * 0.9971 + 1.2 * 0.0029),
-                        "2026-09-15": pytest.approx(0.09 * 0.9971 + 1.2 * 0.0029)}
-    assert store["openai/m"]["endpoint_tags"] == {"std-uuid": "openai", "flex-uuid": "openai/flex"}
+    entry = store["openai/m"]
+    assert entry["endpoint_tags"] == {"std-uuid": "openai", "flex-uuid": "openai/flex"}
+    expected = 0.2 * W[0] + 0.02 * W[1] + 1.2 * W[2]  # standard tier, not the cheaper flex 0.03265
+    assert [o["effective_price_1m"] for o in entry["observations"]] == [pytest.approx(expected)] * len(entry["observations"])
+    assert entry["basis"] == "listed_blend" and entry["weights_used"] == list(W)
 
 
-def test_stored_tags_keep_a_removed_endpoint_excluded_and_force_refreshes(monkeypatch):
-    payload = _effective_payload("std-uuid", "flex-uuid")
-    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", lambda *a, **k: payload)
-    store = {"openai/m": {"canonical_slug": "openai/m-1", "last_synced": NOW.isoformat(), "observations": [],
-                          "endpoint_tags": {"flex-uuid": "openai/flex"}}}
+def test_stored_tags_keep_a_removed_endpoint_excluded_and_nothing_is_derived_without_tags(monkeypatch):
+    flex = _series("flex-uuid", "openai", 0.10, 0.60)
+    std = _series("std-uuid", "openai", 0.20, 1.20)
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **k: _listed(std, flex))
+    store = {"openai/m": {"canonical_slug": "openai/m-1", "endpoint_tags": {"flex-uuid": "openai/flex"}}}
 
-    sync_effective_prices_for_model("openai/m", "openai/m-1", store, 0.0029, 5.0, now=NOW)  # fresh, no force
-    assert store["openai/m"]["observations"] == []
+    sync_effective_prices_for_model("openai/m", "openai/m-1", store, WEIGHTS, 5.0, now=NOW)  # endpoints route failed
 
-    sync_effective_prices_for_model("openai/m", "openai/m-1", store, 0.0029, 5.0, now=NOW, force=True)
-    assert [o["date"] for o in store["openai/m"]["observations"]] == ["2026-09-14", "2026-09-15"]
-    assert store["openai/m"]["observations"][0]["effective_price_1m"] == pytest.approx(0.08 * 0.9971 + 1.2 * 0.0029)
+    # The stored map still classifies the removed flex endpoint; the standard one is kept.
+    prices = [o["effective_price_1m"] for o in store["openai/m"]["observations"]]
+    assert prices and all(p == pytest.approx(0.2 * W[0] + 0.02 * W[1] + 1.2 * W[2]) for p in prices)
+
+    blank = {}
+    sync_effective_prices_for_model("openai/n", "openai/n-1", blank, WEIGHTS, 5.0, now=NOW)  # no tags, no endpoints
+    assert "observations" not in blank["openai/n"] or blank["openai/n"]["observations"] == []
+    assert blank["openai/n"].get("basis") is None  # tiers could not be excluded, so no history is derived
 
 
 def test_run_reports_the_standard_quote_the_endpoint_tag_and_the_only_tier_warning(monkeypatch, tmp_path):
@@ -181,7 +183,6 @@ def test_run_reports_the_standard_quote_the_endpoint_tag_and_the_only_tier_warni
     monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: catalog)
     endpoints = {"acme/std-1": LUNA, "acme/onlyflex-1": [ep("x/flex", 0.10, 0.60, 0.01)]}
     monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda slug, *a, **k: endpoints[slug])
-    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", lambda *a, **k: {})
     monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **k: {})
     monkeypatch.setenv("ANTICHARON_DATA_DIR", str(tmp_path))
 
@@ -230,20 +231,21 @@ def test_frontend_shape_gemini_tags_from_the_live_route():
     assert result["effective_endpoint_tag"] in {"google-ai-studio", "google-vertex/global"}
 
 
-def test_tag_join_works_with_frontend_shaped_endpoints_and_history_exclusion_follows(monkeypatch):
+def test_tag_join_works_with_frontend_shaped_endpoints_and_the_real_listed_fixture(monkeypatch):
     endpoints = _fixture_endpoints("openrouter_endpoint_stats_gpt-5.6-luna_trimmed.json")
-    series = [_series("flex-uuid", "openai", 0.10, 0.60), _series("std-uuid", "openai", 0.20, 1.20),
-              _series("fast-uuid", "openai", 0.40, 2.40)]
-    assert map_endpoint_tags(series, endpoints) == {
-        "flex-uuid": "openai/flex", "std-uuid": "openai", "fast-uuid": "openai/fast"}
+    listed = json.loads((FIXTURES / "openrouter_listed_pricing_gpt-5.6-luna_trimmed.json").read_text(encoding="utf-8"))["data"]
+    tags = map_endpoint_tags(listed["series"], endpoints)
 
-    payload = {"inputChartData": [{"x": "2026-09-15 00:00:00", "y": {"flex-uuid": 0.04, "std-uuid": 0.09, "fast-uuid": 0.05}}],
-               "outputChartData": [{"x": "2026-09-15 00:00:00", "y": {"flex-uuid": 0.6, "std-uuid": 1.2, "fast-uuid": 2.4}}]}
-    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", lambda *a, **k: payload)
-    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **k: {"series": series})
+    assert sorted(tags.values()) == sorted(
+        ["openai/fast", "azure", "amazon-bedrock/us-east-1", "azure/eu", "azure/eu", "openai", "openai/flex"])
+    assert tags["297a2285-308d-4bfb-a120-a9c2ead800b0"] == "openai/fast"
+    assert tags["ff94b1f1-db76-42c5-a21e-06083c3cc7d0"] == "openai/flex"
+
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **k: listed)
     store = {}
-
-    sync_effective_prices_for_model("openai/m", "openai/m-1", store, 0.0029, 5.0, now=NOW, endpoints=endpoints)
-
-    assert store["openai/m"]["endpoint_tags"]["flex-uuid"] == "openai/flex"
-    assert store["openai/m"]["observations"][0]["effective_price_1m"] == pytest.approx(0.09 * 0.9971 + 1.2 * 0.0029)
+    sync_effective_prices_for_model("openai/gpt-5.6-luna", "openai/gpt-5.6-luna-20260709", store, WEIGHTS, 5.0,
+                                    now=NOW, endpoints=endpoints)
+    standard = 0.2 * W[0] + 0.02 * W[1] + 1.2 * W[2]  # 0.06529396, independently computed
+    observations = store["openai/gpt-5.6-luna"]["observations"]
+    assert observations[0]["date"] == "2026-09-05" and observations[-1]["date"] == "2026-09-16"
+    assert all(o["effective_price_1m"] == pytest.approx(standard) for o in observations)

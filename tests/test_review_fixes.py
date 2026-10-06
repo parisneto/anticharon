@@ -41,7 +41,7 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr("anticharon.tracker.datetime", _Clock)
     monkeypatch.setattr("anticharon.tracker.get_hermes_models", lambda **kw: None)
     monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **k: [])
-    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", lambda *a, **k: {})
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **k: {})
     monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: CATALOG)
     return tmp_path, cfg
 
@@ -56,7 +56,7 @@ def _seed_store(tmp_path, slugs, price=1.0, **extra):
     (tmp_path / "effective_prices.json").write_text(json.dumps({
         m: {"canonical_slug": f"{m}-1", "first_seen": TODAY.isoformat(), "last_synced": NOW.isoformat(),
             "identity": "exact", "resolved_id": m, "identity_checked": NOW.isoformat(),
-            "observations": [{"date": (TODAY - timedelta(days=n)).isoformat(), "effective_price_1m": price}
+            "basis": "listed_blend", "observations": [{"date": (TODAY - timedelta(days=n)).isoformat(), "effective_price_1m": price}
                              for n in range(14)], **extra}
         for m in slugs}), encoding="utf-8")
 
