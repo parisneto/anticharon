@@ -1006,7 +1006,9 @@ def run_tracker(
         # Also after an all-reuse run: the live response's default, fallback, and
         # per-model alerts must be what `alerts.json` (and so `check`) reports.
         _persist_alerts(
-            warnings, records_by_model, cfg.get("shortlist", []), cfg.get("_shortlist_entries", []), current_default, now_iso, model_id,
+            warnings, records_by_model,
+            [m for m in cfg.get("shortlist", []) if not _stored_untracked_identity(effective_store, m)],
+            cfg.get("_shortlist_entries", []), current_default, now_iso, model_id,
             get_alerts_path(hist_path.parent),
         )
 
@@ -1194,7 +1196,8 @@ def read_check_result(
     if not row_dates or any(d is None or d < today for d in row_dates):
         messages.append(DATA_STALE_MESSAGE)
 
-    all_alerts = alerts_store.get("price_warnings", [])
+    all_alerts = [w for w in alerts_store.get("price_warnings", [])
+                  if not _stored_untracked_identity(effective_store, w.get("suggested_cheapest") or "")]
     if target:
         alert_dicts = [w for w in all_alerts
                        if w.get("model") == target or w.get("current_default") == target or w.get("suggested_cheapest") == target]

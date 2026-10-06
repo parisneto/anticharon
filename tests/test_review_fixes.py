@@ -86,6 +86,7 @@ def test_quote_is_shown_beside_the_observation_and_alerts_state_their_basis(env)
 
     run_tracker(config_path=cfg, history_path=tmp_path / "history.csv", no_hermes=True, force=True)
     messages = [w["message"] for w in _alerts(tmp_path)["price_warnings"] if w["type"] in ("PRICE_SPIKE", "PRICE_DROP")]
+    assert messages, "the 2.6 quote against 1.0 observations must raise a spike alert"
     assert all("observed average" in m and "Current quote" in m for m in messages)
 
 
@@ -135,3 +136,23 @@ def test_same_day_reuse_never_shows_a_redirect_as_priced(env, monkeypatch):
 
     assert [p.model for p in result.prices_shortlist] == [A]
     assert [(m.model, m.identity) for m in result.not_tracked] == [(B, "redirect")]
+
+
+def test_redirect_is_never_recommended_by_a_persisted_alert(env, monkeypatch):
+    tmp_path, cfg = env
+    _write_cfg(cfg, A)  # default A is the expensive model; B is cheaper
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models",
+                        lambda timeout=10.0: _catalog({A: ("0.000009", "0.00009"), B: ("0.000001", "0.000001")}))
+    run_tracker(config_path=cfg, history_path=tmp_path / "history.csv", no_hermes=True)
+    recommended = [w["suggested_cheapest"] for w in _alerts(tmp_path)["price_warnings"] if w["type"] == "BEST_OPTION_CHANGED"]
+    assert recommended == [B]  # precondition: B is recommended while it is a real catalog model
+
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models",
+                        lambda timeout=10.0: _catalog({A: ("0.000009", "0.00009"), f"~{B}": ("0.000001", "0.000001")}))
+    result = run_tracker(config_path=cfg, history_path=tmp_path / "history.csv", no_hermes=True, force=True)
+
+    assert [m.model for m in result.not_tracked] == [B]
+    assert all(w.suggested_cheapest != B for w in result.price_warnings)
+    assert all(w.get("suggested_cheapest") != B for w in _alerts(tmp_path)["price_warnings"])
+    local = read_check_result(no_hermes=True)
+    assert all(w.suggested_cheapest != B for w in local.price_warnings)
