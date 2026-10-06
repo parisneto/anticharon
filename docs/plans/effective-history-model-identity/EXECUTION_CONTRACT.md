@@ -95,6 +95,7 @@ OPEN decisions block only dependent work.
 | D-5 | `NOT_TRACKED` JSON shape and stable message code | RESOLVED: `not_tracked` list (`model`, `status`, `identity`, `resolved_id`, `code`, `diagnostic`, `source`, `is_default`); codes `REDIRECT_IDENTITY` (info), `NO_EXACT_MATCH` (warning); no price shown (PO choice) | AC-4, Wave 3 |
 | D-6 | Testable redirect retry/invalidation rule | RESOLVED: reuse stored redirect/unresolved state for 24h unless `run --force`; re-resolve afterwards; a slug now in the catalog is `exact` immediately | AC-4, Wave 3 |
 | D-7 | Support `--help`, `help <command>`, or both consistently | RESOLVED (PO): both `<command> [sub] -h/--help` and `help <command> [sub]`; other forms (`<command> help`, `model help`) exit 2 with a hint; top-level options unchanged | AC-7, Wave 4 |
+| D-10 | Promote listed prices + Anticharon blend to be the history source (replacing OpenRouter's effective price), and whether effective stays as a separate "market-realized" metric | OPEN; Phase A (`listed_basis`, temporary) provides the side-by-side evidence | Track 1 Phase B/C |
 | D-9 | Service-tier classification | RESOLVED (PO): a tag is non-standard when any `/` segment is `flex`, `fast`, `priority`, `ultrafast`, `turbo`, or `batch`; the slash rule is rejected (71% of sampled endpoints have slash tags); history joins endpoint UUIDs to tags by tag prefix + input/output price | AC-8 |
 | D-8 | Whether VM verification blocks completion | RESOLVED (PO, 2026-10-05): VM verification was completed with a preserved pre-v0.6.x shortlist; it covers Wave 1 only, see E-10 | E-10, Wave 4 |
 
@@ -114,6 +115,7 @@ than copying it. Scope/acceptance changes require PO approval before implementat
 ## 7. Deferred
 
 - Hermes detection has no explicit "Hermes owns no default" signal (an unreadable default is treated as unavailable), so authoritative removal is honored at the sync boundary (`complete` with no models) but no detector emits it yet.
+- Parked after the listed-price investigation: keep raw `listed` beyond the route's 30-day window, per-day all-endpoint archive for exact recalibration, time-weighted daily value (default end-of-day UTC), deprecated endpoints still listed, `cacheWrite` pricing, a calibration stamp on `history.csv`, ignoring or pruning store entries for models off the shortlist.
 - Pre-existing lint debt is unchanged; changed-line gate passes against `219a766` (`docs/standards/lint_baseline_legacy.txt`).
 
 Non-goals: §3; OPEN decisions: §5;

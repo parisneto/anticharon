@@ -217,6 +217,59 @@ def map_endpoint_tags(series: list[dict], endpoints: list[dict]) -> dict[str, st
                       or (by_out.get((slug, p_out)) if p_out is not None else None))
         if not candidates:
             continue
-        tier_tags = sorted(t for t in candidates if is_service_tier_tag(t))
-        result[uuid] = tier_tags[0] if tier_tags else sorted(candidates)[0]
+        tier_tags = [t for t in candidates if is_service_tier_tag(t)]
+        result[uuid] = min(tier_tags or candidates)
     return result
+
+
+def derive_listed_daily_prices(
+    series: list[dict],
+    excluded_endpoint_ids: frozenset[str],
+    weights: tuple[float, float, float],
+    today,
+    now,
+    window_days: int = 30,
+) -> list[dict]:
+    """Daily Anticharon-blended prices from OpenRouter *listed* step series (Phase A,
+    side-by-side only).
+
+    For each UTC day in the window the value is the cheapest non-excluded endpoint's
+    `blended_rate_1m` of the listed input/output/cacheRead prices in effect at the end
+    of that day (`now` for today). An endpoint with no point yet that day is skipped;
+    a missing cacheRead falls back to 10% of input, as the live quote does."""
+    from datetime import datetime, time, timedelta, timezone
+
+    def parse(value: str) -> datetime:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+    def value_at(points: list[dict], moment: datetime) -> float | None:
+        current = None
+        for point in points or []:
+            try:
+                if parse(point["at"]) <= moment:
+                    current = float(point["value"])
+                else:
+                    break
+            except (KeyError, TypeError, ValueError):
+                continue
+        return current
+
+    w_uncached, w_cached, w_completion = weights
+    observations = []
+    for offset in range(window_days, -1, -1):
+        day = today - timedelta(days=offset)
+        moment = now if offset == 0 else datetime.combine(day, time(23, 59, 59), tzinfo=timezone.utc)
+        best = None
+        for endpoint in series:
+            if endpoint.get("endpointId") in excluded_endpoint_ids:
+                continue
+            p_in, p_out = value_at(endpoint.get("input"), moment), value_at(endpoint.get("output"), moment)
+            if p_in is None or p_out is None:
+                continue
+            p_cache = resolve_cache_read_price_1m(p_in, value_at(endpoint.get("cacheRead"), moment))
+            rate = blended_rate_1m(p_in, p_cache, p_out, w_uncached, w_cached, w_completion)
+            if best is None or rate < best:
+                best = rate
+        if best is not None:
+            observations.append({"date": day.isoformat(), "effective_price_1m": best})
+    return observations

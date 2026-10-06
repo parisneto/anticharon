@@ -233,6 +233,9 @@ class ModelPrice:
     # (quote - latest observation) / observation x 100 when both exist; a separate
     # report, never an alert (the two are different price definitions).
     quote_vs_observed_pct: float | None = None
+    # TEMPORARY side-by-side (Phase A): analytics recomputed on the listed-price,
+    # Anticharon-blended history. Removed or promoted by the PO decision (Phase B/C).
+    listed_basis: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         # PE2-001 defense-in-depth: always serialize the true unconstrained
@@ -262,6 +265,8 @@ class ModelPrice:
             data["last_run_quote_date"] = self.quote_date
         if self.quote_vs_observed_pct is not None:
             data["quote_vs_observed_pct"] = round(self.quote_vs_observed_pct, 2)
+        if self.listed_basis is not None:
+            data["listed_basis"] = self.listed_basis
         if self.price:
             price_dict = self.price.to_dict()
             price_dict.pop("effective_price_1m", None)

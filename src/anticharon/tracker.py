@@ -44,6 +44,7 @@ from anticharon.models import (
 from anticharon.pricing import (
     blended_rate_1m,
     derive_cache_hit_rate,
+    derive_listed_daily_prices,
     is_service_tier_tag,
     is_valid_listed_price,
     map_endpoint_tags,
@@ -199,7 +200,7 @@ def fetch_listed_pricing(canonical_slug: str, timeout: float = 10.0) -> dict[str
         resp.raise_for_status()
         data = resp.json().get("data", {})
         return data if isinstance(data, dict) else {}
-    except Exception:
+    except (requests.RequestException, ValueError, AttributeError):
         return {}
 
 
@@ -336,6 +337,7 @@ def sync_effective_prices_for_model(
     now: datetime | None = None,
     endpoints: list[dict[str, Any]] | None = None,
     force: bool = False,
+    weights: tuple[float, float, float] | None = None,
 ) -> None:
     """Backfill/refresh one model's granular observations in `store`, in place,
     respecting the store's own staleness policy (independent of history.csv's
@@ -352,9 +354,11 @@ def sync_effective_prices_for_model(
 
     entry = store.get(model_id) or {"canonical_slug": canonical_slug, "observations": []}
     tags: dict[str, str] = dict(entry.get("endpoint_tags") or {})
+    listed_series: list[dict[str, Any]] = []
     if endpoints:
         listed = fetch_listed_pricing(canonical_slug, timeout=timeout)
-        tags.update(map_endpoint_tags(listed.get("series") or [], endpoints))
+        listed_series = listed.get("series") or []
+        tags.update(map_endpoint_tags(listed_series, endpoints))
     excluded = frozenset(uuid for uuid, tag in tags.items() if is_service_tier_tag(tag))
     new_observations = _reduce_to_daily_observations(history_data, w_completion, excluded)
 
@@ -363,6 +367,13 @@ def sync_effective_prices_for_model(
     entry["last_synced"] = now.isoformat()
     if tags:
         entry["endpoint_tags"] = tags
+    if listed_series and weights is not None:
+        # Phase A (temporary): the listed-price, Anticharon-blended series next to the
+        # effective observations, plus the raw steps it derives from.
+        entry["listed"] = [{k: item.get(k) for k in ("endpointId", "providerSlug", "input", "output", "cacheRead")}
+                           for item in listed_series]
+        entry["listed_weights"] = list(weights)
+        entry["listed_blend"] = derive_listed_daily_prices(listed_series, excluded, weights, now.date(), now)
     if new_observations:
         # Only overwrite when the fetch actually returned data -- a transient
         # failure or a router alias with no fixed history must not destroy
@@ -499,6 +510,33 @@ def _stored_price_view(
     ma_3d = derived["ma_3d"] if derived["ma_3d"] is not None else price
     ma_7d = derived["ma_7d"] if derived["ma_7d"] is not None else price
     return price, latest, ma_3d, ma_7d
+
+
+def _listed_basis(
+    store: dict[str, Any], model_id: str, today: date, cfg: dict[str, Any],
+) -> dict[str, Any] | None:
+    """TEMPORARY side-by-side (Phase A): the model's analytics recomputed on its
+    stored `listed_blend` series (listed prices blended with the calibration), or
+    None when it has none."""
+    observations = (store.get(model_id) or {}).get("listed_blend") or []
+    view = _stored_price_view({model_id: {"observations": observations}}, model_id, today)
+    if view is None:
+        return None
+    analytics = calculate_model_analytics(
+        model_id=model_id, current_price=None, observations=observations, today=today,
+        min_tracking_days_for_profile=cfg.get("min_tracking_days_for_profile", 14),
+    )
+    price, _date, _ma3, ma7 = view
+    return {
+        "basis": "listed_blend",
+        "latest_1m": round(price, 6),
+        "ma_7d": round(ma7, 6),
+        "change_vs_7d_pct": round((price - ma7) / ma7 * 100, 2) if ma7 > 0 else 0.0,
+        "volatility_cv_pct": round(analytics.volatility_cv_pct, 2),
+        "change_vs_30d_pct": None if analytics.change_vs_30d_pct is None else round(analytics.change_vs_30d_pct, 2),
+        "profile": analytics.profile,
+        "observation_count": analytics.observation_count,
+    }
 
 
 def _observed_move(
@@ -1013,7 +1051,7 @@ def run_tracker(
         # a no-op for d1..d30 (there is no "shift" left to double-apply).
         sync_effective_prices_for_model(
             tracked_model_id, canonical_slug, effective_store, w_completion, timeout, now=now,
-            endpoints=endpoints, force=force,
+            endpoints=endpoints, force=force, weights=(w_uncached, w_cached, w_completion),
         )
         _record_exact_identity(effective_store, tracked_model_id, now)
         observations = _observation_list(valid_observations(
@@ -1349,6 +1387,7 @@ def read_history_result(
             ma_3d=ma_3d,
             change_vs_7d_pct=((price - ma_7d) / ma_7d * 100) if ma_7d else 0.0,
             analytics=analytics,
+            listed_basis=_listed_basis(effective_store, slug, today, cfg),
             canonical_slug=(effective_store.get(slug) or {}).get("canonical_slug"),
             source=entry.get("source"),
             is_default=slug == configured_default,
