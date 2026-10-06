@@ -78,8 +78,8 @@ relevant changes require revalidation.
 | E-7 | AC-6: discovery exclusion and exact explicit add/import | PASS at `f58caea` | `tests/test_discovery.py`, `tests/test_manager.py`, `tests/test_hermes_ownership.py` |
 | E-8 | AC-7: primary/nested help forms and exit codes | PASS at `964ea36` (all 18 command paths, both forms, invalid forms) | `tests/test_cli_help.py` |
 | E-9 | Final deterministic suite, applicable quality checks, independent review | NOT_RUN | Pending |
-| E-11 | AC-8: classifier, standard-tier quote, tag join, history exclusion, fallback | PASS at `96689f3` (classifier, standard-tier quote, tag join, history exclusion, fallback) | `tests/test_service_tiers.py`, `tests/test_listed_basis.py` |
-| E-10 | Preserved-backup VM verification (D-8) | PARTIAL: Wave 1 scope (AC-1, AC-2) verified at `9683b66`; W2–W3 run on the VM at `ee77f65`; review fixes pending VM re-run | [vm_verification_wave1.md](evidence/vm_verification_wave1.md) |
+| E-11 | AC-8: classifier, standard-tier quote, tag join, history exclusion, fallback | PASS at `96689f3`; verified on the VM at `23b7443` (classifier, standard-tier quote, tag join, history exclusion, fallback) | `tests/test_service_tiers.py`, `tests/test_listed_basis.py` |
+| E-10 | Preserved-backup VM verification (D-8) | PARTIAL: Wave 1 scope (AC-1, AC-2) verified at `9683b66`; W2–W3 run on the VM at `ee77f65`; AC-8, gate fix and Phase A run on the VM at `23b7443` [vm_verification_wave1.md](evidence/vm_verification_wave1.md), [vm_verification_tiers.md](evidence/vm_verification_tiers.md) |
 
 ## 5. Decisions
 
@@ -106,7 +106,7 @@ OPEN decisions block only dependent work.
 | W1 — Data contract (AC-1, AC-2) | IMPLEMENTED at `09ce27c`; independent re-review of audit remediation pending (E-9) | None for W2 start | Review W1; approve W2 start |
 | W2 — Analytics propagation (AC-3 + B) | IMPLEMENTED at `7673c81`; independent review pending (E-9) | None | Review W2 |
 | W3 — Identity and catalog boundaries | IMPLEMENTED at `7bbb0cb`; independent review pending (E-9) | None | Review W3 |
-| Post-review (gate fix, AC-8, Phase A) | IMPLEMENTED at `96689f3` (observed-vs-observed spike/drop alerts, service-tier price, temporary `listed_basis`); independent re-review and VM verification pending | D-10 (promote listed history) | Review; run the VM steps; decide D-10 |
+| Post-review (gate fix, AC-8, Phase A) | IMPLEMENTED at `96689f3`, VM-verified at `23b7443` (observed-vs-observed spike/drop alerts, service-tier price, temporary `listed_basis`); independent re-review pending | D-10 (promote listed history) | Review; run the VM steps; decide D-10 |
 | W4 — CLI ergonomics, release readiness | AC-7 IMPLEMENTED at `964ea36`; version bumped to 0.7.0 at `15a2b06`; E-9 independent review and PO release sign-off pending | None | Review; sign off release |
 
 Preserve only current truth; reference everything else. At wave end, update
