@@ -190,9 +190,9 @@ def test_update_reports_the_version_it_replaced_and_that_the_default_branch_may_
 
     payload, messages = run_update("install_only")
 
-    assert payload["installed_before"] == __version__
+    assert payload["running_version"] == __version__
     text = next(m.text for m in messages if m.code == "RESTART_REQUIRED")
-    assert "older version" in text and __version__ in text
+    assert "older version" in text and "running server" in text and __version__ in text
 
 
 def test_deprecated_update_types_are_accepted_but_not_listed_in_cli_help_or_the_mcp_schema(capsys):

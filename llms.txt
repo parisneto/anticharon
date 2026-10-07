@@ -68,7 +68,7 @@ is experimental and may require a host restart.
   `.bak` copy.
 - `self_test()`: Runs the same diagnostics as `anticharon test`.
 - `check_updates()`: User-initiated two-second check against GitHub Releases.
-- `run_update(type)`: Experimental reinstall from the default branch, without a version comparison, so the result can be older than the installed version (the payload reports `installed_before`); `type` defaults to `install_only`. WARNING: Executes shell commands directly on the host, so call it only with explicit user intent. The running server keeps the old version (and `check_updates` keeps reporting it) until reloaded: Hermes, ask the user to send `/reload-mcp` in chat; other MCP hosts, restart the host or reconnect the MCP server. `restart_host`, `phoenix` and `reload_request` are deprecated and planned for removal in 0.8.0.
+- `run_update(type)`: Experimental reinstall from the default branch, without a version comparison, so the result can be older than the installed version (the payload reports `running_version`); `type` defaults to `install_only`. WARNING: Executes shell commands directly on the host, so call it only with explicit user intent. The running server keeps the old version (and `check_updates` keeps reporting it) until reloaded: Hermes, ask the user to send `/reload-mcp` in chat; other MCP hosts, restart the host or reconnect the MCP server. `restart_host`, `phoenix` and `reload_request` are deprecated and planned for removal in 0.8.0.
 
 ## MCP resources
 

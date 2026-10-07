@@ -406,7 +406,7 @@ def check_updates() -> dict[str, Any]:
     description=(
         "EXPERIMENTAL. WARNING: Executes shell commands directly on the host; call it only with explicit user intent. "
         "Reinstalls Anticharon from the repository's default branch without comparing versions, so the result can be "
-        "older than the installed version; the response reports `installed_before`. The `type` argument is a string "
+        "older than the installed version; the response reports `running_version`, the version of this running server, which can differ from the installation that was replaced. The `type` argument is a string "
         "and defaults to install_only.\n"
         "After it succeeds this running server keeps the old version, and `check_updates` keeps reporting it, until "
         "it is reloaded:\n"
