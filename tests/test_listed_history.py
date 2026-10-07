@@ -45,7 +45,7 @@ def endpoints_for(*tags_prices):
     return [{"tag": tag, "pricing": {"prompt": str(i / 1e6), "completion": str(o / 1e6)}} for tag, i, o in tags_prices]
 
 
-def test_daily_value_uses_the_cheapest_standard_endpoint_and_the_end_of_day_step():
+def test_a_day_is_the_time_weighted_mean_of_the_cheapest_standard_price():
     # Standard endpoint cuts input 0.20 -> 0.10 at noon on 09-14; a flex endpoint is cheaper but excluded.
     std = endpoint("std", [("2026-09-01T00:00:00Z", 0.20), ("2026-09-14T12:00:00Z", 0.10)],
                    [("2026-09-01T00:00:00Z", 1.20)], [("2026-09-01T00:00:00Z", 0.02)])
@@ -54,14 +54,39 @@ def test_daily_value_uses_the_cheapest_standard_endpoint_and_the_end_of_day_step
 
     out = by_date(derive_listed_daily_prices([std, flex], frozenset({"std"}), W, TODAY, NOW))
 
-    assert out["2026-09-13"] == pytest.approx(blend(0.20, 0.02, 1.20))  # 0.06529396
-    assert out["2026-09-14"] == pytest.approx(blend(0.10, 0.02, 1.20))  # end-of-day value after the noon cut
-    assert out["2026-09-16"] == pytest.approx(blend(0.10, 0.02, 1.20))  # today, at `now`
+    before, after = blend(0.20, 0.02, 1.20), blend(0.10, 0.02, 1.20)  # 0.06529396, 0.04200...
+    assert out["2026-09-13"] == pytest.approx(before)
+    assert out["2026-09-14"] == pytest.approx((before + after) / 2)  # 12 h at each price
+    assert out["2026-09-15"] == pytest.approx(after)
+    assert out["2026-09-16"] == pytest.approx(after)  # today: the price at `now`
     with_flex = by_date(derive_listed_daily_prices([std, flex], frozenset({"std", "flex"}), W, TODAY, NOW))
     assert with_flex["2026-09-13"] == pytest.approx(blend(0.05, 0.005, 0.30))  # the old, tier-mixed rule
 
 
-def test_endpoint_added_mid_window_is_skipped_before_it_exists_and_missing_cache_is_ten_percent():
+def test_the_cheapest_endpoint_is_taken_at_each_moment_not_per_day():
+    # A cuts input 0.20 -> 0.05 at 06:00 on 09-14; B stays at 0.10. B is cheapest for 6 h, A for 18 h.
+    a = endpoint("a", [("2026-09-01T00:00:00Z", 0.20), ("2026-09-14T06:00:00Z", 0.05)], [("2026-09-01T00:00:00Z", 1.0)])
+    b = endpoint("b", [("2026-09-01T00:00:00Z", 0.10)], [("2026-09-01T00:00:00Z", 1.0)])  # no cacheRead: 10% of input
+
+    out = by_date(derive_listed_daily_prices([a, b], frozenset({"a", "b"}), W, TODAY, NOW))
+
+    expected = (blend(0.10, 0.01, 1.0) * 6 + blend(0.05, 0.005, 1.0) * 18) / 24
+    assert out["2026-09-14"] == pytest.approx(expected)
+
+
+def test_a_brief_dip_at_the_end_of_a_day_does_not_become_the_days_price():
+    # Price 0.0107 until 23:50, then a 10-minute dip to 0.00374: the day is ~0.0107, not 0.00374.
+    dip = endpoint("d", [("2026-09-01T00:00:00Z", 0.0107), ("2026-09-14T23:50:00Z", 0.00374)],
+                   [("2026-09-01T00:00:00Z", 0.5)], [("2026-09-01T00:00:00Z", 0.001)])
+
+    out = by_date(derive_listed_daily_prices([dip], frozenset({"d"}), W, TODAY, NOW))
+
+    high, low = blend(0.0107, 0.001, 0.5), blend(0.00374, 0.001, 0.5)
+    assert out["2026-09-14"] == pytest.approx((high * (23 * 60 + 50) + low * 10) / (24 * 60))
+    assert out["2026-09-14"] > 0.99 * high
+
+
+def test_endpoint_added_mid_day_counts_only_from_when_it_exists_and_missing_cache_is_ten_percent():
     old = endpoint("old", [("2026-08-20T00:00:00Z", 0.30)], [("2026-08-20T00:00:00Z", 1.0)])  # no cacheRead
     new = endpoint("new", [("2026-09-10T08:00:00Z", 0.10)], [("2026-09-10T08:00:00Z", 1.0)],
                    [("2026-09-10T08:00:00Z", 0.01)])
@@ -69,7 +94,15 @@ def test_endpoint_added_mid_window_is_skipped_before_it_exists_and_missing_cache
     out = by_date(derive_listed_daily_prices([old, new], frozenset({"old", "new"}), W, TODAY, NOW))
 
     assert out["2026-09-09"] == pytest.approx(blend(0.30, 0.03, 1.0))  # 10% cache fallback, new endpoint absent
-    assert out["2026-09-10"] == pytest.approx(blend(0.10, 0.01, 1.0))  # new endpoint exists by end of day
+    assert out["2026-09-10"] == pytest.approx((blend(0.30, 0.03, 1.0) * 8 + blend(0.10, 0.01, 1.0) * 16) / 24)
+    assert out["2026-09-11"] == pytest.approx(blend(0.10, 0.01, 1.0))
+
+
+def test_time_before_any_endpoint_exists_is_left_out_of_the_mean():
+    late = endpoint("late", [("2026-09-12T18:00:00Z", 0.2)], [("2026-09-12T18:00:00Z", 1.2)], [("2026-09-12T18:00:00Z", 0.02)])
+    out = by_date(derive_listed_daily_prices([late], frozenset({"late"}), W, TODAY, NOW))
+    assert out["2026-09-12"] == pytest.approx(blend(0.2, 0.02, 1.2))  # only the 6 h it existed, not diluted
+    assert "2026-09-11" not in out
 
 
 def test_days_before_any_point_have_no_value():

@@ -243,47 +243,81 @@ def derive_listed_daily_prices(
 ) -> list[dict]:
     """Daily Anticharon-blended prices from OpenRouter *listed* step series (D-10).
 
-    For each UTC day in the window the value is the cheapest endpoint's
-    `blended_rate_1m` of the listed input/output/cacheRead prices in effect at the end
-    of that day (`now` for today), over `standard_endpoint_ids` only: an endpoint whose
-    tag is unknown is not provably standard, so it never sets a price (EH-8). An
-    endpoint with no point yet that day is skipped; a step with a negative or
-    non-finite value is ignored (the previous valid step stays in effect); a missing
-    cacheRead falls back to 10% of input, as the live quote does."""
+    The price at any moment is the cheapest endpoint's `blended_rate_1m` of the listed
+    input/output/cacheRead prices in effect then, over `standard_endpoint_ids` only: an
+    endpoint whose tag is unknown is not provably standard, so it never sets a price
+    (EH-8). A past UTC day's value is the time-weighted mean of that price over the day,
+    computed exactly from the step changes (a provider that reprices every few minutes
+    contributes what it actually charged, not the price at one instant); time before an
+    endpoint exists, or when no endpoint has a valid price, is left out. Today's value is
+    the price at `now`. A step with a negative or non-finite value is ignored (the
+    previous valid step stays in effect); a missing cacheRead falls back to 10% of input,
+    as the live quote does."""
+    from bisect import bisect_right
     from datetime import datetime, time, timedelta, timezone
 
     def parse(value: str) -> datetime:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
-    def value_at(points: list[dict] | None, moment: datetime) -> float | None:
-        current = None
+    def steps(points: list[dict] | None) -> tuple[list[datetime], list[float]]:
+        moments: list[tuple[datetime, float]] = []
         for point in points if isinstance(points, list) else []:
             try:
-                if parse(point["at"]) > moment:
-                    break
-                value = float(point["value"])
+                at, value = parse(point["at"]), float(point["value"])
             except (KeyError, TypeError, ValueError, AttributeError):
                 continue
             if is_valid_listed_price(value):
-                current = value
-        return current
+                moments.append((at, value))
+        moments.sort(key=lambda m: m[0])
+        return [m[0] for m in moments], [m[1] for m in moments]
+
+    def value_at(steps_: tuple[list[datetime], list[float]], moment: datetime) -> float | None:
+        index = bisect_right(steps_[0], moment) - 1
+        return steps_[1][index] if index >= 0 else None
+
+    endpoints = []
+    change_times: list[datetime] = []
+    for endpoint in series:
+        if not isinstance(endpoint, dict) or endpoint.get("endpointId") not in standard_endpoint_ids:
+            continue
+        parsed = {key: steps(endpoint.get(key)) for key in ("input", "output", "cacheRead")}
+        endpoints.append(parsed)
+        for key in ("input", "output", "cacheRead"):
+            change_times.extend(parsed[key][0])
+    change_times.sort()
 
     w_uncached, w_cached, w_completion = weights
-    observations = []
-    for offset in range(window_days, -1, -1):
-        day = today - timedelta(days=offset)
-        moment = now if offset == 0 else datetime.combine(day, time(23, 59, 59), tzinfo=timezone.utc)
+
+    def cheapest_at(moment: datetime) -> float | None:
         best = None
-        for endpoint in series:
-            if not isinstance(endpoint, dict) or endpoint.get("endpointId") not in standard_endpoint_ids:
-                continue
-            p_in, p_out = value_at(endpoint.get("input"), moment), value_at(endpoint.get("output"), moment)
+        for parsed in endpoints:
+            p_in, p_out = value_at(parsed["input"], moment), value_at(parsed["output"], moment)
             if p_in is None or p_out is None:
                 continue
-            p_cache = resolve_cache_read_price_1m(p_in, value_at(endpoint.get("cacheRead"), moment))
+            p_cache = resolve_cache_read_price_1m(p_in, value_at(parsed["cacheRead"], moment))
             rate = blended_rate_1m(p_in, p_cache, p_out, w_uncached, w_cached, w_completion)
             if best is None or rate < best:
                 best = rate
-        if best is not None:
-            observations.append({"date": day.isoformat(), "effective_price_1m": best})
+        return best
+
+    observations = []
+    for offset in range(window_days, -1, -1):
+        day = today - timedelta(days=offset)
+        if offset == 0:
+            value = cheapest_at(now)
+        else:
+            start = datetime.combine(day, time(0, 0), tzinfo=timezone.utc)
+            end = start + timedelta(days=1)
+            inside = [t for t in change_times if start < t < end]
+            boundaries = sorted({start, end, *inside})
+            weighted = duration = 0.0
+            for left, right in zip(boundaries, boundaries[1:], strict=False):
+                rate = cheapest_at(left)
+                if rate is not None:
+                    seconds = (right - left).total_seconds()
+                    weighted += rate * seconds
+                    duration += seconds
+            value = weighted / duration if duration else None
+        if value is not None:
+            observations.append({"date": day.isoformat(), "effective_price_1m": value})
     return observations
