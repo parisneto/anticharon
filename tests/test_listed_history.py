@@ -407,3 +407,41 @@ def test_a_same_day_row_does_not_delay_the_upgrade_of_a_legacy_store(monkeypatch
     assert result.prices_shortlist[0].price_source == "live_quote"  # refreshed, not the cached 0.5
     entry = json.loads((tmp_path / "effective_prices.json").read_text(encoding="utf-8"))["m/x"]
     assert entry["basis"] == "listed_blend" and entry["legacy_effective_observations"] == legacy_obs
+
+
+# --- fourth independent review ---
+
+def test_a_same_day_upgrade_rederives_history_written_by_the_previous_daily_formula(monkeypatch, tmp_path):
+    from anticharon.storage import write_history
+    from anticharon.tracker import run_tracker
+
+    cfg = _run_env(monkeypatch, tmp_path)
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **k: [STD_ENDPOINT])
+    cut = endpoint("std-uuid", [("2026-09-01T00:00:00Z", 0.20), ("2026-09-14T12:00:00Z", 0.10)],
+                   [("2026-09-01T00:00:00Z", 1.20)], [("2026-09-01T00:00:00Z", 0.02)])
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **k: {"series": [cut]})
+    end_of_day = blend(0.10, 0.02, 1.20)  # what the previous formula stored for 09-14
+    (tmp_path / "effective_prices.json").write_text(json.dumps({"m/x": {
+        "canonical_slug": "m/x-1", "first_seen": "2026-09-01", "last_synced": NOW.isoformat(),
+        "basis": "listed_blend", "weights_used": list(W),  # same calibration, no `history_method`: older formula
+        "endpoint_tags": {"std-uuid": "openai"}, "listed": [cut],
+        "observations": [{"date": "2026-09-14", "effective_price_1m": end_of_day}]}}), encoding="utf-8")
+    write_history([["m/x", NOW.isoformat(), 0.5, 0.2, 1.2, 0.5, 0.5] + [None] * 9], tmp_path / "history.csv")
+
+    result = run_tracker(config_path=cfg, history_path=tmp_path / "history.csv", no_hermes=True)  # same day, no --force
+
+    assert result.prices_shortlist[0].price_source == "live_quote"  # not the cached row
+    entry = json.loads((tmp_path / "effective_prices.json").read_text(encoding="utf-8"))["m/x"]
+    assert entry["history_method"] == "time_weighted_day_mean"
+    assert by_date(entry["observations"])["2026-09-14"] == pytest.approx((blend(0.20, 0.02, 1.20) + end_of_day) / 2)
+
+
+def test_a_timestamp_without_a_timezone_is_read_as_utc_instead_of_crashing():
+    zulu = endpoint("a", [("2026-09-01T00:00:00Z", 0.20)], [("2026-09-01T00:00:00Z", 1.20)], [("2026-09-01T00:00:00Z", 0.02)])
+    naive = endpoint("a", [("2026-09-01T00:00:00", 0.20)], [("2026-09-01T00:00:00", 1.20)], [("2026-09-01T00:00:00", 0.02)])
+
+    expected = derive_listed_daily_prices([zulu], frozenset({"a"}), W, TODAY, NOW)
+    assert derive_listed_daily_prices([naive], frozenset({"a"}), W, TODAY, NOW) == expected  # no TypeError
+    offset = endpoint("a", [("2026-09-01T02:00:00+02:00", 0.20)], [("2026-09-01T02:00:00+02:00", 1.20)],
+                      [("2026-09-01T02:00:00+02:00", 0.02)])
+    assert derive_listed_daily_prices([offset], frozenset({"a"}), W, TODAY, NOW) == expected

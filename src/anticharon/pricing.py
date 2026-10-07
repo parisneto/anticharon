@@ -169,6 +169,9 @@ def calculate_legacy_cost(
 # Service-tier tokens in an endpoint `tag` (e.g. `openai/flex`, `google-vertex/global/priority`).
 # Quantization (`fp8`), region (`eu`, `global`) and `zdr` segments are NOT tiers (EH-8, D-9).
 BASIS_LISTED_BLEND = "listed_blend"
+# How a day's value is taken from the listed steps; stored on each entry so a change of
+# formula re-derives existing history (a same-day row must not keep the old values).
+HISTORY_METHOD = "time_weighted_day_mean"
 
 SERVICE_TIER_TOKENS = frozenset({"flex", "fast", "priority", "ultrafast", "turbo", "batch"})
 
@@ -263,7 +266,8 @@ def derive_listed_daily_prices(
     from datetime import datetime, time, timedelta, timezone
 
     def parse(value: str) -> datetime:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)  # timestamps are UTC
 
     def steps(points: list[dict] | None) -> tuple[list[datetime], list[float]]:
         moments: list[tuple[datetime, float]] = []

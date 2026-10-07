@@ -43,6 +43,7 @@ from anticharon.models import (
 )
 from anticharon.pricing import (
     BASIS_LISTED_BLEND,
+    HISTORY_METHOD,
     blended_rate_1m,
     derive_cache_hit_rate,
     derive_listed_daily_prices,
@@ -335,15 +336,18 @@ def sync_effective_prices_for_model(
         if derived:
             entry["observations"] = derived
             entry["basis"] = BASIS_LISTED_BLEND
+            entry["history_method"] = HISTORY_METHOD
             entry["weights_used"] = list(weights)
     store[model_id] = entry
 
 
 def _needs_upgrade(entry: dict[str, Any] | None) -> bool:
-    """True for a legacy entry (observations without the listed-basis marker): a same-day
-    row must not delay its migration."""
+    """True for an entry whose history was not derived by the current rule: legacy
+    (observations without the listed-basis marker) or an older daily-value formula. A
+    same-day row must not delay its migration."""
     entry = entry or {}
-    return bool(entry.get("observations")) and entry.get("basis") != BASIS_LISTED_BLEND
+    return bool(entry.get("observations")) and (
+        entry.get("basis") != BASIS_LISTED_BLEND or entry.get("history_method") != HISTORY_METHOD)
 
 
 def _calibration_changed(entry: dict[str, Any] | None, weights: tuple[float, float, float]) -> bool:
