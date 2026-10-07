@@ -569,13 +569,11 @@ two-second timeout. It reports `is_latest` only when the installed version
 equals the release tag. It is user-initiated only: no background check, cache,
 or update notice is added to unrelated command responses.
 
-`update` is always **EXPERIMENTAL** and offers named sequences
-`install_only`, `restart_host`, `phoenix`, and `reload_request`.
+`update` is always **EXPERIMENTAL**. The supported type is `install_only` (alias `1`, the default). The named sequences `restart_host`, `phoenix`, and `reload_request` (aliases `2`–`4`) are **deprecated**: still accepted for compatibility, no longer advertised, and planned for removal in 0.8.0.
 Reinstallation prefers `uv tool install --force` from the
 Git source; if `uv` is unavailable, it uses `sys.executable -m pip install
 --force-reinstall`, never a bare `pip`. A successful reinstall may still need
-a host restart. `phoenix` schedules the running server's termination for host
-respawn; `reload_request` asks the user to send `/reload-mcp`.
+a host restart: the `RESTART_REQUIRED` message says the running server keeps the old version (and `check_updates` keeps reporting it) until reloaded — in Hermes the user sends `/reload-mcp` in chat; in other MCP hosts the host is restarted or the MCP server reconnected. (Deprecated: `phoenix` schedules the running server's termination for host respawn; `reload_request` only asks for `/reload-mcp`.)
 
 ### JSON Output & Exit Codes
 Every `--json` output uses the §10.1a envelope (`status`, `messages`, `elapsed_ms`, then the payload), and human output renders the same `messages`. The exit code is `1` iff `status` is `error` or `refused` (the operation was not performed), otherwise `0`. `model sync` without a detectable Hermes config is `status: "warning"` with `HERMES_NOT_DETECTED` and exits `0`.
@@ -727,9 +725,11 @@ slug, returns `NO_EXACT_MATCH` for an invalid or nonexistent slug, and reports
   with `status: error` and MCP `isError: true`.
 - `run_update(type="install_only")` is the only Anticharon tool that executes
   commands. It is experimental, destructive, non-idempotent, and open-world.
-  The named enum is `install_only`, `restart_host`, `phoenix`,
-  and `reload_request`; every response includes the
-  `EXPERIMENTAL` warning. It prefers `uv tool install --force` from the Git
+  The default and only advertised type is `install_only`; `restart_host`,
+  `phoenix`, and `reload_request` remain in the enum but are deprecated and
+  planned for removal in 0.8.0. Every response includes the `EXPERIMENTAL`
+  warning, and `install_only` ends with a `RESTART_REQUIRED` message naming the
+  Hermes (`/reload-mcp`) and generic (restart or reconnect) activation steps. It prefers `uv tool install --force` from the Git
   source and otherwise invokes `sys.executable -m pip install --force-reinstall`.
   The Phoenix variant schedules server termination for host respawn; a caller
   must explicitly request it.

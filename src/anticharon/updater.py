@@ -149,5 +149,9 @@ def run_update(update_type: UpdateType | str | int) -> tuple[dict[str, Any], lis
     elif selected is UpdateType.RELOAD_REQUEST:
         messages.append(AgentMessage("warning", "RESTART_REQUIRED", "Send `/reload-mcp` in chat to activate the new version; Hermes will ask for confirmation."))
     else:
-        messages.append(AgentMessage("warning", "RESTART_REQUIRED", "Restart the MCP host to activate the new version."))
+        messages.append(AgentMessage(
+            "warning", "RESTART_REQUIRED",
+            "Reinstalled. This running server still has the old version, and `check_updates` keeps reporting it, "
+            "until it is reloaded. Hermes: ask the user to send `/reload-mcp` in chat. Other MCP hosts: restart the "
+            "host or reconnect the MCP server."))
     return payload, messages

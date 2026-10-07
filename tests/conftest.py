@@ -32,3 +32,19 @@ def block_network(request, monkeypatch):
     import requests
 
     monkeypatch.setattr(requests.sessions.Session, "request", refuse)
+
+
+@pytest.fixture(autouse=True)
+def isolate_host_environment(monkeypatch, tmp_path_factory):
+    """The suite must not depend on what is installed on the machine running it (Rule 8): a
+    developer's own Hermes CLI/config would otherwise be detected and rewrite test shortlists.
+    HOME is a temp dir, HERMES_* / ANTICHARON_* are unset, and `hermes` is not on the path.
+    A test that needs any of these sets it itself (explicit patches win over this default)."""
+    import shutil
+
+    for name in ("HERMES_CONFIG", "HERMES_HOME", "ANTICHARON_CONFIG", "ANTICHARON_DATA_DIR", "XDG_CONFIG_HOME",
+                 "XDG_DATA_HOME"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path_factory.mktemp("home")))
+    real_which = shutil.which
+    monkeypatch.setattr(shutil, "which", lambda cmd, *a, **k: None if cmd == "hermes" else real_which(cmd, *a, **k))

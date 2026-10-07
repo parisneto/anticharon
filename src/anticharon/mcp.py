@@ -405,12 +405,15 @@ def check_updates() -> dict[str, Any]:
     name="run_update",
     annotations=_annotations("Run experimental update", False, True, False, True),
     description=(
-        "EXPERIMENTAL. WARNING: Executes shell commands directly on the host environment. "
-        "Reinstalls Anticharon from Git source using one of four named sequences:\n"
-        "- install_only: Reinstalls via uv/pip; requires manual host restart.\n"
-        "- restart_host: Reinstalls and runs `hermes gateway restart`.\n"
-        "- phoenix: Reinstalls, then terminates this MCP server process for host respawn.\n"
-        "- reload_request: Reinstalls and prompts the user to send `/reload-mcp` in host chat.\n"
+        "EXPERIMENTAL. WARNING: Executes shell commands directly on the host; call it only with explicit user intent. "
+        "Reinstalls Anticharon from the repository's default branch (the default type is install_only, and it is the "
+        "only one to use).\n"
+        "After it succeeds this running server keeps the old version, and `check_updates` keeps reporting it, until "
+        "it is reloaded:\n"
+        "- Hermes: ask the user to send `/reload-mcp` in chat.\n"
+        "- Other MCP hosts: restart the host or reconnect the MCP server.\n"
+        "Then call `check_updates` to confirm the new version. "
+        "Deprecated, accepted for compatibility and planned for removal in 0.8.0: restart_host, phoenix, reload_request. "
         "May require manual intervention. See anticharon://llms.txt for the operational glossary."
     ),
 )
