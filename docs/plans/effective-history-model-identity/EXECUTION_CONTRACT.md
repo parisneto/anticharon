@@ -85,7 +85,7 @@ relevant changes require revalidation.
 | E-8 | AC-7: primary/nested help forms and exit codes | PASS at `964ea36` (all 18 command paths, both forms, invalid forms) | `tests/test_cli_help.py` |
 | E-9 | Final deterministic suite, applicable quality checks, independent review | NOT_RUN | Pending |
 | E-11 | AC-8: classifier, standard-tier quote, tag join, history exclusion, fallback | PASS at `96689f3`; verified on the VM at `23b7443` (classifier, standard-tier quote, tag join, history exclusion, fallback) | `tests/test_service_tiers.py`, `tests/test_listed_basis.py` |
-| E-12 | AC-9: listed-basis history, upgrade of legacy entries, recalibration, run-then-check identity | PASS at `994e9cf` (cold-start 31-day history from the real listed fixture, legacy upgrade, recalibration without refetch, run-then-check identity; live smoke on an empty store) | `tests/test_listed_history.py`, `tests/test_tracker.py`, `tests/test_service_tiers.py` |
+| E-12 | AC-9: listed-basis history, upgrade of legacy entries, recalibration, run-then-check identity | PASS at `707b922` (cold-start 31-day history from the real listed fixture, legacy upgrade, recalibration without refetch, run-then-check identity; live smoke on an empty store) | `tests/test_listed_history.py`, `tests/test_tracker.py`, `tests/test_service_tiers.py` |
 | E-10 | Preserved-backup VM verification (D-8) | PARTIAL: Wave 1 scope (AC-1, AC-2) verified at `9683b66`; W2–W3 run on the VM at `ee77f65`; AC-8, gate fix and Phase A run on the VM at `23b7443` [vm_verification_wave1.md](evidence/vm_verification_wave1.md), [vm_verification_tiers.md](evidence/vm_verification_tiers.md) |
 
 ## 5. Decisions
@@ -113,7 +113,7 @@ OPEN decisions block only dependent work.
 | W1 — Data contract (AC-1, AC-2) | IMPLEMENTED at `09ce27c`; independent re-review of audit remediation pending (E-9) | None for W2 start | Review W1; approve W2 start |
 | W2 — Analytics propagation (AC-3 + B) | IMPLEMENTED at `7673c81`; independent review pending (E-9) | None | Review W2 |
 | W3 — Identity and catalog boundaries | IMPLEMENTED at `7bbb0cb`; independent review pending (E-9) | None | Review W3 |
-| Post-review (gate fix, AC-8, AC-9) | IMPLEMENTED at `994e9cf` (observed-vs-observed alerts, service-tier price, listed-price history basis); VM-verified at `c88b278`; independent re-review pending | None | Review; run the VM steps |
+| Post-review (gate fix, AC-8, AC-9) | IMPLEMENTED at `707b922` (observed-vs-observed alerts, service-tier price, listed-price history basis); review-hardened at `707b922` (VM-verified at `c88b278`, before the hardening); independent re-review and VM re-check pending | None | Review; run the VM steps |
 | W4 — CLI ergonomics, release readiness | AC-7 IMPLEMENTED at `964ea36`; version bumped to 0.7.0 at `15a2b06`; E-9 independent review and PO release sign-off pending | None | Review; sign off release |
 
 Preserve only current truth; reference everything else. At wave end, update
