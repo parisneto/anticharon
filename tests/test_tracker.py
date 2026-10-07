@@ -818,4 +818,3 @@ def test_run_then_check_and_history_are_identical_and_offline_run_agrees(monkeyp
     assert local.change_vs_7d_pct == pytest.approx(live.change_vs_7d_pct)
     assert live.analytics.to_dict() == fallback.analytics.to_dict() == local.analytics.to_dict()
     assert live.analytics.current_price_source == "observation"
-

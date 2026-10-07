@@ -156,22 +156,38 @@ def test_history_excludes_the_flex_endpoint_and_keeps_the_standard_one(monkeypat
     assert entry["basis"] == "listed_blend" and entry["weights_used"] == list(W)
 
 
-def test_stored_tags_keep_a_removed_endpoint_excluded_and_nothing_is_derived_without_tags(monkeypatch):
+def test_stored_tags_keep_a_removed_endpoint_excluded(monkeypatch):
     flex = _series("flex-uuid", "openai", 0.10, 0.60)
     std = _series("std-uuid", "openai", 0.20, 1.20)
     monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **k: _listed(std, flex))
-    store = {"openai/m": {"canonical_slug": "openai/m-1", "endpoint_tags": {"flex-uuid": "openai/flex"}}}
+    store = {"openai/m": {"canonical_slug": "openai/m-1",
+                          "endpoint_tags": {"flex-uuid": "openai/flex", "std-uuid": "openai"}}}
 
     sync_effective_prices_for_model("openai/m", "openai/m-1", store, WEIGHTS, 5.0, now=NOW)  # endpoints route failed
 
-    # The stored map still classifies the removed flex endpoint; the standard one is kept.
+    prices = [o["effective_price_1m"] for o in store["openai/m"]["observations"]]
+    assert prices and all(p == pytest.approx(0.2 * W[0] + 0.02 * W[1] + 1.2 * W[2]) for p in prices)
+
+
+def test_an_unmapped_endpoint_never_sets_a_price_even_when_cheaper(monkeypatch):
+    """P1 (review): a cheaper, unmatched flex endpoint must not become the history minimum."""
+    std = _series("std-uuid", "openai", 0.20, 1.20)
+    mystery = _series("mystery-uuid", "openai", 0.05, 0.30)  # a tier endpoint the join cannot match
+    for item in (std, mystery):
+        item["cacheRead"] = [{"at": "2026-09-05T00:00:00Z", "value": item["input"][0]["value"] / 10}]
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **k: _listed(std, mystery))
+    store = {}
+
+    sync_effective_prices_for_model("openai/m", "openai/m-1", store, WEIGHTS, 5.0, now=NOW,
+                                    endpoints=[ep("openai", 0.20, 1.20)])
+
+    assert set(store["openai/m"]["endpoint_tags"]) == {"std-uuid"}
     prices = [o["effective_price_1m"] for o in store["openai/m"]["observations"]]
     assert prices and all(p == pytest.approx(0.2 * W[0] + 0.02 * W[1] + 1.2 * W[2]) for p in prices)
 
     blank = {}
     sync_effective_prices_for_model("openai/n", "openai/n-1", blank, WEIGHTS, 5.0, now=NOW)  # no tags, no endpoints
-    assert "observations" not in blank["openai/n"] or blank["openai/n"]["observations"] == []
-    assert blank["openai/n"].get("basis") is None  # tiers could not be excluded, so no history is derived
+    assert blank["openai/n"].get("basis") is None and not blank["openai/n"].get("observations")
 
 
 def test_run_reports_the_standard_quote_the_endpoint_tag_and_the_only_tier_warning(monkeypatch, tmp_path):

@@ -52,12 +52,12 @@ def test_daily_value_uses_the_cheapest_standard_endpoint_and_the_end_of_day_step
     flex = endpoint("flex", [("2026-09-01T00:00:00Z", 0.05)], [("2026-09-01T00:00:00Z", 0.30)],
                     [("2026-09-01T00:00:00Z", 0.005)])
 
-    out = by_date(derive_listed_daily_prices([std, flex], frozenset({"flex"}), W, TODAY, NOW))
+    out = by_date(derive_listed_daily_prices([std, flex], frozenset({"std"}), W, TODAY, NOW))
 
     assert out["2026-09-13"] == pytest.approx(blend(0.20, 0.02, 1.20))  # 0.06529396
     assert out["2026-09-14"] == pytest.approx(blend(0.10, 0.02, 1.20))  # end-of-day value after the noon cut
     assert out["2026-09-16"] == pytest.approx(blend(0.10, 0.02, 1.20))  # today, at `now`
-    with_flex = by_date(derive_listed_daily_prices([std, flex], frozenset(), W, TODAY, NOW))
+    with_flex = by_date(derive_listed_daily_prices([std, flex], frozenset({"std", "flex"}), W, TODAY, NOW))
     assert with_flex["2026-09-13"] == pytest.approx(blend(0.05, 0.005, 0.30))  # the old, tier-mixed rule
 
 
@@ -66,7 +66,7 @@ def test_endpoint_added_mid_window_is_skipped_before_it_exists_and_missing_cache
     new = endpoint("new", [("2026-09-10T08:00:00Z", 0.10)], [("2026-09-10T08:00:00Z", 1.0)],
                    [("2026-09-10T08:00:00Z", 0.01)])
 
-    out = by_date(derive_listed_daily_prices([old, new], frozenset(), W, TODAY, NOW))
+    out = by_date(derive_listed_daily_prices([old, new], frozenset({"old", "new"}), W, TODAY, NOW))
 
     assert out["2026-09-09"] == pytest.approx(blend(0.30, 0.03, 1.0))  # 10% cache fallback, new endpoint absent
     assert out["2026-09-10"] == pytest.approx(blend(0.10, 0.01, 1.0))  # new endpoint exists by end of day
@@ -74,7 +74,7 @@ def test_endpoint_added_mid_window_is_skipped_before_it_exists_and_missing_cache
 
 def test_days_before_any_point_have_no_value():
     only = endpoint("a", [("2026-09-12T00:00:00Z", 0.2)], [("2026-09-12T00:00:00Z", 1.2)], [("2026-09-12T00:00:00Z", 0.02)])
-    out = by_date(derive_listed_daily_prices([only], frozenset(), W, TODAY, NOW))
+    out = by_date(derive_listed_daily_prices([only], frozenset({"a"}), W, TODAY, NOW))
     assert min(out) == "2026-09-12" and "2026-09-11" not in out
 
 
@@ -210,3 +210,110 @@ def test_local_reads_of_a_legacy_only_store_use_the_cached_quote_and_report_no_h
 
     assert (row.price_1m, row.price_source) == (0.7, "cached_quote")
     assert row.analytics.profile == "NEWLY_TRACKED" and row.analytics.observation_count == 0
+
+
+# --- second independent review: invalid steps, same-day recalibration, partial outage, malformed series ---
+
+def test_invalid_listed_steps_never_displace_a_valid_endpoints_price():
+    valid = endpoint("ok", [("2026-09-01T00:00:00Z", 0.20)], [("2026-09-01T00:00:00Z", 1.20)], [("2026-09-01T00:00:00Z", 0.02)])
+    negative = endpoint("neg", [("2026-09-01T00:00:00Z", -1.0)], [("2026-09-01T00:00:00Z", 1.0)])
+    not_a_number = endpoint("nan", [("2026-09-01T00:00:00Z", float("nan"))], [("2026-09-01T00:00:00Z", 1.0)])
+    infinite = endpoint("inf", [("2026-09-01T00:00:00Z", float("inf"))], [("2026-09-01T00:00:00Z", 0.0)])
+
+    out = derive_listed_daily_prices([valid, negative, not_a_number, infinite],
+                                     frozenset({"ok", "neg", "nan", "inf"}), W, TODAY, NOW)
+
+    assert out and all(o["effective_price_1m"] == pytest.approx(blend(0.20, 0.02, 1.20)) for o in out)
+
+
+def test_an_invalid_step_keeps_the_previous_valid_step_in_effect():
+    cut_then_bad = endpoint("a", [("2026-09-01T00:00:00Z", 0.20), ("2026-09-10T00:00:00Z", -1.0)],
+                            [("2026-09-01T00:00:00Z", 1.20)], [("2026-09-01T00:00:00Z", 0.02)])
+    out = by_date(derive_listed_daily_prices([cut_then_bad], frozenset({"a"}), W, TODAY, NOW))
+    assert out["2026-09-12"] == pytest.approx(blend(0.20, 0.02, 1.20))
+
+
+def test_malformed_nested_series_degrades_to_no_history_instead_of_crashing(monkeypatch):
+    from anticharon import tracker
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def __init__(self, payload):
+            self.payload = payload
+
+        def json(self):
+            return self.payload
+
+    for payload in ({"data": {"series": {"unexpected": "mapping"}}}, {"data": {"series": ["a", 1, None]}},
+                    {"data": {"series": [{"endpointId": "x", "input": "nope"}, "str"]}}):
+        monkeypatch.setattr(tracker.requests, "get", lambda *a, _p=payload, **k: Response(_p))
+        store = {}
+        sync_effective_prices_for_model("m/x", "m/x-1", store, W, 5.0, now=NOW,
+                                        endpoints=endpoints_for(("openai", 0.2, 1.2)))  # must not raise
+        assert not store["m/x"].get("observations")
+
+
+def _run_env(monkeypatch, tmp_path, catalog_prompt="0.0000002"):
+    cfg = tmp_path / "shortlist.json"
+    cfg.write_text(json.dumps({"shortlist": [{"model": "m/x", "source": "manual", "order": 0}]}), encoding="utf-8")
+    monkeypatch.setenv("ANTICHARON_CONFIG", str(cfg))
+    monkeypatch.setenv("ANTICHARON_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("anticharon.tracker.get_hermes_models", lambda **kw: None)
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {
+        "m/x": {"id": "m/x", "canonical_slug": "m/x-1", "pricing": {"prompt": catalog_prompt, "completion": "0.0000012"}}})
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **k: {"series": [STD]})
+
+    class _Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW
+
+    monkeypatch.setattr("anticharon.tracker.datetime", _Clock)
+    return cfg
+
+
+STD_ENDPOINT = {"tag": "openai", "provider_slug": "openai", "provider_name": "OpenAI",
+                "pricing": {"prompt": "2e-7", "completion": "1.2e-6", "input_cache_read": "2e-8"}}
+
+
+def test_same_day_run_after_a_recalibration_rederives_instead_of_reusing_the_old_row(monkeypatch, tmp_path):
+    from anticharon.tracker import run_tracker
+
+    cfg = _run_env(monkeypatch, tmp_path)
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **k: [STD_ENDPOINT])
+    history = tmp_path / "history.csv"
+    first = run_tracker(config_path=cfg, history_path=history, no_hermes=True).prices_shortlist[0]
+    assert first.price_1m == pytest.approx(blend(0.2, 0.02, 1.2))
+
+    cfg.write_text(json.dumps({"shortlist": [{"model": "m/x", "source": "manual", "order": 0}],
+                               "weight_uncached_prompt": 0.5, "weight_cached_prompt": 0.4968,
+                               "weight_completion": 0.0032}), encoding="utf-8")
+    second = run_tracker(config_path=cfg, history_path=history, no_hermes=True).prices_shortlist[0]  # same day, no --force
+
+    expected = 0.2 * 0.5 + 0.02 * 0.4968 + 1.2 * 0.0032
+    assert second.price_1m == pytest.approx(expected) and second.price_source == "live_quote"
+    store = json.loads((tmp_path / "effective_prices.json").read_text(encoding="utf-8"))["m/x"]
+    assert store["weights_used"] == [0.5, 0.4968, 0.0032]
+    assert store["observations"][-1]["effective_price_1m"] == pytest.approx(expected)
+
+
+def test_catalog_fallback_quote_is_flagged_and_not_stored_as_todays_history_point(monkeypatch, tmp_path):
+    from anticharon.tracker import read_check_result, run_tracker
+
+    cfg = _run_env(monkeypatch, tmp_path, catalog_prompt="0.0000064")  # headline blend differs from the history
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **k: [STD_ENDPOINT])
+    history = tmp_path / "history.csv"
+    run_tracker(config_path=cfg, history_path=history, no_hermes=True)  # a normal run first: history exists
+
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **k: [])  # endpoint route down
+    result = run_tracker(config_path=cfg, history_path=history, no_hermes=True, force=True)
+
+    row = result.prices_shortlist[0]
+    assert "QUOTE_FROM_CATALOG" in [m.code for m in result.messages]
+    stored = json.loads((tmp_path / "effective_prices.json").read_text(encoding="utf-8"))["m/x"]["observations"]
+    assert stored[-1]["effective_price_1m"] != pytest.approx(row.price_1m)  # the headline is not history
+    check = read_check_result(config_path=cfg, history_path=history, no_hermes=True).prices_shortlist[0]
+    assert check.price_1m == pytest.approx(stored[-1]["effective_price_1m"])
+    assert check.quote_1m == pytest.approx(row.price_1m)  # visible beside it as `last run quote`

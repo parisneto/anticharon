@@ -218,6 +218,8 @@ def map_endpoint_tags(series: list[dict], endpoints: list[dict]) -> dict[str, st
 
     result: dict[str, str] = {}
     for item in series:
+        if not isinstance(item, dict):
+            continue
         uuid, slug = item.get("endpointId"), item.get("providerSlug") or ""
         p_in, p_out = latest(item, "input"), latest(item, "output")
         if not uuid or p_in is None:
@@ -233,34 +235,37 @@ def map_endpoint_tags(series: list[dict], endpoints: list[dict]) -> dict[str, st
 
 def derive_listed_daily_prices(
     series: list[dict],
-    excluded_endpoint_ids: frozenset[str],
+    standard_endpoint_ids: frozenset[str],
     weights: tuple[float, float, float],
     today,
     now,
     window_days: int = 30,
 ) -> list[dict]:
-    """Daily Anticharon-blended prices from OpenRouter *listed* step series (Phase A,
-    side-by-side only).
+    """Daily Anticharon-blended prices from OpenRouter *listed* step series (D-10).
 
-    For each UTC day in the window the value is the cheapest non-excluded endpoint's
+    For each UTC day in the window the value is the cheapest endpoint's
     `blended_rate_1m` of the listed input/output/cacheRead prices in effect at the end
-    of that day (`now` for today). An endpoint with no point yet that day is skipped;
-    a missing cacheRead falls back to 10% of input, as the live quote does."""
+    of that day (`now` for today), over `standard_endpoint_ids` only: an endpoint whose
+    tag is unknown is not provably standard, so it never sets a price (EH-8). An
+    endpoint with no point yet that day is skipped; a step with a negative or
+    non-finite value is ignored (the previous valid step stays in effect); a missing
+    cacheRead falls back to 10% of input, as the live quote does."""
     from datetime import datetime, time, timedelta, timezone
 
     def parse(value: str) -> datetime:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
-    def value_at(points: list[dict], moment: datetime) -> float | None:
+    def value_at(points: list[dict] | None, moment: datetime) -> float | None:
         current = None
-        for point in points or []:
+        for point in points if isinstance(points, list) else []:
             try:
-                if parse(point["at"]) <= moment:
-                    current = float(point["value"])
-                else:
+                if parse(point["at"]) > moment:
                     break
-            except (KeyError, TypeError, ValueError):
+                value = float(point["value"])
+            except (KeyError, TypeError, ValueError, AttributeError):
                 continue
+            if is_valid_listed_price(value):
+                current = value
         return current
 
     w_uncached, w_cached, w_completion = weights
@@ -270,7 +275,7 @@ def derive_listed_daily_prices(
         moment = now if offset == 0 else datetime.combine(day, time(23, 59, 59), tzinfo=timezone.utc)
         best = None
         for endpoint in series:
-            if endpoint.get("endpointId") in excluded_endpoint_ids:
+            if not isinstance(endpoint, dict) or endpoint.get("endpointId") not in standard_endpoint_ids:
                 continue
             p_in, p_out = value_at(endpoint.get("input"), moment), value_at(endpoint.get("output"), moment)
             if p_in is None or p_out is None:

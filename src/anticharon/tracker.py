@@ -175,7 +175,11 @@ def fetch_listed_pricing(canonical_slug: str, timeout: float = 10.0) -> dict[str
         )
         resp.raise_for_status()
         data = resp.json().get("data", {})
-        return data if isinstance(data, dict) else {}
+        if not isinstance(data, dict):
+            return {}
+        series = data.get("series")
+        # A wrong-typed nested `series` (mapping, strings) degrades to no data, never a crash.
+        return {"series": [item for item in series if isinstance(item, dict)]} if isinstance(series, list) else {}
     except (requests.RequestException, ValueError, AttributeError):
         return {}
 
@@ -292,8 +296,9 @@ def sync_effective_prices_for_model(
     re-derives every stored day without a refetch. Fetch happens when the entry is
     stale (24 h), `force`, or legacy (no `basis` marker: its old observations move to
     `legacy_effective_observations` and are never read). Service-tier endpoints are
-    excluded via `endpoint_tags` (EH-8), merged across refreshes. Without any known
-    tag for the model's endpoints nothing is derived (tiers could not be excluded)."""
+    classified via `endpoint_tags` (EH-8), merged across refreshes: only endpoints with a
+    known standard tag set a price (an unknown tag is not provably standard), so
+    without any known standard endpoint nothing is derived."""
     now = now or datetime.now(timezone.utc)
     entry = store.get(model_id) or {"canonical_slug": canonical_slug}
     legacy = bool(entry.get("observations")) and entry.get("basis") != BASIS_LISTED_BLEND
@@ -319,14 +324,21 @@ def sync_effective_prices_for_model(
     entry["canonical_slug"] = canonical_slug
     if tags:
         entry["endpoint_tags"] = tags
-    if entry.get("listed") and (tags or endpoints):
-        excluded = frozenset(uuid for uuid, tag in tags.items() if is_service_tier_tag(tag))
-        derived = derive_listed_daily_prices(entry["listed"], excluded, weights, now.date(), now)
+    standard = frozenset(uuid for uuid, tag in tags.items() if not is_service_tier_tag(tag))
+    if entry.get("listed") and standard:
+        derived = derive_listed_daily_prices(entry["listed"], standard, weights, now.date(), now)
         if derived:
             entry["observations"] = derived
             entry["basis"] = BASIS_LISTED_BLEND
             entry["weights_used"] = list(weights)
     store[model_id] = entry
+
+
+def _calibration_changed(entry: dict[str, Any] | None, weights: tuple[float, float, float]) -> bool:
+    """True when the entry's history was derived with a different calibration, so a
+    same-day reuse must not keep the old quote and history."""
+    used = (entry or {}).get("weights_used")
+    return used is not None and [round(w, 9) for w in used] != [round(w, 9) for w in weights]
 
 
 def upsert_today_observation(entry: dict[str, Any], today: date, price: float) -> None:
@@ -832,6 +844,7 @@ def run_tracker(
             and existing_record is not None
             and _parse_record_date(existing_record.last_updated) == today
             and not _stored_untracked_identity(effective_store, tracked_model_id)
+            and not _calibration_changed(effective_store.get(tracked_model_id), (w_uncached, w_cached, w_completion))
         )
         if reuse_existing:
             # Same-day rule (D-18/MCP-10): this model was already refreshed
@@ -933,6 +946,11 @@ def run_tracker(
 
         policy_price_1m = policy_result["policy_price_1m"]
         is_policy_routable = policy_result["is_policy_routable"]
+        if policy_result["effective_price_1m"] is None:
+            messages.append(AgentMessage(
+                "info", "QUOTE_FROM_CATALOG",
+                f"Endpoint data for '{tracked_model_id}' was unavailable; its price is the catalog headline "
+                "and was not added to history.", model=tracked_model_id))
         if policy_result["only_non_standard_tiers"]:
             messages.append(AgentMessage(
                 "warning", "ONLY_NON_STANDARD_TIERS",
