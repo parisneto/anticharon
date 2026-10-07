@@ -38,7 +38,7 @@ from anticharon.models import (
 from anticharon.prompts import PROMPTS, render_prompt
 from anticharon.tester import run_self_test
 from anticharon.tracker import read_check_result, read_history_result, run_tracker
-from anticharon.updater import UPDATE_TYPE_ALIASES, UpdateType
+from anticharon.updater import UpdateType, parse_update_type
 from anticharon.updater import check_updates as check_for_updates
 from anticharon.updater import run_update as execute_update
 
@@ -644,6 +644,14 @@ def cmd_help(
     return 2
 
 
+def _update_type_arg(value: str) -> str:
+    """Accept every update type (including deprecated ones) without listing them as choices."""
+    try:
+        return parse_update_type(value).value
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid update type: {value!r} (default: install_only)") from None
+
+
 def build_parser() -> tuple[argparse.ArgumentParser, argparse._SubParsersAction, argparse._SubParsersAction]:
     """Construct the CLI argument parser. Separated from `main()` so tests
     (e.g. the MCP-11 CLI<->MCP parity test) can introspect the real,
@@ -754,8 +762,9 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse._SubParsersAction,
     update_parser.add_argument(
         "--type",
         default=UpdateType.INSTALL_ONLY.value,
-        choices=[*UPDATE_TYPE_ALIASES, *(item.value for item in UpdateType)],
-        help="Update type (default and recommended: install_only, alias 1). Deprecated, planned for removal in 0.8.0: 2/restart_host, 3/phoenix, 4/reload_request",
+        type=_update_type_arg,
+        metavar="TYPE",
+        help="Update type (default: install_only). Reinstalls from the default branch without comparing versions. Other legacy types are deprecated and planned for removal in 0.8.0",
     )
     update_parser.add_argument("--json", action="store_true", help="Output the response envelope as JSON")
 

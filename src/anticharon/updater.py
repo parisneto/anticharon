@@ -11,6 +11,7 @@ from typing import Any
 
 import requests
 
+from anticharon import __version__
 from anticharon.models import AgentMessage
 
 LATEST_RELEASE_URL = "https://api.github.com/repos/parisneto/anticharon/releases/latest"
@@ -132,7 +133,7 @@ def run_update(update_type: UpdateType | str | int) -> tuple[dict[str, Any], lis
         return {"status": "error", "type": selected.value, "update_command": command, "returncode": completed.returncode}, messages
 
     messages.append(AgentMessage("info", "UPDATE_INSTALLED", "The reinstall command completed successfully."))
-    payload: dict[str, Any] = {"status": "success", "type": selected.value, "update_command": command}
+    payload: dict[str, Any] = {"status": "success", "type": selected.value, "update_command": command, "installed_before": __version__}
     if selected is UpdateType.RESTART_HOST:
         restart = subprocess.run(["hermes", "gateway", "restart"], capture_output=True, text=True, timeout=30.0, check=False)
         payload["host_restart_command"] = ["hermes", "gateway", "restart"]
@@ -151,7 +152,8 @@ def run_update(update_type: UpdateType | str | int) -> tuple[dict[str, Any], lis
     else:
         messages.append(AgentMessage(
             "warning", "RESTART_REQUIRED",
-            "Reinstalled. This running server still has the old version, and `check_updates` keeps reporting it, "
-            "until it is reloaded. Hermes: ask the user to send `/reload-mcp` in chat. Other MCP hosts: restart the "
+            "Reinstalled from the default branch, which may hold an older version than the one installed before "
+            f"({__version__}). This running server still has the old version, and `check_updates` keeps reporting it, "
+            "until it is reloaded; then confirm the version. Hermes: ask the user to send `/reload-mcp` in chat. Other MCP hosts: restart the "
             "host or reconnect the MCP server."))
     return payload, messages

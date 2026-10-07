@@ -113,7 +113,7 @@ OPEN decisions block only dependent work.
 | W1 — Data contract (AC-1, AC-2) | IMPLEMENTED at `09ce27c`; independent re-review of audit remediation pending (E-9) | None for W2 start | Review W1; approve W2 start |
 | W2 — Analytics propagation (AC-3 + B) | IMPLEMENTED at `7673c81`; independent review pending (E-9) | None | Review W2 |
 | W3 — Identity and catalog boundaries | IMPLEMENTED at `7bbb0cb`; independent review pending (E-9) | None | Review W3 |
-| Post-review (gate fix, AC-8, AC-9) | IMPLEMENTED at `707b922` (observed-vs-observed alerts, service-tier price, listed-price history basis); review-hardened and time-weighted at `a836b7e` (VM-verified at `c88b278`, before the hardening); independent re-review and VM re-check pending | None | Review; run the VM steps |
+| Post-review (gate fix, AC-8, AC-9) | IMPLEMENTED at `707b922` (observed-vs-observed alerts, service-tier price, listed-price history basis); hardened by review and time-weighted; update-interface fixes after the fifth review. VM-verified: listed-price history and standard tiers at `c88b278`, time-weighted daily value and the MCP update path at `8d17d1b`. Not VM-verified: later hardening and the final head; the VM re-check is planned after the release. Independent re-review pending | None | Review; run the VM steps |
 | W4 — CLI ergonomics, release readiness | AC-7 IMPLEMENTED at `964ea36`; version bumped to 0.7.0 at `15a2b06`; E-9 independent review and PO release sign-off pending | None | Review; sign off release |
 
 Preserve only current truth; reference everything else. At wave end, update

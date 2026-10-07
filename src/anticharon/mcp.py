@@ -41,7 +41,6 @@ from anticharon.models import ERROR_STATUSES, AgentMessage, build_envelope
 from anticharon.prompts import PROMPTS, render_prompt
 from anticharon.storage import CSV_HEADER, get_effective_prices_path, read_effective_prices
 from anticharon.tracker import read_check_result, read_history_result, run_tracker
-from anticharon.updater import UpdateType
 from anticharon.updater import check_updates as check_for_updates
 from anticharon.updater import run_update as execute_update
 
@@ -406,18 +405,19 @@ def check_updates() -> dict[str, Any]:
     annotations=_annotations("Run experimental update", False, True, False, True),
     description=(
         "EXPERIMENTAL. WARNING: Executes shell commands directly on the host; call it only with explicit user intent. "
-        "Reinstalls Anticharon from the repository's default branch (the default type is install_only, and it is the "
-        "only one to use).\n"
+        "Reinstalls Anticharon from the repository's default branch without comparing versions, so the result can be "
+        "older than the installed version; the response reports `installed_before`. The `type` argument is a string "
+        "and defaults to install_only.\n"
         "After it succeeds this running server keeps the old version, and `check_updates` keeps reporting it, until "
         "it is reloaded:\n"
         "- Hermes: ask the user to send `/reload-mcp` in chat.\n"
         "- Other MCP hosts: restart the host or reconnect the MCP server.\n"
-        "Then call `check_updates` to confirm the new version. "
+        "Then call `check_updates` to confirm the installed version. "
         "Deprecated, accepted for compatibility and planned for removal in 0.8.0: restart_host, phoenix, reload_request. "
         "May require manual intervention. See anticharon://llms.txt for the operational glossary."
     ),
 )
-def run_update(type: UpdateType = UpdateType.INSTALL_ONLY) -> dict[str, Any]:
+def run_update(type: str = "install_only") -> dict[str, Any]:
     """Run an experimental named update sequence; use only with explicit user intent."""
     started = time.perf_counter()
     payload, messages = execute_update(type)
