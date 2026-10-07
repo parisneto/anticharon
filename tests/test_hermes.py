@@ -624,6 +624,7 @@ def test_tracking_uses_persisted_shortlist_not_partial_detected_set_on_equal_len
     )
     monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: fake_catalog)
     monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda slug, timeout=10.0: [])
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **kw: {})
 
     tracked = run_tracker(dry_run=False, config_path=cf, history_path=tmp_path / "history.csv")
     assert "HERMES_INCOMPLETE" in _codes(tracked)

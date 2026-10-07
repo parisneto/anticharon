@@ -14,8 +14,8 @@ import json
 import requests
 
 from anticharon.tracker import (
-    fetch_listed_pricing,
     fetch_endpoint_policy_pricing,
+    fetch_listed_pricing,
     fetch_openrouter_models,
 )
 

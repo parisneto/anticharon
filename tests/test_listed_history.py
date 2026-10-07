@@ -350,3 +350,60 @@ def test_catalog_fallback_quote_is_flagged_and_not_stored_as_todays_history_poin
     check = read_check_result(config_path=cfg, history_path=history, no_hermes=True).prices_shortlist[0]
     assert check.price_1m == pytest.approx(stored[-1]["effective_price_1m"])
     assert check.quote_1m == pytest.approx(row.price_1m)  # visible beside it as `last run quote`
+
+
+# --- third independent review ---
+
+def test_stored_history_that_may_contain_a_tier_endpoint_is_dropped_when_no_standard_endpoint_is_known():
+    mystery = endpoint("mystery", [("2026-09-01T00:00:00Z", 0.05)], [("2026-09-01T00:00:00Z", 0.30)],
+                       [("2026-09-01T00:00:00Z", 0.005)])
+    stale = [{"date": "2026-09-15", "effective_price_1m": 0.01632349}]  # derived from an unmapped tier endpoint
+    store = {"m/x": {"canonical_slug": "m/x-1", "last_synced": NOW.isoformat(), "basis": "listed_blend",
+                     "weights_used": list(W), "observations": stale, "listed": [mystery]}}
+
+    sync_effective_prices_for_model("m/x", "m/x-1", store, W, 5.0, now=NOW + timedelta(hours=1))  # no tags, no endpoints
+
+    assert store["m/x"]["observations"] == [] and stored_observations(store["m/x"]) == []
+    assert "basis" not in store["m/x"]
+
+
+def test_a_failed_fetch_with_known_standard_tags_keeps_and_rederives_history():
+    store = {}
+    _sync(store, {"series": [STD]})
+    kept = by_date(store["m/x"]["observations"])
+    _sync(store, {}, force=True, endpoints=[])  # fetch fails and the endpoint route is down; tags are stored
+    assert by_date(store["m/x"]["observations"]).keys() == kept.keys()
+
+
+def test_an_invalid_final_step_does_not_stop_the_tag_join_or_the_history():
+    from anticharon.pricing import map_endpoint_tags
+
+    bad_tail = endpoint("u1", [("2026-09-01T00:00:00Z", 0.20), ("2026-09-10T00:00:00Z", -1.0)],
+                        [("2026-09-01T00:00:00Z", 1.20), ("2026-09-10T00:00:00Z", float("nan"))],
+                        [("2026-09-01T00:00:00Z", 0.02)])
+    endpoints = endpoints_for(("openai", 0.2, 1.2))
+
+    assert map_endpoint_tags([bad_tail], endpoints) == {"u1": "openai"}
+
+    store = {}
+    _sync(store, {"series": [bad_tail]}, endpoints=endpoints)
+    assert store["m/x"]["observations"][-1]["effective_price_1m"] == pytest.approx(blend(0.20, 0.02, 1.20))
+
+
+def test_a_same_day_row_does_not_delay_the_upgrade_of_a_legacy_store(monkeypatch, tmp_path):
+    from anticharon.storage import write_history
+    from anticharon.tracker import run_tracker
+
+    cfg = _run_env(monkeypatch, tmp_path)
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **k: [STD_ENDPOINT])
+    legacy_obs = [{"date": "2026-09-15", "effective_price_1m": 0.09}]
+    (tmp_path / "effective_prices.json").write_text(json.dumps({"m/x": {
+        "canonical_slug": "m/x-1", "first_seen": "2026-08-01", "last_synced": NOW.isoformat(),
+        "observations": legacy_obs}}), encoding="utf-8")
+    write_history([["m/x", NOW.isoformat(), 0.5, 0.2, 1.2, 0.5, 0.5] + [None] * 9], tmp_path / "history.csv")  # today's row
+
+    result = run_tracker(config_path=cfg, history_path=tmp_path / "history.csv", no_hermes=True)  # no --force
+
+    assert result.prices_shortlist[0].price_source == "live_quote"  # refreshed, not the cached 0.5
+    entry = json.loads((tmp_path / "effective_prices.json").read_text(encoding="utf-8"))["m/x"]
+    assert entry["basis"] == "listed_blend" and entry["legacy_effective_observations"] == legacy_obs

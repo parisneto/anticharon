@@ -8,6 +8,7 @@ w_uncached) + (P_cache_read × w_cached) + (P_out × w_completion)`. A 2-compone
 regression measurable (see `tests/test_golden_pricing.py`), not as a live path.
 """
 
+import itertools
 import math
 
 
@@ -210,11 +211,16 @@ def map_endpoint_tags(series: list[dict], endpoints: list[dict]) -> dict[str, st
         by_out.setdefault((prefix, p_out), set()).add(tag)
 
     def latest(item: dict, key: str) -> float | None:
-        points = item.get(key) or []
-        try:
-            return round(float(points[-1]["value"]), 4)
-        except (IndexError, KeyError, TypeError, ValueError):
-            return None
+        """The last valid step (negative or non-finite steps are ignored, as in history)."""
+        points = item.get(key)
+        for point in reversed(points if isinstance(points, list) else []):
+            try:
+                value = float(point["value"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if is_valid_listed_price(value):
+                return round(value, 4)
+        return None
 
     result: dict[str, str] = {}
     for item in series:
@@ -311,7 +317,7 @@ def derive_listed_daily_prices(
             inside = [t for t in change_times if start < t < end]
             boundaries = sorted({start, end, *inside})
             weighted = duration = 0.0
-            for left, right in zip(boundaries, boundaries[1:], strict=False):
+            for left, right in itertools.pairwise(boundaries):
                 rate = cheapest_at(left)
                 if rate is not None:
                     seconds = (right - left).total_seconds()

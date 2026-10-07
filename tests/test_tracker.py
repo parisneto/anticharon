@@ -700,8 +700,13 @@ def test_run_tracker_survives_nested_schema_drift_on_both_stats_routes(monkeypat
     assert model_price.price.cache_hit_rate_used != pytest.approx(0.764478, abs=1e-4)
 
 
+STD_SOL_ENDPOINT = {"tag": "openai", "provider_slug": "openai", "provider_name": "OpenAI",
+                    "pricing": {"prompt": "0.000002", "completion": "0.00001"}}
+
+
 def _analytics_profile_for_store(monkeypatch, tmp_path, observation_days, first_seen):
     """Run the tracker with a fresh seeded store and return the model's analytics."""
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **kw: [STD_SOL_ENDPOINT])
     monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {
         "openai/gpt-5.6-sol": {
             "id": "openai/gpt-5.6-sol",
@@ -794,6 +799,7 @@ def test_run_then_check_and_history_are_identical_and_offline_run_agrees(monkeyp
     _seed_store_with_today(tmp_path, fixed_now.date(), days=14)
     cfg = _write_shortlist(tmp_path, ["openai/gpt-5.6-sol"])
     hist = tmp_path / "history.csv"
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **kw: [STD_SOL_ENDPOINT])
     monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {
         "openai/gpt-5.6-sol": {
             "id": "openai/gpt-5.6-sol", "canonical_slug": "openai/gpt-5.6-sol-20260709",

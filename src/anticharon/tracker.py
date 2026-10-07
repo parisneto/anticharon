@@ -325,13 +325,25 @@ def sync_effective_prices_for_model(
     if tags:
         entry["endpoint_tags"] = tags
     standard = frozenset(uuid for uuid, tag in tags.items() if not is_service_tier_tag(tag))
-    if entry.get("listed") and standard:
+    if entry.get("listed") and not standard:
+        # No endpoint is provably standard, so any stored history may contain a tier
+        # endpoint's prices: it is dropped, never kept as if it were standard-tier.
+        entry["observations"] = []
+        entry.pop("basis", None)
+    elif entry.get("listed"):
         derived = derive_listed_daily_prices(entry["listed"], standard, weights, now.date(), now)
         if derived:
             entry["observations"] = derived
             entry["basis"] = BASIS_LISTED_BLEND
             entry["weights_used"] = list(weights)
     store[model_id] = entry
+
+
+def _needs_upgrade(entry: dict[str, Any] | None) -> bool:
+    """True for a legacy entry (observations without the listed-basis marker): a same-day
+    row must not delay its migration."""
+    entry = entry or {}
+    return bool(entry.get("observations")) and entry.get("basis") != BASIS_LISTED_BLEND
 
 
 def _calibration_changed(entry: dict[str, Any] | None, weights: tuple[float, float, float]) -> bool:
@@ -845,6 +857,7 @@ def run_tracker(
             and _parse_record_date(existing_record.last_updated) == today
             and not _stored_untracked_identity(effective_store, tracked_model_id)
             and not _calibration_changed(effective_store.get(tracked_model_id), (w_uncached, w_cached, w_completion))
+            and not _needs_upgrade(effective_store.get(tracked_model_id))
         )
         if reuse_existing:
             # Same-day rule (D-18/MCP-10): this model was already refreshed
