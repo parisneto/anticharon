@@ -4,6 +4,8 @@ import argparse
 import json
 from pathlib import Path
 
+import pytest
+
 from anticharon import mcp
 from anticharon.cli import cmd_check_updates, cmd_update
 from anticharon.updater import UpdateType, check_updates, run_update
@@ -152,3 +154,67 @@ def test_cli_update_commands_preserve_envelope_parity(monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out)["is_latest"] is True
     assert cmd_update(argparse.Namespace(type="reload_request", json=True)) == 0
     assert json.loads(capsys.readouterr().out)["type"] == "reload_request"
+
+
+def test_install_only_tells_hermes_and_other_hosts_how_to_activate_the_new_version(monkeypatch):
+    monkeypatch.setattr("anticharon.updater.shutil.which", lambda name: "/usr/bin/uv")
+    monkeypatch.setattr("anticharon.updater.subprocess.run", lambda command, **kwargs: _Process())
+
+    _, messages = run_update("install_only")
+
+    text = next(m.text for m in messages if m.code == "RESTART_REQUIRED")
+    assert "/reload-mcp" in text and "Hermes" in text
+    assert "restart" in text and "reconnect" in text  # generic hosts
+    assert "check_updates" in text  # the stale version report is called out
+
+
+def test_the_mcp_update_tool_advertises_only_install_only_and_marks_the_rest_deprecated():
+    import asyncio
+
+    from anticharon.mcp import server
+
+    tool = next(t for t in asyncio.run(server.list_tools()) if t.name == "run_update")
+    description = tool.description
+    assert "install_only" in description and "/reload-mcp" in description
+    assert "restart or reconnect" in description.replace("restart the host or reconnect", "restart or reconnect") or "reconnect the MCP server" in description
+    assert "Deprecated" in description and "0.8.0" in description
+    for deprecated in ("restart_host", "phoenix", "reload_request"):
+        assert f"- {deprecated}:" not in description  # no longer presented as options
+
+
+def test_update_reports_the_version_it_replaced_and_that_the_default_branch_may_be_older(monkeypatch):
+    from anticharon import __version__
+
+    monkeypatch.setattr("anticharon.updater.shutil.which", lambda name: "/usr/bin/uv")
+    monkeypatch.setattr("anticharon.updater.subprocess.run", lambda command, **kwargs: _Process())
+
+    payload, messages = run_update("install_only")
+
+    assert payload["running_version"] == __version__
+    text = next(m.text for m in messages if m.code == "RESTART_REQUIRED")
+    assert "older version" in text and "running server" in text and __version__ in text
+
+
+def test_deprecated_update_types_are_accepted_but_not_listed_in_cli_help_or_the_mcp_schema(capsys):
+    import asyncio
+
+    from anticharon.cli import build_parser
+    from anticharon.mcp import server
+
+    parser, _, _ = build_parser()
+    for value in ("install_only", "1", "2", "phoenix", "reload_request"):
+        assert parser.parse_args(["update", "--type", value]).type in {"install_only", "restart_host", "phoenix", "reload_request"}
+    with pytest.raises(SystemExit):
+        parser.parse_args(["update", "--type", "bogus"])
+    capsys.readouterr()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["update", "-h"])
+    help_text = capsys.readouterr().out
+    for hidden in ("restart_host", "phoenix", "reload_request", "{1,2,3,4"):
+        assert hidden not in help_text
+
+    tool = next(t for t in asyncio.run(server.list_tools()) if t.name == "run_update")
+    schema = json.dumps(tool.input_schema)
+    for hidden in ("restart_host", "phoenix", "reload_request", "enum"):
+        assert hidden not in schema
+    assert tool.input_schema["properties"]["type"]["default"] == "install_only"

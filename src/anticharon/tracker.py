@@ -16,9 +16,10 @@ from typing import Any
 
 import requests
 
-from anticharon.analytics import calculate_model_analytics
+from anticharon.analytics import calculate_model_analytics, valid_observations
 from anticharon.config import (
     default_model,
+    entry_by_model as entry_by_model_map,
     get_config_path,
     get_history_path,
     load_config,
@@ -32,15 +33,24 @@ from anticharon.hermes import (
 from anticharon.models import (
     AgentMessage,
     HermesIntegrationStatus,
+    ModelAnalytics,
     ModelPrice,
+    NotTrackedModel,
     PricePoint,
+    PriceRecord,
     PriceWarning,
     TrackerResult,
 )
 from anticharon.pricing import (
+    BASIS_LISTED_BLEND,
+    HISTORY_METHOD,
     blended_rate_1m,
     derive_cache_hit_rate,
+    derive_listed_daily_prices,
+    endpoint_tag,
+    is_service_tier_tag,
     is_valid_listed_price,
+    map_endpoint_tags,
     parse_required_price_1m,
     resolve_cache_read_price_1m,
 )
@@ -62,7 +72,7 @@ OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 # contract as every other network call in this codebase (see PLAN.md "Policy (ZDR)
 # pricing data source" and "28-Day Backfill").
 OPENROUTER_ENDPOINT_STATS_URL = "https://openrouter.ai/api/frontend/v1/stats/endpoint"
-OPENROUTER_EFFECTIVE_PRICING_URL = "https://openrouter.ai/api/frontend/v1/stats/effective-pricing"
+OPENROUTER_LISTED_PRICING_URL = "https://openrouter.ai/api/frontend/v1/stats/listed-pricing"
 
 PREVIEW_ONLY_RUN_MESSAGE = AgentMessage(
     "info", "PREVIEW_ONLY",
@@ -154,19 +164,13 @@ def extract_endpoint_listed_prices_1m(endpoints: list[dict[str, Any]]) -> list[f
     return prices
 
 
-def fetch_effective_pricing_history(canonical_slug: str, timeout: float = 10.0) -> dict[str, Any]:
-    """28-day backfill source. `range=1m` is required for ~30 days of daily
-    observations -- live-verified: the bare/default call (no `range`) only
-    returns the last 8 days. Graceful degradation: {} on failure, or when the
-    model has no persistent history of its own (e.g. a `~`-prefixed router
-    alias like `~deepseek/deepseek-pro-latest`, live-verified to return an
-    empty-but-200-OK payload since "latest" has no fixed permaslug identity).
-    Also degrades to {} for a wrong-typed nested `data` payload (e.g. a list
-    instead of a mapping) -- never raise past this function into
-    `_reduce_to_daily_observations` (PE2-006)."""
+def fetch_listed_pricing(canonical_slug: str, timeout: float = 10.0) -> dict[str, Any]:
+    """Frontend `listed-pricing` series: per endpoint (same UUIDs as the effective
+    route), step-change lists of posted input/output/cacheRead/cacheWrite/discount
+    prices, discounts applied, no cache-hit effect. `{}` on any failure."""
     try:
         resp = requests.get(
-            OPENROUTER_EFFECTIVE_PRICING_URL,
+            OPENROUTER_LISTED_PRICING_URL,
             params={"permaslug": canonical_slug, "shape": "v7", "variant": "standard", "range": "1m"},
             timeout=timeout,
         )
@@ -174,8 +178,10 @@ def fetch_effective_pricing_history(canonical_slug: str, timeout: float = 10.0) 
         data = resp.json().get("data", {})
         if not isinstance(data, dict):
             return {}
-        return data
-    except Exception:
+        series = data.get("series")
+        # A wrong-typed nested `series` (mapping, strings) degrades to no data, never a crash.
+        return {"series": [item for item in series if isinstance(item, dict)]} if isinstance(series, list) else {}
+    except (requests.RequestException, ValueError, AttributeError):
         return {}
 
 
@@ -215,15 +221,26 @@ def resolve_policy_pricing(
     data is available). policy_price_1m/is_policy_routable/excluded_providers are
     only populated when `zdr_only` is active -- an inactive policy filter means
     there's no policy price at all (see PLAN.md "Core pricing semantics")."""
+    # EH-8 (D-9): the price is the cheapest *standard-tier* endpoint. Service-tier
+    # endpoints (flex/fast/priority/...) are different products, not cheaper standard
+    # ones. With no usable standard endpoint, fall back to all endpoints and say so.
+    standard = [ep for ep in endpoints if not is_service_tier_tag(endpoint_tag(ep))]
+    only_non_standard = bool(endpoints) and not any(
+        _endpoint_blended_rate_1m(ep, w_uncached, w_cached, w_completion) is not None for ep in standard)
+    usable = endpoints if only_non_standard else standard
+
     rates: list[float] = []
     zdr_rates: list[float] = []
     excluded_providers: list[str] = []
+    best: tuple[float, str | None] | None = None
 
-    for ep in endpoints:
+    for ep in usable:
         rate = _endpoint_blended_rate_1m(ep, w_uncached, w_cached, w_completion)
         if rate is None:
             continue
         rates.append(rate)
+        if best is None or rate < best[0]:
+            best = (rate, endpoint_tag(ep) or None)
         if zdr_only:
             data_policy = (ep.get("provider_info") or {}).get("dataPolicy") or {}
             if data_policy.get("retainsPrompts") is False:
@@ -233,6 +250,8 @@ def resolve_policy_pricing(
 
     result: dict[str, Any] = {
         "effective_price_1m": min(rates) if rates else None,
+        "effective_endpoint_tag": best[1] if best else None,
+        "only_non_standard_tiers": only_non_standard and bool(rates),
         "policy_price_1m": None,
         "is_policy_routable": None,
         "excluded_providers": [],
@@ -250,84 +269,285 @@ def resolve_policy_pricing(
     return result
 
 
-def _reduce_to_daily_observations(history_data: dict[str, Any], w_completion: float) -> list[dict[str, Any]]:
-    """Collapse the effective-pricing route's per-endpoint daily input/output series
-    into one blended $/1M observation per calendar day (the cheapest endpoint that
-    day). OpenRouter's per-endpoint series is already cache-weighted by that
-    provider's real traffic that day -- only the input/output combination is ours
-    to apply, via the locally calibrated `weight_completion` split."""
-    input_series = history_data.get("inputChartData") or []
-    output_series = history_data.get("outputChartData") or []
-    output_by_date: dict[str, dict[str, float]] = {
-        entry.get("x", "").split(" ")[0]: (entry.get("y") or {}) for entry in output_series
-    }
-
-    observations: list[dict[str, Any]] = []
-    for entry in input_series:
-        date_str = entry.get("x", "").split(" ")[0]
-        if not date_str:
-            continue
-        input_by_endpoint = entry.get("y") or {}
-        output_by_endpoint = output_by_date.get(date_str, {})
-
-        day_rates = []
-        for endpoint_id, input_price in input_by_endpoint.items():
-            output_price = output_by_endpoint.get(endpoint_id)
-            if output_price is None:
-                continue
-            try:
-                day_rates.append(float(input_price) * (1 - w_completion) + float(output_price) * w_completion)
-            except (ValueError, TypeError):
-                continue
-
-        if day_rates:
-            observations.append({"date": date_str, "effective_price_1m": min(day_rates)})
-
-    return observations
+def stored_observations(entry: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """A model's dated observations, only when they are on the listed-price,
+    Anticharon-blended basis. Entries from before that basis carry no marker and are
+    treated as having none, so the two bases are never mixed (their series is kept
+    as `legacy_effective_observations`)."""
+    entry = entry or {}
+    return entry.get("observations") or [] if entry.get("basis") == BASIS_LISTED_BLEND else []
 
 
 def sync_effective_prices_for_model(
     model_id: str,
     canonical_slug: str,
     store: dict[str, Any],
-    w_completion: float,
+    weights: tuple[float, float, float],
     timeout: float,
     now: datetime | None = None,
+    endpoints: list[dict[str, Any]] | None = None,
+    force: bool = False,
 ) -> None:
-    """Backfill/refresh one model's granular observations in `store`, in place,
-    respecting the store's own staleness policy (independent of history.csv's
-    per-run cadence). Mutates `store[model_id]`."""
-    if not is_model_backfill_stale(store, model_id, now=now):
-        return
+    """Refresh one model's history in `store`, in place. History is OpenRouter's
+    *listed* prices (discounts applied, no cache-hit effect) per endpoint, blended
+    with the calibration: each UTC day is the cheapest standard-tier endpoint's
+    blend (`derive_listed_daily_prices`), the same definition as the live quote.
 
+    The raw `listed` steps and the `weights_used` are stored, so a recalibration
+    re-derives every stored day without a refetch. Fetch happens when the entry is
+    stale (24 h), `force`, or legacy (no `basis` marker: its old observations move to
+    `legacy_effective_observations` and are never read). Service-tier endpoints are
+    classified via `endpoint_tags` (EH-8), merged across refreshes: only endpoints with a
+    known standard tag set a price (an unknown tag is not provably standard), so
+    without any known standard endpoint nothing is derived."""
     now = now or datetime.now(timezone.utc)
-    history_data = fetch_effective_pricing_history(canonical_slug, timeout=timeout)
-    new_observations = _reduce_to_daily_observations(history_data, w_completion)
+    entry = store.get(model_id) or {"canonical_slug": canonical_slug}
+    legacy = bool(entry.get("observations")) and entry.get("basis") != BASIS_LISTED_BLEND
+    if legacy:
+        entry["legacy_effective_observations"] = entry.pop("observations")
+        entry["observations"] = []
+        entry.pop("basis", None)
 
-    entry = store.get(model_id) or {"canonical_slug": canonical_slug, "observations": []}
+    tags: dict[str, str] = dict(entry.get("endpoint_tags") or {})
+    fetched = False
+    if force or legacy or is_model_backfill_stale({model_id: entry}, model_id, now=now):
+        listed_series = (fetch_listed_pricing(canonical_slug, timeout=timeout).get("series") or [])
+        if endpoints:
+            tags.update(map_endpoint_tags(listed_series, endpoints))
+        if listed_series:
+            entry["listed"] = [{k: item.get(k) for k in ("endpointId", "providerSlug", "input", "output", "cacheRead")}
+                               for item in listed_series]
+            fetched = True
+        if fetched or not legacy:
+            entry["last_synced"] = now.isoformat()
+
     entry.setdefault("first_seen", now.date().isoformat())
     entry["canonical_slug"] = canonical_slug
-    entry["last_synced"] = now.isoformat()
-    if new_observations:
-        # Only overwrite when the fetch actually returned data -- a transient
-        # failure or a router alias with no fixed history must not destroy
-        # previously accumulated real observations.
-        entry["observations"] = new_observations
+    if tags:
+        entry["endpoint_tags"] = tags
+    standard = frozenset(uuid for uuid, tag in tags.items() if not is_service_tier_tag(tag))
+    if entry.get("listed") and not standard:
+        # No endpoint is provably standard, so any stored history may contain a tier
+        # endpoint's prices: it is dropped, never kept as if it were standard-tier.
+        entry["observations"] = []
+        entry.pop("basis", None)
+    elif entry.get("listed"):
+        derived = derive_listed_daily_prices(entry["listed"], standard, weights, now.date(), now)
+        if derived:
+            entry["observations"] = derived
+            entry["basis"] = BASIS_LISTED_BLEND
+            entry["history_method"] = HISTORY_METHOD
+            entry["weights_used"] = list(weights)
     store[model_id] = entry
 
 
-def tracking_days_elapsed(store: dict[str, Any], model_id: str, today: date) -> int | None:
-    """Elapsed calendar days since a model was first tracked, per the granular
-    store's `first_seen` -- drives analytics.py's NEWLY_TRACKED threshold.
-    `None` (unknown) when the model has no store entry yet."""
-    entry = store.get(model_id)
-    if not entry or not entry.get("first_seen"):
-        return None
+def _needs_upgrade(entry: dict[str, Any] | None) -> bool:
+    """True for an entry whose history was not derived by the current rule: legacy
+    (observations without the listed-basis marker) or an older daily-value formula. A
+    same-day row must not delay its migration."""
+    entry = entry or {}
+    return bool(entry.get("observations")) and (
+        entry.get("basis") != BASIS_LISTED_BLEND or entry.get("history_method") != HISTORY_METHOD)
+
+
+def _calibration_changed(entry: dict[str, Any] | None, weights: tuple[float, float, float]) -> bool:
+    """True when the entry's history was derived with a different calibration, so a
+    same-day reuse must not keep the old quote and history."""
+    used = (entry or {}).get("weights_used")
+    return used is not None and [round(w, 9) for w in used] != [round(w, 9) for w in weights]
+
+
+def upsert_today_observation(entry: dict[str, Any], today: date, price: float) -> None:
+    """Today's point is the run's live quote, so the last stored point equals what
+    `run` showed (and `check`/`history` right after it). Only on the listed basis."""
+    if entry.get("basis") != BASIS_LISTED_BLEND:
+        return
+    day = today.isoformat()
+    others = [o for o in entry.get("observations") or [] if o.get("date") != day]
+    entry["observations"] = [*others, {"date": day, "effective_price_1m": price}]
+
+
+def _analytics_for(
+    store: dict[str, Any], model_id: str, current_price: float, today: date,
+    candidates: dict[str, float], current_default: str | None, cfg: dict[str, Any],
+) -> ModelAnalytics:
+    """Analytics for one model from its dated observations in the granular store."""
+    return calculate_model_analytics(
+        model_id=model_id,
+        current_price=current_price,
+        observations=stored_observations(store.get(model_id)),
+        today=today,
+        candidate_prices=candidates,
+        current_default=current_default,
+        min_tracking_days_for_profile=cfg.get("min_tracking_days_for_profile", 14),
+    )
+
+
+IDENTITY_TTL_HOURS = 24.0
+
+
+def _identity_diagnostic(slug: str, identity: str, resolved_id: str | None) -> tuple[str, str]:
+    if identity == "redirect":
+        return "REDIRECT_IDENTITY", (
+            f"'{slug}' is a redirect alias (catalog id '{resolved_id}') with no fixed model identity; "
+            "no price or history is attributed to it.")
+    return "NO_EXACT_MATCH", (
+        f"'{slug}' has no exact catalog entry; it is not priced or tracked.")
+
+
+def _stored_untracked_identity(store: dict[str, Any], slug: str) -> tuple[str, str | None] | None:
+    """(identity, resolved_id) when the store records `slug` as a redirect or
+    unresolved slug, else None. Observations never override this state."""
+    entry = store.get(slug) or {}
+    if entry.get("identity") in ("redirect", "unresolved"):
+        return entry["identity"], entry.get("resolved_id")
+    return None
+
+
+def _not_tracked(
+    slug: str, identity: str, resolved_id: str | None,
+    entry_map: dict[str, dict[str, Any]], current_default: str | None,
+) -> NotTrackedModel:
+    code, diagnostic = _identity_diagnostic(slug, identity, resolved_id)
+    return NotTrackedModel(
+        model=slug, identity=identity, code=code, diagnostic=diagnostic, resolved_id=resolved_id,
+        source=entry_map.get(slug, {}).get("source"), is_default=slug == current_default,
+    )
+
+
+def _identity_is_fresh(entry: dict[str, Any], now: datetime) -> bool:
     try:
-        first_seen = date.fromisoformat(entry["first_seen"])
-    except (ValueError, TypeError):
+        checked = datetime.fromisoformat(entry["identity_checked"])
+    except (KeyError, ValueError, TypeError):
+        return False
+    if checked.tzinfo is None:
+        checked = checked.replace(tzinfo=timezone.utc)
+    return (now - checked).total_seconds() < IDENTITY_TTL_HOURS * 3600
+
+
+def _resolve_unmatched_identity(
+    store: dict[str, Any], slug: str, catalog: dict[str, Any], now: datetime, force: bool,
+) -> tuple[str, str | None, bool]:
+    """Identity of a slug absent from the catalog: `redirect` when OpenRouter lists
+    exactly `~<slug>`, else `unresolved`. A stored redirect/unresolved state younger
+    than 24h is reused without re-resolving unless `force`. Returns
+    (identity, resolved_id, store_changed); the slug is never rewritten."""
+    entry = store.get(slug) or {}
+    stored = _stored_untracked_identity(store, slug)
+    if stored and not force and _identity_is_fresh(entry, now):
+        return stored[0], stored[1], False
+    alias = f"~{slug}"
+    identity, resolved_id = ("redirect", alias) if alias in catalog else ("unresolved", None)
+    entry["identity"] = identity
+    entry["resolved_id"] = resolved_id
+    entry["identity_checked"] = now.isoformat()
+    store[slug] = entry
+    return identity, resolved_id, True
+
+
+def _record_exact_identity(store: dict[str, Any], slug: str, now: datetime) -> None:
+    entry = store.setdefault(slug, {})
+    entry["identity"] = "exact"
+    entry["resolved_id"] = slug
+    entry["identity_checked"] = now.isoformat()
+
+
+def _stored_not_tracked(
+    store: dict[str, Any], slugs: list[str], entry_map: dict[str, dict[str, Any]], current_default: str | None,
+) -> list[NotTrackedModel]:
+    rows = []
+    for slug in slugs:
+        stored = _stored_untracked_identity(store, slug)
+        if stored:
+            rows.append(_not_tracked(slug, stored[0], stored[1], entry_map, current_default))
+    return rows
+
+
+def _observation_list(valid: dict[date, float]) -> list[dict[str, Any]]:
+    """Valid observations (see `valid_observations`) back in stored-entry shape."""
+    return [{"date": d.isoformat(), "effective_price_1m": p} for d, p in sorted(valid.items())]
+
+
+def _candidate_prices(
+    prices: list[ModelPrice], store: dict[str, Any], today: date,
+) -> dict[str, float]:
+    """Sibling-comparison prices on the stored-evidence basis every surface shares:
+    the latest stored observation, else the row's own (quote) price."""
+    result = {}
+    for p in prices:
+        view = _stored_price_view(store, p.model, today)
+        result[p.model] = view[0] if view else p.price_1m
+    return result
+
+
+def _stored_price_view(
+    store: dict[str, Any], model_id: str, today: date,
+) -> tuple[float, date, float, float] | None:
+    """(price, price_date, ma_3d, ma_7d) from a model's dated observations in the
+    granular store: the latest valid observation and moving averages derived from
+    the observations (same rule as `run`). `None` when the model has none."""
+    valid = valid_observations(stored_observations(store.get(model_id)), today)
+    if not valid:
         return None
-    return (today - first_seen).days
+    latest = max(valid)
+    price = valid[latest]
+    derived = derive_history_window(_observation_list(valid), today=today)
+    ma_3d = derived["ma_3d"] if derived["ma_3d"] is not None else price
+    ma_7d = derived["ma_7d"] if derived["ma_7d"] is not None else price
+    return price, latest, ma_3d, ma_7d
+
+
+def _observed_move(
+    store: dict[str, Any], model_id: str, today: date,
+) -> tuple[float, float | None, float | None]:
+    """(delta_7d_pct, latest observation, observed 7-day average) for a model, all on
+    the observation basis. With no observations: (0.0, None, None) so no alert."""
+    view = _stored_price_view(store, model_id, today)
+    if view is None:
+        return 0.0, None, None
+    price, _date, _ma3, ma7 = view
+    return ((price - ma7) / ma7 * 100 if ma7 > 0 else 0.0), price, ma7
+
+
+def _price_move_alert(model_id: str, delta: float, observed: float | None, threshold: float) -> PriceWarning | None:
+    """PRICE_SPIKE/PRICE_DROP from an observation-vs-observed-average move (the live
+    quote never raises one)."""
+    if observed is None:
+        return None
+    if delta >= threshold:
+        return PriceWarning(type="PRICE_SPIKE", model=model_id,
+                            message=f"Model {model_id} price spiked +{delta:.1f}% vs 7-day observed average. Latest observed: ${observed:.5f}/1M.")
+    if delta <= -threshold:
+        return PriceWarning(type="PRICE_DROP", model=model_id,
+                            message=f"Model {model_id} price dropped {abs(delta):.1f}% vs 7-day observed average. Latest observed: ${observed:.5f}/1M.")
+    return None
+
+
+def _quote_vs_observed(quote: float | None, observed: float | None) -> float | None:
+    return (quote - observed) / observed * 100 if quote is not None and observed else None
+
+
+def _local_price_row(
+    model_id: str, record: PriceRecord | None, store: dict[str, Any], today: date,
+) -> tuple[float, float, float, str, date | None, float | None, date | None] | None:
+    """(price, ma_3d, ma_7d, price_source, price_date, quote, quote_date) for a local
+    read: the latest stored observation when the model has any (`observation`, with
+    the last run's exported quote alongside when there is one), else the exported
+    quote itself (`cached_quote`), else `None`."""
+    view = _stored_price_view(store, model_id, today)
+    quote_date = _parse_record_date(record.last_updated) if record else None
+    if view is not None:
+        price, price_date, ma_3d, ma_7d = view
+        return (price, ma_3d, ma_7d, "observation", price_date,
+                record.effective_price_1m if record else None, quote_date)
+    if record is None:
+        return None
+    return (record.effective_price_1m, record.ma_3d, record.ma_7d, "cached_quote", quote_date, None, None)
+
+
+def _iso_date(last_updated: str) -> str | None:
+    parsed = _parse_record_date(last_updated)
+    return parsed.isoformat() if parsed else None
 
 
 def _parse_record_date(last_updated: str) -> date | None:
@@ -383,7 +603,7 @@ def _recompute_next_fallback_alert(
     """
     if not current_default:
         return None
-    default_entry = next((entry for entry in entries if entry["model"] == current_default), None)
+    default_entry = entry_by_model_map(entries).get(current_default)
     if not default_entry or default_entry.get("source") != "hermes":
         return None
     fallback_entries = sorted(
@@ -562,7 +782,7 @@ def run_tracker(
     if dry_run:
         messages.append(PREVIEW_ONLY_RUN_MESSAGE)
     current_default = default_model(cfg.get("_shortlist_entries", []))
-    entry_by_model = {entry["model"]: entry for entry in cfg.get("_shortlist_entries", [])}
+    entry_by_model = entry_by_model_map(cfg.get("_shortlist_entries", []))
     if current_default is None:
         messages.append(AgentMessage("info", "NO_DEFAULT",
             "No default model is set; default-based alerts are off. Set one with model add --default."))
@@ -585,15 +805,16 @@ def run_tracker(
     if not models_api and history:
         prices_shortlist = []
         for fallback_model_id in shortlist:
-            if fallback_model_id in history:
+            if fallback_model_id in history and not _stored_untracked_identity(effective_store, fallback_model_id):
                 rec = history[fallback_model_id]
-                delta_7d_pct = ((rec.effective_price_1m - rec.ma_7d) / rec.ma_7d) * 100 if rec.ma_7d > 0 else 0.0
+                delta_7d_pct, fb_observed, fb_ma7 = _observed_move(effective_store, fallback_model_id, today)
                 prices_shortlist.append(ModelPrice(
                     model=fallback_model_id,
                     price_1m=rec.effective_price_1m,
-                    ma_7d=rec.ma_7d,
+                    ma_7d=fb_ma7 if fb_ma7 is not None else rec.ma_7d,
                     ma_3d=rec.ma_3d,
                     change_vs_7d_pct=delta_7d_pct,
+                    quote_vs_observed_pct=_quote_vs_observed(rec.effective_price_1m, fb_observed),
                     price=PricePoint(
                         advertised_prompt_1m=rec.advertised_prompt_1m,
                         advertised_completion_1m=rec.advertised_completion_1m,
@@ -603,23 +824,14 @@ def run_tracker(
                     canonical_slug=(effective_store.get(fallback_model_id) or {}).get("canonical_slug"),
                     source=entry_by_model.get(fallback_model_id, {}).get("source"),
                     is_default=fallback_model_id == current_default,
+                    price_source="cached_quote",
+                    price_date=_iso_date(rec.last_updated),
                 ))
         prices_shortlist.sort(key=lambda x: x.price_1m)
         if enable_analytics:
-            cand = {p.model: p.price_1m for p in prices_shortlist}
-            c_def = current_default
-            min_tracking_days = cfg.get("min_tracking_days_for_profile", 14)
+            cand = _candidate_prices(prices_shortlist, effective_store, today)
             for p in prices_shortlist:
-                if p.model in history:
-                    p.analytics = calculate_model_analytics(
-                        model_id=p.model,
-                        current_price=p.price_1m,
-                        history_prices=history[p.model].prices,
-                        candidate_prices=cand,
-                        current_default=c_def,
-                        min_tracking_days_for_profile=min_tracking_days,
-                        tracking_days_elapsed=tracking_days_elapsed(effective_store, p.model, today),
-                    )
+                p.analytics = _analytics_for(effective_store, p.model, p.price_1m, today, cand, current_default, cfg)
         return TrackerResult(
             status="success",
             timestamp=now_iso,
@@ -632,11 +844,14 @@ def run_tracker(
             analytics_mode=enable_analytics,
             hints_enabled=hints_enabled,
             messages=[API_FALLBACK_MESSAGE, *messages],
+            not_tracked=_stored_not_tracked(effective_store, shortlist, entry_by_model, current_default),
         )
 
     updated_records = []
     prices_shortlist = []
     warnings = []
+    not_tracked: list[NotTrackedModel] = []
+    identity_changed = False
 
     for tracked_model_id in shortlist:
         existing_record = history.get(tracked_model_id)
@@ -644,6 +859,9 @@ def run_tracker(
             not force and not zdr_only and model_id is None
             and existing_record is not None
             and _parse_record_date(existing_record.last_updated) == today
+            and not _stored_untracked_identity(effective_store, tracked_model_id)
+            and not _calibration_changed(effective_store.get(tracked_model_id), (w_uncached, w_cached, w_completion))
+            and not _needs_upgrade(effective_store.get(tracked_model_id))
         )
         if reuse_existing:
             # Same-day rule (D-18/MCP-10): this model was already refreshed
@@ -651,26 +869,17 @@ def run_tracker(
             # endpoint fetch. It keeps its existing history.csv row (no entry
             # in `updated_records`), but still counts toward this run's
             # display and cross-model alert computation.
-            reuse_delta_7d_pct = (
-                (existing_record.effective_price_1m - existing_record.ma_7d) / existing_record.ma_7d * 100
-                if existing_record.ma_7d > 0 else 0.0
-            )
-            if reuse_delta_7d_pct >= threshold:
-                warnings.append(PriceWarning(
-                    type="PRICE_SPIKE", model=tracked_model_id,
-                    message=f"Model {tracked_model_id} price spiked +{reuse_delta_7d_pct:.1f}% vs 7-day MA. Current: ${existing_record.effective_price_1m:.5f}/1M."
-                ))
-            elif reuse_delta_7d_pct <= -threshold:
-                warnings.append(PriceWarning(
-                    type="PRICE_DROP", model=tracked_model_id,
-                    message=f"Model {tracked_model_id} price dropped {abs(reuse_delta_7d_pct):.1f}% vs 7-day MA. Current: ${existing_record.effective_price_1m:.5f}/1M."
-                ))
+            reuse_delta_7d_pct, reuse_observed, reuse_ma7 = _observed_move(effective_store, tracked_model_id, today)
+            reuse_alert = _price_move_alert(tracked_model_id, reuse_delta_7d_pct, reuse_observed, threshold)
+            if reuse_alert is not None:
+                warnings.append(reuse_alert)
             prices_shortlist.append(ModelPrice(
                 model=tracked_model_id,
                 price_1m=existing_record.effective_price_1m,
-                ma_7d=existing_record.ma_7d,
+                ma_7d=reuse_ma7 if reuse_ma7 is not None else existing_record.ma_7d,
                 ma_3d=existing_record.ma_3d,
                 change_vs_7d_pct=reuse_delta_7d_pct,
+                quote_vs_observed_pct=_quote_vs_observed(existing_record.effective_price_1m, reuse_observed),
                 prompt_price_raw=existing_record.advertised_prompt_1m,
                 completion_price_raw=existing_record.advertised_completion_1m,
                 price=PricePoint(
@@ -682,14 +891,32 @@ def run_tracker(
                 canonical_slug=(effective_store.get(tracked_model_id) or {}).get("canonical_slug"),
                 source=entry_by_model.get(tracked_model_id, {}).get("source"),
                 is_default=tracked_model_id == current_default,
+                price_source="cached_quote",
+                price_date=_iso_date(existing_record.last_updated),
             ))
             continue
 
         api_data = models_api.get(tracked_model_id)
+        if not api_data and not models_api:
+            # No catalog at all (fetch failure): nothing can be resolved. Never
+            # re-classify a model's identity from an empty catalog; keep stored state.
+            stored = _stored_untracked_identity(effective_store, tracked_model_id)
+            if stored:
+                not_tracked.append(_not_tracked(tracked_model_id, stored[0], stored[1], entry_by_model, current_default))
+            messages.append(AgentMessage(
+                "warning", "CATALOG_UNAVAILABLE",
+                f"OpenRouter's model catalog is unavailable; '{tracked_model_id}' was skipped.", model=tracked_model_id))
+            continue
         if not api_data:
-            messages.append(AgentMessage("warning", "NO_EXACT_MATCH",
-                f"Model '{tracked_model_id}' is in the shortlist but has no exact catalog entry; it was skipped.",
-                action={"mcp": f"discover_models(query=\"{tracked_model_id}\")", "cli": f"anticharon model discover \"{tracked_model_id}\""}, model=tracked_model_id))
+            identity, resolved_id, state_changed = _resolve_unmatched_identity(
+                effective_store, tracked_model_id, models_api, now, force)
+            identity_changed = identity_changed or state_changed
+            row = _not_tracked(tracked_model_id, identity, resolved_id, entry_by_model, current_default)
+            not_tracked.append(row)
+            messages.append(AgentMessage(
+                "info" if identity == "redirect" else "warning", row.code, row.diagnostic,
+                action={"mcp": f"discover_models(query=\"{tracked_model_id}\")", "cli": f"anticharon model discover \"{tracked_model_id}\""},
+                model=tracked_model_id))
             continue
 
         # PE2-002: prompt/completion are required bulk-catalog fields -- a
@@ -736,6 +963,16 @@ def run_tracker(
 
         policy_price_1m = policy_result["policy_price_1m"]
         is_policy_routable = policy_result["is_policy_routable"]
+        if policy_result["effective_price_1m"] is None:
+            messages.append(AgentMessage(
+                "info", "QUOTE_FROM_CATALOG",
+                f"Endpoint data for '{tracked_model_id}' was unavailable; its price is the catalog headline "
+                "and was not added to history.", model=tracked_model_id))
+        if policy_result["only_non_standard_tiers"]:
+            messages.append(AgentMessage(
+                "warning", "ONLY_NON_STANDARD_TIERS",
+                f"'{tracked_model_id}' lists only non-standard service tiers (flex/fast/priority/...); "
+                "its price comes from one of them.", model=tracked_model_id))
 
         if zdr_only and is_policy_routable is False:
             warnings.append(PriceWarning(
@@ -778,29 +1015,26 @@ def run_tracker(
         # d1..d30/MA columns fresh from it -- this is what makes a same-day rerun
         # a no-op for d1..d30 (there is no "shift" left to double-apply).
         sync_effective_prices_for_model(
-            tracked_model_id, canonical_slug, effective_store, w_completion, timeout, now=now
+            tracked_model_id, canonical_slug, effective_store, (w_uncached, w_cached, w_completion), timeout,
+            now=now, endpoints=endpoints, force=force,
         )
-        observations = (effective_store.get(tracked_model_id) or {}).get("observations", [])
+        _record_exact_identity(effective_store, tracked_model_id, now)
+        if policy_result["effective_price_1m"] is not None:
+            upsert_today_observation(effective_store[tracked_model_id], today, effective_price_1m)
+        observations = _observation_list(valid_observations(
+            stored_observations(effective_store.get(tracked_model_id)), today))
         derived = derive_history_window(observations, today=today)
         ma_3d = derived["ma_3d"] if derived["ma_3d"] is not None else effective_price_1m
         ma_7d = derived["ma_7d"] if derived["ma_7d"] is not None else effective_price_1m
         slots = derived["slots"]
 
-        delta_7d_pct = ((effective_price_1m - ma_7d) / ma_7d) * 100 if ma_7d > 0 else 0.0
+        delta_7d_pct, observed_price, _observed_ma7 = _observed_move(effective_store, tracked_model_id, today)
 
-        # Anomaly / Spikes / Drops detection
-        if delta_7d_pct >= threshold:
-            warnings.append(PriceWarning(
-                type="PRICE_SPIKE",
-                model=tracked_model_id,
-                message=f"Model {tracked_model_id} price spiked +{delta_7d_pct:.1f}% vs 7-day MA. Current: ${effective_price_1m:.5f}/1M."
-            ))
-        elif delta_7d_pct <= -threshold:
-            warnings.append(PriceWarning(
-                type="PRICE_DROP",
-                model=tracked_model_id,
-                message=f"Model {tracked_model_id} price dropped {abs(delta_7d_pct):.1f}% vs 7-day MA. Current: ${effective_price_1m:.5f}/1M."
-            ))
+        # Anomaly / Spikes / Drops: the latest observation against the 7-day observed
+        # average, never the live quote (a different price definition).
+        move_alert = _price_move_alert(tracked_model_id, delta_7d_pct, observed_price, threshold)
+        if move_alert is not None:
+            warnings.append(move_alert)
 
         prices_shortlist.append(ModelPrice(
             model=tracked_model_id,
@@ -808,6 +1042,7 @@ def run_tracker(
             ma_7d=ma_7d,
             ma_3d=ma_3d,
             change_vs_7d_pct=delta_7d_pct,
+            quote_vs_observed_pct=_quote_vs_observed(effective_price_1m, observed_price),
             prompt_price_raw=advertised_prompt_1m,
             completion_price_raw=advertised_completion_1m,
             price=PricePoint(
@@ -817,10 +1052,13 @@ def run_tracker(
                 policy_price_1m=policy_price_1m,
                 is_policy_routable=is_policy_routable,
                 cache_hit_rate_used=cache_hit_rate,
+                endpoint_tag=policy_result["effective_endpoint_tag"],
             ),
             canonical_slug=canonical_slug,
             source=entry_by_model.get(tracked_model_id, {}).get("source"),
             is_default=tracked_model_id == current_default,
+            price_source="live_quote",
+            price_date=today.isoformat(),
         ))
 
         updated_records.append([
@@ -840,8 +1078,15 @@ def run_tracker(
     if not dry_run and updated_records:
         write_history(list(records_by_model.values()), hist_path)
         write_effective_prices(effective_store, effective_prices_path)
+    elif not dry_run and identity_changed:
+        write_effective_prices(effective_store, effective_prices_path)
+    if not dry_run and prices_shortlist:
+        # Also after an all-reuse run: the live response's default, fallback, and
+        # per-model alerts must be what `alerts.json` (and so `check`) reports.
         _persist_alerts(
-            warnings, records_by_model, cfg.get("shortlist", []), cfg.get("_shortlist_entries", []), current_default, now_iso, model_id,
+            warnings, records_by_model,
+            [m for m in cfg.get("shortlist", []) if not _stored_untracked_identity(effective_store, m)],
+            cfg.get("_shortlist_entries", []), current_default, now_iso, model_id,
             get_alerts_path(hist_path.parent),
         )
 
@@ -895,25 +1140,9 @@ def run_tracker(
         warnings.append(next_fallback_alert)
 
     if enable_analytics:
-        if updated_records:
-            history_prices_map = {row[0]: row[7:] for row in updated_records}
-        else:
-            history_prices_map = {m: r.prices for m, r in history.items()}
-
-        cand = {p.model: p.price_1m for p in prices_shortlist}
-        c_def = current_default
-        min_tracking_days = cfg.get("min_tracking_days_for_profile", 14)
+        cand = _candidate_prices(prices_shortlist, effective_store, today)
         for p in prices_shortlist:
-            if p.model in history_prices_map:
-                p.analytics = calculate_model_analytics(
-                    model_id=p.model,
-                    current_price=p.price_1m,
-                    history_prices=history_prices_map[p.model],
-                    candidate_prices=cand,
-                    current_default=c_def,
-                    min_tracking_days_for_profile=min_tracking_days,
-                    tracking_days_elapsed=tracking_days_elapsed(effective_store, p.model, today),
-                )
+            p.analytics = _analytics_for(effective_store, p.model, p.price_1m, today, cand, current_default, cfg)
 
     return TrackerResult(
         status="success",
@@ -927,6 +1156,7 @@ def run_tracker(
         analytics_mode=enable_analytics,
         hints_enabled=hints_enabled,
         messages=messages,
+        not_tracked=not_tracked,
     )
 
 
@@ -997,7 +1227,7 @@ def read_check_result(
         messages.append(AgentMessage("info", "NO_DEFAULT",
             "No default model is set; default-based alerts are off. Set one with model add --default."))
 
-    entry_by_model = {entry["model"]: entry for entry in cfg.get("_shortlist_entries", [])}
+    entry_by_model = entry_by_model_map(cfg.get("_shortlist_entries", []))
     history = read_history(hist_path)
     effective_store = read_effective_prices(get_effective_prices_path(hist_path.parent))
     alerts_store = read_alerts(get_alerts_path(hist_path.parent))
@@ -1007,38 +1237,46 @@ def read_check_result(
     today = now.date()
 
     prices_shortlist: list[ModelPrice] = []
-    latest_date: date | None = None
+    row_dates: list[date | None] = []
     for slug in shortlist:
-        record = history.get(slug)
-        if record is None:
+        if _stored_untracked_identity(effective_store, slug):
             continue
-        rec_date = _parse_record_date(record.last_updated)
-        if rec_date is not None and (latest_date is None or rec_date > latest_date):
-            latest_date = rec_date
-        delta_7d_pct = ((record.effective_price_1m - record.ma_7d) / record.ma_7d) * 100 if record.ma_7d > 0 else 0.0
+        record = history.get(slug)
+        row = _local_price_row(slug, record, effective_store, today)
+        if row is None:
+            continue
+        price, ma_3d, ma_7d, source, price_date, quote, quote_date = row
+        row_dates.append(price_date)
+        delta_7d_pct = ((price - ma_7d) / ma_7d) * 100 if ma_7d > 0 else 0.0
         prices_shortlist.append(ModelPrice(
             model=slug,
-            price_1m=record.effective_price_1m,
-            ma_7d=record.ma_7d,
-            ma_3d=record.ma_3d,
+            price_1m=price,
+            ma_7d=ma_7d,
+            ma_3d=ma_3d,
             change_vs_7d_pct=delta_7d_pct,
-            prompt_price_raw=record.advertised_prompt_1m,
-            completion_price_raw=record.advertised_completion_1m,
+            prompt_price_raw=record.advertised_prompt_1m if record else None,
+            completion_price_raw=record.advertised_completion_1m if record else None,
             price=PricePoint(
                 advertised_prompt_1m=record.advertised_prompt_1m,
                 advertised_completion_1m=record.advertised_completion_1m,
-                effective_price_1m=record.effective_price_1m,
-            ),
+                effective_price_1m=price,
+            ) if record else None,
             canonical_slug=(effective_store.get(slug) or {}).get("canonical_slug"),
             source=entry_by_model.get(slug, {}).get("source"),
             is_default=slug == current_default,
+            price_source=source,
+            price_date=price_date.isoformat() if price_date else None,
+            quote_1m=quote,
+            quote_date=quote_date.isoformat() if quote_date else None,
+            quote_vs_observed_pct=_quote_vs_observed(quote, price) if source == "observation" else None,
         ))
     prices_shortlist.sort(key=lambda p: p.price_1m)
 
-    if latest_date is None or latest_date < today:
+    if not row_dates or any(d is None or d < today for d in row_dates):
         messages.append(DATA_STALE_MESSAGE)
 
-    all_alerts = alerts_store.get("price_warnings", [])
+    all_alerts = [w for w in alerts_store.get("price_warnings", [])
+                  if not _stored_untracked_identity(effective_store, w.get("suggested_cheapest") or "")]
     if target:
         alert_dicts = [w for w in all_alerts
                        if w.get("model") == target or w.get("current_default") == target or w.get("suggested_cheapest") == target]
@@ -1060,6 +1298,7 @@ def read_check_result(
         analytics_mode=False,
         hints_enabled=hints_enabled,
         messages=messages,
+        not_tracked=_stored_not_tracked(effective_store, shortlist, entry_by_model, current_default),
     )
 
 
@@ -1072,10 +1311,9 @@ def read_history_result(
     model_id: str | None = None,
 ) -> TrackerResult:
     """Local-only 30-day analytics read (D-19 `history`/`get_model_history`):
-    owns all analytics/profile classification. Source is history.csv's
-    already-derived d1..d30/MA columns (in turn derived from
-    effective_prices.json by the last `run`, §5.2). Makes no OpenRouter
-    network call."""
+    owns all analytics/profile classification, computed from the dated
+    observations in effective_prices.json (§5.2); the latest-run price export
+    only supplies the current price. Makes no OpenRouter network call."""
     cfg_path = config_path or get_config_path()
     hist_path = history_path or get_history_path()
     cfg = load_config(cfg_path)
@@ -1094,40 +1332,45 @@ def read_history_result(
         messages.append(AgentMessage("info", "NO_DEFAULT", "No default model is set; default-based alerts are off."))
 
     today = datetime.now(timezone.utc).date()
-    candidates = {slug: record.effective_price_1m for slug, record in history.items() if slug in shortlist}
+    rows = {slug: _local_price_row(slug, history.get(slug), effective_store, today)
+            for slug in shortlist if not _stored_untracked_identity(effective_store, slug)}
+    candidates = {slug: row[0] for slug, row in rows.items() if row}
     prices: list[ModelPrice] = []
-    latest_date: date | None = None
+    row_dates: list[date | None] = []
     for slug in ([target] if target else shortlist):
-        record = history.get(slug)
-        if record is None:
+        row = rows.get(slug)
+        if row is None:
             continue
-        rec_date = _parse_record_date(record.last_updated)
-        if rec_date is not None and (latest_date is None or rec_date > latest_date):
-            latest_date = rec_date
-        analytics = calculate_model_analytics(
-            model_id=slug,
-            current_price=record.effective_price_1m,
-            history_prices=record.prices,
-            candidate_prices=candidates,
-            current_default=configured_default,
-            min_tracking_days_for_profile=cfg.get("min_tracking_days_for_profile", 14),
-            tracking_days_elapsed=tracking_days_elapsed(effective_store, slug, today),
-        )
+        price, ma_3d, ma_7d, source, price_date, quote, quote_date = row
+        record = history.get(slug)
+        row_dates.append(price_date)
+        analytics = _analytics_for(effective_store, slug, price, today, candidates,
+                                   configured_default, cfg)
         entry = next((item for item in entries if item["model"] == slug), {})
         prices.append(ModelPrice(
             model=slug,
-            price_1m=record.effective_price_1m,
-            ma_7d=record.ma_7d,
-            ma_3d=record.ma_3d,
-            change_vs_7d_pct=((record.effective_price_1m - record.ma_7d) / record.ma_7d * 100) if record.ma_7d else 0.0,
+            price_1m=price,
+            ma_7d=ma_7d,
+            ma_3d=ma_3d,
+            change_vs_7d_pct=((price - ma_7d) / ma_7d * 100) if ma_7d else 0.0,
             analytics=analytics,
             canonical_slug=(effective_store.get(slug) or {}).get("canonical_slug"),
             source=entry.get("source"),
             is_default=slug == configured_default,
+            price_source=source,
+            price_date=price_date.isoformat() if price_date else None,
+            quote_1m=quote,
+            quote_date=quote_date.isoformat() if quote_date else None,
+            quote_vs_observed_pct=_quote_vs_observed(quote, price) if source == "observation" else None,
+            price=PricePoint(
+                advertised_prompt_1m=record.advertised_prompt_1m,
+                advertised_completion_1m=record.advertised_completion_1m,
+                effective_price_1m=price,
+            ) if record else None,
         ))
     prices.sort(key=lambda p: p.price_1m)
 
-    if latest_date is None or latest_date < today:
+    if not row_dates or any(d is None or d < today for d in row_dates):
         messages.append(DATA_STALE_MESSAGE)
 
     return TrackerResult(
@@ -1142,4 +1385,6 @@ def read_history_result(
         analytics_mode=True,
         hints_enabled=hints_enabled,
         messages=messages,
+        not_tracked=_stored_not_tracked(effective_store, [target] if target else shortlist,
+                                        entry_by_model_map(entries), configured_default),
     )

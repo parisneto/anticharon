@@ -156,8 +156,12 @@ def filter_catalog(
     max_output_price: float | None = None,
     filter_expressions: list[str] | None = None
 ) -> list[CatalogModel]:
-    """Filter catalog models using multi-criteria keywords, modality, and price inequalities."""
-    results = models
+    """Filter catalog models using multi-criteria keywords, modality, and price inequalities.
+
+    Normal discovery silently excludes asynchronous Batch API variants (ids ending
+    in `:batch`); exact `model add <slug>:batch` and Hermes-configured batch slugs
+    never pass through this filter."""
+    results = [m for m in models if not m.id.endswith(":batch")]
 
     # 1. Modality filter (e.g. text)
     if modality:

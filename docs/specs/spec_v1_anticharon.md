@@ -1,10 +1,10 @@
 # Technical Specification: Anticharon (v1)
 
 **Document Version:** 1.1.0
-**Status:** Approved — v0.6.0 Beta
+**Status:** Approved — v0.7.0
 **Language:** English
 
-Anticharon is in Beta. Its public interfaces may change without deprecation
+Anticharon is pre-1.0. Its public interfaces may change between minor versions
 until real-user and third-party feedback establish stable expectations.
 
 ---
@@ -97,11 +97,23 @@ Graceful degradation: on failure (network error, malformed response, or a model 
 - `resolve_policy_pricing()` (`tracker.py`) leaves `is_policy_routable`/`policy_price_1m` at `None` whenever no endpoint actually yielded a usable price (gated on the resolved rates, not on whether the raw endpoint list happened to be non-empty) — this is what separates "checked, and none are ZDR-compliant" (confirmed, `is_policy_routable: false`) from "could not check at all" (unknown, `is_policy_routable: null`).
 - **Ranking** (shortlist sort order and `BEST_OPTION_CHANGED` eligibility, `--zdr`/`run`/`check`): a policy-unknown model ranks by its unconstrained `effective_price_1m` — the same as if no policy filter were active for that one model — and *can* be recommended as the best option. A confirmed-unroutable model (`is_policy_routable: false`) ranks last and is *never* recommended. These must never share an outcome; conflating them was flagged during independent review of the PE2-001 remediation and fixed here.
 - A new `PriceWarning` type, `POLICY_UNKNOWN`, surfaces this uncertainty explicitly whenever `zdr_only` is active and routability could not be determined for a model — distinct from `POLICY_UNROUTABLE` (§3.7), which is reserved for confirmed noncompliance only.
+- **Batch variants (EH-6):** normal discovery (`model discover`, `discover_models`) silently excludes catalog ids ending in `:batch` — asynchronous Batch API variants whose results can take up to 24 hours. The exclusion lives in `filter_catalog()` and applies only to discovery. An exact `model add <slug>:batch` still validates against the full catalog and adds the slug unchanged, and an explicitly configured Hermes batch slug is imported and kept verbatim; neither is rewritten or removed. Anticharon does not submit or poll Batch API jobs.
 - `apply_zdr_filter()` (`discovery.py`, used by `model discover --zdr`) applies the same rule: a candidate with no endpoint data at all is **kept** in the filtered results (routable-by-default), not dropped as if confirmed noncompliant; the returned warning names which candidates were kept this way.
 
 **The ASCII price spectrum chart is independent of ranking order:** `render_ascii_price_bar()` (`src/anticharon/chart.py`) renders a spectrum of the unconstrained effective `price_1m` only. It never assumes its input is already sorted by that key — under `--zdr` the caller legitimately hands it the policy-ranked list, in which a confirmed-unroutable model sorts last (rank `∞`) even when its effective price is the cheapest. The chart therefore sorts a local working copy by `price_1m` and derives its 100%-width scale from `max(price_1m)`, never from the last element. Consequences: bar widths are always monotonically non-decreasing (the triangle shape), no bar can exceed `max_bar_width`, and `🏆 [BEST]` always badges the lowest *effective*-price model. The tracker's own ZDR ranking for the main list and `BEST_OPTION_CHANGED` (above) is unaffected.
 
 **Defensive non-finite safety (corrected, GH-3):** a non-finite `price_1m` (`inf`/`-inf`/`nan`) should already be rejected upstream by `is_valid_listed_price()` above, but the chart stays defensively safe regardless of what reaches it. An earlier revision derived scale from `max(p.price_1m for p in ordered)` unconditionally and computed each bar as `int(round(ratio * max_bar_width))`: if the maximum happened to be `+inf`, that same entry's own ratio became `inf / inf` (`NaN`), and `int(round(nan))` raised `ValueError`, crashing the entire chart render on one bad entry. `render_ascii_price_bar()` now derives both the scale (`max(...)`) and the 🏆 [BEST] badge (`min(...)`) from the *finite* subset of prices only; a non-finite entry still renders its own row — capped at `max_bar_width` rather than crashing — but is excluded from both the scale computation and the BEST determination (a `-inf` sentinel sorting first is never treated as the true cheapest price).
+
+### 3.2b Service tiers (EH-8, D-9)
+
+OpenRouter lists several endpoints per provider that are different *products*, not cheaper versions of the same one — `openai/flex` (about half price, slower), `openai/fast` and `google-ai-studio/priority` (premium). `effective_price_1m` is the cheapest **standard-tier** endpoint blended with the calibration (§3.1); service-tier endpoints never set it, neither in the live quote nor in stored history.
+
+- **Classifier:** an endpoint is non-standard when any `/`-separated segment of its public-API `tag` is one of `flex`, `fast`, `priority`, `ultrafast`, `turbo`, `batch`. Quantization (`fp4`, `fp8`, `bf16`), region (`us`, `eu`, `global`, `us-east-1`, …) and `zdr` segments are **not** tiers: in a 70-model sample 71% of endpoints carry a slash tag, so "slash means non-standard" would leave 19 of 70 models with no endpoint, and `google-vertex/global` is a standard endpoint. (`src/anticharon/pricing.py` `is_service_tier_tag`.)
+- **Live quote:** filtered directly on the endpoint's tag; no join is needed. The live quote is built from the frontend `/stats/endpoint` route, whose entries carry the tag as `provider_slug` (for example `openai/flex`); the public `/models/{slug}/endpoints` route carries the same string as `tag`. Either field is the tag (`pricing.endpoint_tag`). A first implementation read only `tag`, so on the real route nothing was filtered (VM run 2026-10-06: luna stayed 0.03265). The chosen endpoint's tag is reported as `price.endpoint_tag`. If no usable standard endpoint exists the quote falls back to all endpoints and `run` emits `ONLY_NON_STANDARD_TIERS` (warning). ZDR policy prices use the same filter.
+- **History:** the listed-pricing route identifies endpoints only by UUID. UUIDs are mapped to tags by joining the frontend `listed-pricing` series to the public endpoints API at each series' latest point, on (tag prefix, input $/1M, output $/1M), then (prefix, input), then (prefix, output). The tag prefix equals the frontend `providerSlug`; `provider_name` does not ("Google" vs `google-vertex`) and mapped only 3 of 8 gemini endpoints. When several tags match and disagree on tier class, the tier tag wins. The map is stored per model as `endpoint_tags` (UUID → tag), merged on each refresh so an endpoint that later disappears keeps its class; non-standard UUIDs are skipped when reducing each day's minimum. UUIDs that cannot be mapped are **excluded** until a refresh maps them: an endpoint with no known tag is not provably standard, so it never sets a price (a cheaper unmatched flex endpoint would otherwise become the history minimum). If no standard endpoint is known (and listed data is stored), the model's stored history is dropped rather than kept, since it could contain a tier endpoint's prices; a failed fetch with known standard tags keeps and re-derives the stored history.
+- **Refresh:** `run --force` refreshes the history immediately (otherwise on the usual 24-hour staleness); a legacy entry is refreshed on its first `run` regardless. Without any known tag for a model's endpoints (endpoints route failed and no stored map) no history is derived, since tiers could not be excluded.
+- **Visible effect:** prices of models whose cheapest endpoint was a tier rise to the standard price — on 2026-10-06 `openai/gpt-5.6-luna` 0.03265 → 0.06529 and `google/gemini-3.1-flash-lite` 0.04081 → 0.08162 under the default calibration. Models without tier endpoints (for example `openai/gpt-4.1-nano`, `qwen/qwen3.7-flash`) are unchanged.
+- `variant=` on the frontend routes is the model variant, not a tier filter (`variant=flex` returns `400 Invalid variant`; `variant=standard` still returns the flex and fast endpoints).
 
 ### 3.3 Moving Averages (`MA_3d` and `MA_7d`)
 
@@ -126,7 +138,7 @@ d{N} = the observation dated exactly N calendar days before today, if one exists
 
 ### 3.5 Cold-Start & Backfill Handling
 When a model is first added to the tracking shortlist:
-- `effective_prices.json` gets a new entry with `first_seen` = today and up to ~30 days of real backfilled observations from the internal effective-pricing route (§5.2) — not a fabricated flat history.
+- `effective_prices.json` gets a new entry with `first_seen` = today and up to ~30 days of real backfilled observations from the OpenRouter listed-price route (§5.2) — not a fabricated flat history. Those backfilled observations count toward analytics maturity immediately (§3.6).
 - Slots with no real observation (including a model with zero backfill available, e.g. a `~`-prefixed router alias with no fixed permaslug identity) stay `null`, never a duplicate of today's price.
 - `MA_3d`/`MA_7d` fall back to today's `effective_price_1m` only when their entire window is null (§3.3) — this prevents `NaN`, division-by-zero, or false volatility spikes on day 1 without fabricating history.
 
@@ -134,10 +146,12 @@ When a model is first added to the tracking shortlist:
 Anticharon evaluates percentage variation against the 7-day moving average:
 
 ```text
-Delta_7d_Pct = ((Effective_Price_1M - MA_7d) / MA_7d) × 100
+Delta_7d_Pct = ((Latest_Observed_Price - MA_7d) / MA_7d) × 100
 ```
 
-**Correction (PE2-001, 2026-09-16):** `Delta_7d_Pct` always uses the unconstrained `Effective_Price_1M`, even under an active policy filter — an earlier draft of this line claimed `Policy_Price_1M` replaced it, which is exactly the collapse-under-`--zdr` defect PE2-001 fixed. `MA_7d`/`MA_3d` are always derived from unconstrained effective historical observations (`effective_prices.json` never stores policy-price history), so comparing them against anything other than the unconstrained current effective price would be an apples-to-oranges comparison — see §3.1.
+**Correction (EH-3 release gate):** `Delta_7d_Pct` compares the **latest stored observation** with the observed 7-day average, in `run` (live, same-day reuse, offline fallback), `check`, `history`, and persisted alerts. The live quote never raises `PRICE_SPIKE`/`PRICE_DROP`: it is a different price definition (the catalog quote on your calibration, vs the observed daily price), so a quote far from flat observations is reported separately as `quote_vs_observed_pct` (never an alert). With no observation there is no alert. Alert text names its basis: `… vs 7-day observed average. Latest observed: $…/1M.` Policy prices never enter it.
+
+**Earlier correction (PE2-001, 2026-09-16, superseded where it names the quote):** `Delta_7d_Pct` always used the unconstrained `Effective_Price_1M`, even under an active policy filter — an earlier draft of this line claimed `Policy_Price_1M` replaced it, which is exactly the collapse-under-`--zdr` defect PE2-001 fixed. `MA_7d`/`MA_3d` are always derived from unconstrained effective historical observations (`effective_prices.json` never stores policy-price history), so comparing them against anything other than the unconstrained current effective price would be an apples-to-oranges comparison — see §3.1.
 
 #### Warning Trigger Rules:
 1. **`PRICE_SPIKE`**: Triggered when `Delta_7d_Pct ≥ +spike_threshold_pct` (default: `+20.0%`). Indicates a price hike.
@@ -180,7 +194,9 @@ The three finite numeric weights must each be in `[0, 1]` and sum to `1.0` withi
 
 ## 5. Data Storage: Three Files, Three Lifecycles (D-22)
 
-### 5.1 `history.csv` — compact, fast-read summary (one line per model)
+### 5.1 `history.csv` — derived compact export (one line per model)
+
+A convenience export derived from `effective_prices.json` on each `run`. It is never a historical input. It is read only as a cached quote: by `run`'s offline fallback when OpenRouter is unreachable (§10), and by `check`/`history` for a model with no stored observation.
 
 **Breaking rename:** the blended-price column is `effective_price_1m`, not `current_price_1m` — pre-launch, single-digit testers, so there is deliberately no backward-compatibility shim; a stale local `history.csv` from before this change should be deleted/regenerated.
 
@@ -209,7 +225,7 @@ model,last_updated,effective_price_1m,advertised_prompt_1m,advertised_completion
 
 **Correction (PE2-004, 2026-09-17):** this section's own heading previously read "per-model, per-provider daily observations," but the schema it describes below has never stored provider identity — it is one collapsed cheapest-price-per-day observation per model. The heading was simply wrong; see `docs/plans/pricing-engine-v2/PLAN.md`'s "Scope correction" note (under "Storage architecture") for the full reconciliation: `EXECUTION_CONTRACT.md`'s actual acceptance criteria never required provider-level persisted granularity, no downstream consumer in this codebase needs it, and building it speculatively would violate the Contract's own "concrete over general" Non-Goal. Provider-granular historical persistence is recorded as a deferred backlog candidate in `EXECUTION_CONTRACT.md`, to be scoped against a real future consumer if one is ever proposed.
 
-Same data directory as `history.csv`, same path-resolution hierarchy (§6.1). This file is the **source of truth** for history; `history.csv`'s `d1..d30`/MA columns are derived from it (§3.4), not the other way around. Its refresh cadence is independent of `history.csv`'s per-run cadence — a model is only re-fetched when its entry is stale (default: older than 24 hours), not on every `anticharon run`.
+Same data directory as `history.csv`, same path-resolution hierarchy (§6.1). This file is the sole source of truth for dated price history and the only historical input to analytics; `history.csv`'s `d1..d30`/MA columns are derived from it (§3.4), never the other way around. Its refresh cadence is independent of `history.csv`'s per-run cadence — a model is only re-fetched when its entry is stale (default: older than 24 hours), not on every `anticharon run`.
 
 ```json
 {
@@ -225,10 +241,27 @@ Same data directory as `history.csv`, same path-resolution hierarchy (§6.1). Th
 }
 ```
 
-- `first_seen`: the calendar date this model was first tracked. Drives the analytics `NEWLY_TRACKED` threshold (§"Historical Analytical Intelligence & Pricing Profiles" below) — never overwritten once set.
-- `observations`: one entry per calendar day, the cheapest endpoint's blended $/1M that day (input/output combined via the locally calibrated `weight_completion` split — the internal effective-pricing route's own per-endpoint series is already cache-weighted by that provider's real traffic that day, so only the input/output combination is Anticharon's to apply).
-- 28-day backfill source: `GET /api/frontend/v1/stats/effective-pricing?permaslug={canonical_slug}&shape=v7&variant=standard&range=1m`. **The `range=1m` parameter is required** — live-verified 2026-09-16: the bare/default call (no `range`) only returns the last ~8 days, not ~30.
+- `first_seen`: the calendar date this model was first tracked. Informational only — it plays no role in analytics maturity (§3.6). Never overwritten once set.
+- `endpoint_tags` (EH-8, §3.2b): endpoint UUID → public-API tag, merged on each refresh.
+- `history_method`: `time_weighted_day_mean`, the daily-value formula the stored `observations` were derived with; an entry with a different or missing value is re-derived from `listed` on the next `run`, even within the same day. Listed timestamps without a timezone are read as UTC.
+- `basis`: `listed_blend` on every entry whose history is on the current basis (D-10). An entry without it is legacy (OpenRouter's effective series, before D-10): its observations are never read, moved to `legacy_effective_observations` on the first refresh, and a legacy-only model reads as having no observations (`NEWLY_TRACKED`, quote shown as `cached_quote`) until a `run` refreshes it. `weights_used`: the calibration the `observations` were derived with; a different current calibration re-derives every stored day from `listed` without a refetch.
+- `listed`: the latest fetched `listed-pricing` window per endpoint (`endpointId`, `providerSlug`, and the `input`, `output`, `cacheRead` step lists), kept so recalibration never needs the network.
+- A listed step with a negative or non-finite value is ignored (the previous valid step stays in effect, in history and in the endpoint-tag join), so an invalid step can never displace a valid endpoint's price; a wrong-typed `series` degrades to no data. A same-day `run` after a recalibration, for an entry still on the legacy basis, or for one written by an older daily-value formula (`history_method` absent or different from `time_weighted_day_mean`), does not reuse the old row: the model is refreshed and re-derived (`weights_used` changes). When the endpoint route fails and `run` shows the catalog headline (`QUOTE_FROM_CATALOG`), that quote is not stored as today's point, so `check` right after shows the last stored point with the headline beside it as `last run quote`.
+- `observations`: one entry per calendar day (UTC), the **cheapest standard-tier endpoint's** blend, with the calibration's weights, of the listed input, cache-read and output prices in effect at each moment, averaged over the UTC day weighted by time (exact, from the step changes: a provider that reprices every few minutes contributes what it charged, not the price at 23:59:59; today is the price at `now`; a missing cache-read is 10% of input, as in the live quote; time before an endpoint exists, or with no valid price, is left out of the mean; service-tier endpoints are excluded, §3.2b). This is the same definition as the live `effective_price_1m` (§3.1), so the last point is what `run` showed: `run` writes its live quote as today's observation, and `check`/`history` right after it show the same price. OpenRouter's own *effective* series (cache-weighted by each endpoint's real traffic) is not used: it moves with traffic mix, not with price (luna: listed flat at 0.0653 while the effective series swung 0.036 to 0.090 over 30 days).
+- 30-day backfill source: `GET /api/frontend/v1/stats/listed-pricing?permaslug={canonical_slug}&shape=v7&variant=standard&range=1m` — per endpoint (same `endpointId` UUIDs as the other frontend stats routes), step-change lists of posted `input`, `output`, `cacheRead`, `cacheWrite` and `discount` prices (discounts applied, no cache-hit effect). Refresh is gated by the usual 24-hour staleness, and also happens on `run --force` and for a legacy entry. Live-verified 2026-10-06: blending the latest point reproduces the live quote exactly for luna, nano, deepseek and qwen.
 - Graceful degradation: a `~`-prefixed router alias (e.g. `~deepseek/deepseek-pro-latest`) returns an empty-but-200-OK payload (live-verified — "latest" has no fixed permaslug identity to have history against). A transient failure never overwrites previously accumulated real `observations` with empty data; `last_synced` still advances so a permanently-empty model isn't re-fetched every run.
+
+**Model identity (EH-4, D-4):** each shortlisted slug's entry also records its catalog identity, separate from exact-match validation:
+
+- `identity`: `exact` (the slug is a catalog id), `redirect` (absent, but the catalog lists exactly `~<slug>` — an alias with no fixed model identity), or `unresolved` (neither).
+- `resolved_id`: the catalog id for `exact` (the slug) and `redirect` (`~<slug>`); `null` for `unresolved`.
+- `identity_checked`: ISO timestamp of the last resolution.
+
+The user's/Hermes' exact slug is never rewritten. A `redirect` or `unresolved` entry never receives a `canonical_slug`, backfill fetch, or observations from Anticharon, and its identity state overrides any observations that remain in the store: it is never priced, analyzed, or given history on any surface. Only `~<slug>` is tried; no other name is guessed. (An exact catalog id whose `canonical_slug` changes over time is not covered by this policy.)
+
+**Retry rule (D-6):** a stored `redirect`/`unresolved` state younger than 24 hours is reused as-is (no re-resolution) unless `run --force`; after 24 hours the next `run` re-resolves it. A slug that appears in the catalog is `exact` immediately, and an `exact` identity is re-recorded on every `run`. Dry runs persist nothing.
+
+**`NOT_TRACKED` output (D-5):** every price table (`run`, `check`, `history`, human and `--json`/MCP) lists such slugs in `not_tracked` (always present, possibly empty) as `{"model", "status": "NOT_TRACKED", "identity", "resolved_id", "code", "diagnostic", "source", "is_default"}` — never in `prices_shortlist`, with no price or analytics. `code` is `REDIRECT_IDENTITY` (message level `info`) for a redirect and `NO_EXACT_MATCH` (level `warning`) for an unresolved slug. Human tables show a `NOT_TRACKED` row with the diagnostic.
 
 ### 5.3 `alerts.json` — latest persisted alerts (D-22)
 
@@ -283,10 +316,19 @@ are interpreted as Hermes entries when Hermes is detected and manual entries
 otherwise, then migrated to objects on the next config write. Hermes sync
 replaces Hermes entries while preserving manual and other imported entries.
 The default is selected only from an explicit `order: 0` entry; list position
-never implies a default. When absent, Anticharon emits `NO_DEFAULT` and skips
+never implies a default.
+
+**Default ownership (D-3):** while Hermes owns a default (a Hermes-sourced
+`order: 0` entry), it is the only effective default. A stored manual
+`order: 0` preference is preserved unchanged but inactive. Every output
+(`is_default` in `run`/`check`/`history`/`model list`, the default badge)
+identifies only the effective default. If a Hermes entry and a manual entry share a slug, both stay stored, but the tracked list has one row for the slug, the Hermes entry is the effective one (its `source` is reported), and exactly one listed entry is the default. When a `complete` Hermes detection
+reports no models (authoritative removal), Hermes entries are dropped and the
+stored manual preference becomes effective again. An `incomplete` or
+unavailable detection never changes ownership: the persisted state is kept. When absent, Anticharon emits `NO_DEFAULT` and skips
 default-based alerts.
 
-`min_tracking_days_for_profile` (default `14`, half the 28-day backfill window): elapsed calendar days since a model was first tracked before analytics classification ("Historical Analytical Intelligence & Pricing Profiles" below) moves past `NEWLY_TRACKED`. Configurable per shortlist, same as `spike_threshold_pct`.
+`min_tracking_days_for_profile` (default `14`): the minimum number of distinct observed calendar days, including backfilled days, required before analytics classification (§3.6) moves past `NEWLY_TRACKED`. **Semantic correction (EH-1):** it previously counted calendar days elapsed since first tracking; the key name is unchanged. Configurable per shortlist, same as `spike_threshold_pct`.
 
 `max_zdr_check_count` (default `10`): caps how many candidate models `anticharon model discover --zdr` will live-check for ZDR routability in a single command (§7 CLI Command Interface). Applied only after local filters (`query`, `--filter`, `--promo`, price/modality bounds) narrow the candidate list — never before — and only to the cheapest N candidates by blended price. If the filtered list still exceeds the cap, Anticharon never silently checks a subset and presents it as complete: it emits an explicit `ZDR_LIVE_LIMITED` warning message (§10.1a) naming how many of how many were checked, in both human and `--json` output, and proceeds with the cheapest N. `run`/`check --zdr` are unaffected by this cap — shortlists are inherently small (7–9 models typically), so the cap only matters for `discover`'s full-catalog case.
 
@@ -355,7 +397,8 @@ An `unavailable` source is **not** retried in-process; the next scheduled or man
 
 ### Model Placement & Synchronization Rules:
 - The Hermes `default` model is stored with `source: "hermes", order: 0`; OpenRouter fallback models follow with increasing `order`. This explicit default receives the `★ [DEFAULT]` badge and serves as the baseline for `BEST_OPTION_CHANGED` alerts.
-- Manual entries survive Hermes synchronization. Their list position never implies a default.
+- Manual entries survive Hermes synchronization, including a stored manual `order: 0` preference (see Default ownership, §6). Their list position never implies a default.
+- A complete sync persists explicit `source`/`order` metadata even when the model sequence is unchanged — for example a legacy flat string list is rewritten as objects on the first sync — by comparing against the shortlist as stored, not as normalized on load. Repeated syncs are idempotent: unchanged state is not rewritten and yields no `HERMES_DIVERGENT` or `NO_DEFAULT` message.
 - Newly discovered models are automatically initialized in `history.csv`/`effective_prices.json` using the cold-start & backfill rule (§3.5).
 - User-configured weights (`weight_uncached_prompt`, `weight_cached_prompt`, `weight_completion`, `spike_threshold_pct`, `min_tracking_days_for_profile`) are preserved during synchronization.
 - Upgrades/reinstallation resilience: If `~/.anticharon/` is deleted during an update, the next execution re-creates `~/.anticharon/shortlist.json` automatically.
@@ -365,11 +408,17 @@ An `unavailable` source is **not** retried in-process; the next scheduled or man
 
 ## 3.6 Historical Analytical Intelligence & Pricing Profiles
 
-Anticharon inspects the full 30-day temporal window stored in `history.csv` (`[d1..d7, d15, d30]`) and applies statistical dispersion analysis alongside live catalog sibling relationship tracking:
+Anticharon's only historical input is the set of real dated daily observations in `effective_prices.json` (§5.2) within the 30-day analytics window. Maturity, dispersion, trends, and historical comparisons are all computed from those observations, alongside live catalog sibling relationship tracking. `history.csv` is a derived export for user convenience and is never a historical input.
+
+**Current price authority:** when a model has any valid observation, the current price for every calculation is its latest stored observation (today's, else the most recent) and a separate quote (the live price in `run`, the exported price in the offline fallback) never changes the result — so `run`, `history`, the CLI, MCP, and prompts classify the same stored evidence identically. `d1` is the latest observation before the current observation's date; `d7`/`d15`/`d30` are measured from today. Only with no observation at all is the quote used. Every result reports `current_price_used` and `current_price_source` (`observation` or `quote`).
+
+**Observation validity (D-1):** an observation counts when its `date` is a valid ISO date from `today − 30 days` through `today` and its `effective_price_1m` is a finite number ≥ 0 (a genuine zero price is valid). Each calendar date counts once (the minimum price wins). Gaps stay gaps — nothing is interpolated.
+
+**Historical comparison points:** `Price_dN` (N = 7, 15, 30) is the latest real observation on or before N days ago within the window, which may be the current observation itself when it falls on or before that date; `Price_d1` is the latest observation before the current observation's date. When none exists the baseline is **unavailable** (never substituted by a newer observation or the current price). A zero baseline has no percentage either: with `Price_d30 = 0` and a positive current price `Delta_30d_Pct` is `null` and the sparkline shows `↑` (zero and still zero is `0.0`, flat). Unavailable baselines produce no conclusion that needs them: `Delta_30d_Pct` is `null` (`change_vs_30d_pct`) and the sparkline shows `n/a`; `SUNSETTING`, `DISCOUNTED`, and `CREEPING_INFLATION` require `Price_d30` (the last also `d7` and `d15`); `PROMO_ENDED` uses the minimum of the available `d7`/`d15`/`d30` baselines and requires `d1`. A 28-day backfill therefore has no 30-day baseline until a day-30 observation exists. `history_vector` reports exact-day observations only, `null` where the day was not observed.
 
 ### Metric Definitions:
 
-**Correction (PE2-009, 2026-09-17):** `N` below is the count of non-null observations actually present in the window (`src/anticharon/analytics.py`'s `calculate_model_analytics`, `len(all_prices)`), never a fixed `10` — an earlier revision of this section hardcoded `10`, which does not match the implementation and would silently misstate dispersion for any model with fewer or more valid observations (e.g. the single-observation golden case in §3, where the correct result is `CV = 0.0%` for `N = 1`, not division by `10`).
+**Correction (PE2-009, 2026-09-17; EH-1):** `N` below is the count of valid observations in the analytics series (`src/anticharon/analytics.py`'s `calculate_model_analytics`, `len(all_prices)`): each valid stored observation once, never a fixed `10`. Only with no observation at all is the series the single current quote, so the single-observation golden case in §3 gives `CV = 0.0%` for `N = 1`, not division by `10`.
 
 - **Mean Price:** `μ = sum(prices) / N`
 - **Standard Deviation:** `σ = sqrt(sum((p - μ)²) / N)`
@@ -377,8 +426,10 @@ Anticharon inspects the full 30-day temporal window stored in `history.csv` (`[d
 - **30-Day Net Shift:** `Delta_30d_Pct = ((Current_Price - Price_d30) / Price_d30) × 100%`
 
 ### Deterministic Model Profile Categories:
+Profiles are evaluated in this order and the first match wins: `NEWLY_TRACKED`, `PROMO_ENDED`, `SUNSETTING`, `DISCOUNTED`, `VOLATILE`, `CREEPING_INFLATION`, `STABLE`, then `MODERATE` (normal fluctuation, the default). Sibling comparison prices on every surface are the latest stored observation per model (the row's own quote only for a model with no observation), so `run` and `history` agree.
+
 1. **`STABLE` (`🛡️ STABLE`):**
-   - Condition: `CV < 2.5%` and `|Delta_30d_Pct| < 5%`.
+   - Condition: `CV < 2.5%` and no earlier profile in the evaluation order applies. It needs no 30-day baseline.
    - Meaning: Mature, predictable pricing. Low budget risk for agents and scheduled cron pipelines.
 2. **`PROMO_ENDED` (`📈 PROMO_ENDED`):**
    - Condition: Prior baseline (`d15` or `d30`) was `≥ 25%` cheaper than current price, and current price has remained elevated for `≥ 2` days.
@@ -396,8 +447,9 @@ Anticharon inspects the full 30-day temporal window stored in `history.csv` (`[d
    - Condition: Steady upward drift (`Price_d30 < Price_d15 < Price_d7 < Current_Price`) with total rise between `+5%` and `+25%` without triggering single-day spike alerts.
    - Meaning: Stealth inflation by provider.
 7. **`NEWLY_TRACKED` (`🌱 NEWLY_TRACKED`):**
-   - Condition: fewer than `min_tracking_days_for_profile` (default `14`) calendar days have elapsed since the model was first tracked (`effective_prices.json`'s `first_seen`) — **not** a count of populated history slots, since backfill can leave gaps (e.g. `d1` and `d15` populated but nothing between) or a model's elapsed-time-tracked state can outpace how many slots happen to be filled. Elapsed time unknown (no store entry yet) is treated the same as "not enough" — the safe default.
-   - Meaning: Insufficient tracking history yet, regardless of what the available slots show. Once `min_tracking_days_for_profile` is satisfied, a model can be classified `STABLE`/`VOLATILE`/etc. even with real gaps in its history.
+   - Condition: the number of distinct valid observed calendar days (see Observation validity above) is below `min_tracking_days_for_profile` (default `14`). Backfilled days count immediately and `first_seen` plays no role: an established model with 28–30 backfilled days gets a normal profile on its first Anticharon run, while a model released five days ago with five observed days stays `NEWLY_TRACKED`. Gaps are preserved and not counted; no coverage-span threshold applies.
+   - Meaning: Insufficient observed price history. Once the minimum is met, a model can be classified `STABLE`/`VOLATILE`/etc. even with real gaps in its history.
+   - Evidence: every analytics result carries `observation_count`, `earliest_observation`, `latest_observation`, `coverage_days` (earliest to latest, inclusive; `0` with no observations), `current_price_used`, `current_price_source`, and `classification_reason` (for example `5 distinct observed days < 14 required for classification.`).
 
 ---
 
@@ -408,14 +460,32 @@ Anticharon inspects the full 30-day temporal window stored in `history.csv` (`[d
 `effective_prices.json`, and pre-computes + persists this run's alerts into
 `alerts.json` (§5.3). `check` and `history` are both **local reads only** --
 they make zero network calls, ever, and never recompute alerts:
-- `check` = the latest normalized/blended price per model, from `history.csv`,
-  plus the alerts `run` last persisted, shown verbatim.
-- `history` = the long-term 30-day view over `effective_prices.json` (via
-  `history.csv`'s already-derived `d1..d30`/MA columns) plus all analytics/
-  profile classification, which lives here and not in `check`.
+- `check` = the latest stored observation's price and the observation-derived
+  moving averages per model, plus the alerts `run` last persisted, shown verbatim.
+- `history` = the long-term 30-day view computed from `effective_prices.json`'s
+  dated observations, plus all analytics/profile classification, which lives
+  here and not in `check`.
+- **Quote vs observation:** the two are different price definitions (the catalog-derived effective quote vs the observed daily price) and can differ materially. `PRICE_SPIKE`/`PRICE_DROP` use observations only (§3.7). When a row shows an observation and an exported quote exists, the row carries `last_run_quote_1m`/`last_run_quote_date` and `quote_vs_observed_pct` (human `check` prints `last run quote`; `history` evidence shows it), so both numbers and their gap are visible without an alert.
+- **Same-day reuse (`run`):** a model already refreshed today is reused from its stored row unless its stored identity is `redirect`/`unresolved` (then it is `NOT_TRACKED`). A `run` that only reuses models still persists `alerts.json` (including `default_model`) so `check` matches the live response.
+- Every price row reports `price_source` — `observation` (latest stored dated
+  observation), `live_quote` (this `run`'s catalog quote), or `cached_quote`
+  (the exported quote: `run`'s offline fallback or same-day reuse, and local
+  reads of a model with no observation) — and `price_date`. `DATA_STALE` is
+  emitted when any returned row's date (its observation date, or the quote's
+  date for a `cached_quote` row) is older than today, so a fresh model never
+  masks a stale one. Local moving averages use only valid observations. `history` human output adds an evidence section (observed
+  days, date span, price source) per model.
 
 Both `check` and `history` report `DATA_STALE` when the latest locally stored
 observation is older than today, pointing back to `run`.
+
+### Help contract (EH-7, D-7)
+Every primary command (`run`, `check`, `history`, `info`, `mcp`, `test`, `calibrate`, `check-updates`, `update`, `prompt`, `help`, `model`) and nested `model` command (`import-hermes`, `sync`, `add`, `remove`, `list`, `discover`) supports exactly two help forms, both exiting `0` and printing that command's own usage and options:
+
+- `anticharon <command> [<subcommand>] -h` (or `--help`)
+- `anticharon help [<command> [<subcommand>]]` (no target prints the top-level help)
+
+`model sync` is an alias of `model import-hermes` and prints its usage. Any other form fails with exit `2` and a hint: `anticharon <command> help` and `anticharon model help [<sub>]` (including `model add help`, which is never treated as a model slug) report `use 'anticharon help <command>' or 'anticharon <command> -h'`; unknown or over-long targets (`help foo`, `help model foo`, `help run extra`) report `unknown help target`. A free positional that happens to be `help` (`model discover help`, `calibrate help`, `prompt help`) is an ordinary argument, not a help request. `anticharon -h <command>` prints the top-level help. Top-level options (`--json`, `--hints`, `--profile`, `--history-csv`, `--hermes-config`, `--no-hermes`) are unchanged.
 
 ### Primary Commands & Options:
 ```bash
@@ -499,13 +569,11 @@ two-second timeout. It reports `is_latest` only when the installed version
 equals the release tag. It is user-initiated only: no background check, cache,
 or update notice is added to unrelated command responses.
 
-`update` is always **EXPERIMENTAL** and offers named sequences
-`install_only`, `restart_host`, `phoenix`, and `reload_request`.
+`update` is always **EXPERIMENTAL**. The supported type is `install_only` (alias `1`, the default). The named sequences `restart_host`, `phoenix`, and `reload_request` (aliases `2`–`4`) are **deprecated**: still accepted at runtime, absent from `--help` choices and from the MCP input schema, and planned for removal in 0.8.0. `update` reinstalls from the default branch without comparing versions, so the installed version can end up older than before; the response reports `running_version` (the version of the running process, which can differ from the installation that was replaced).
 Reinstallation prefers `uv tool install --force` from the
 Git source; if `uv` is unavailable, it uses `sys.executable -m pip install
 --force-reinstall`, never a bare `pip`. A successful reinstall may still need
-a host restart. `phoenix` schedules the running server's termination for host
-respawn; `reload_request` asks the user to send `/reload-mcp`.
+a host restart: the `RESTART_REQUIRED` message says the running server keeps the old version (and `check_updates` keeps reporting it) until reloaded — in Hermes the user sends `/reload-mcp` in chat; in other MCP hosts the host is restarted or the MCP server reconnected. (Deprecated: `phoenix` schedules the running server's termination for host respawn; `reload_request` only asks for `/reload-mcp`.)
 
 ### JSON Output & Exit Codes
 Every `--json` output uses the §10.1a envelope (`status`, `messages`, `elapsed_ms`, then the payload), and human output renders the same `messages`. The exit code is `1` iff `status` is `error` or `refused` (the operation was not performed), otherwise `0`. `model sync` without a detectable Hermes config is `status: "warning"` with `HERMES_NOT_DETECTED` and exits `0`.
@@ -564,8 +632,11 @@ Codes emitted in 0.6.0 so far (the full catalog, including codes introduced by l
 | `COMPLETED` | info | every command/tool | always last; elapsed time |
 | `PREVIEW_ONLY` | info | any dry run (`check`, `history`, `run --dry-run`, `check_prices`, `get_model_history`, `model add/remove/sync --dry-run`, `calibrate --dry-run`, `import_hermes_models`) | work done for this response only; nothing persisted → repeat without dry run |
 | `SHORTLIST_UPDATED` / `SHORTLIST_UNCHANGED` | info (`SHORTLIST_UNCHANGED` is `warning` for a duplicate `model add`, `error` for `model remove` of an absent slug) | persisting `run`/default command (Hermes sync), `model sync`/`import_hermes_models`, `model add/remove`, `calibrate` | what was persisted to `shortlist.json` |
-| `NO_EXACT_MATCH` | error (`refused`) on `model add`; warning (per model) on `run` | exact catalog validation or a shortlist slug absent from the live catalog | no prefix substitution; add refuses an invalid catalog slug and `run` skips the unmatched shortlisted slug → `discover_models` |
-| `CATALOG_UNAVAILABLE` | error | `model add` | catalog could not be queried; nothing is added → retry later |
+| `NO_EXACT_MATCH` | error (`refused`) on `model add`; warning (per model) on `run` | exact catalog validation or a shortlist slug absent from the live catalog (and not a `~` redirect) | no prefix substitution; add refuses an invalid catalog slug and `run` lists the unmatched shortlisted slug as `NOT_TRACKED` → `discover_models` |
+| `REDIRECT_IDENTITY` | info (per model) | `run` | the shortlisted slug is absent but the catalog lists `~<slug>`: a redirect alias, listed as `NOT_TRACKED` with no price or history (§5.2) |
+| `ONLY_NON_STANDARD_TIERS` | warning (per model) | `run` | every usable endpoint of the model is a service tier (flex/fast/priority/…); the price falls back to the cheapest of them (§3.2b) |
+| `QUOTE_FROM_CATALOG` | info (per model) | `run` | the endpoint route failed or returned nothing usable, so the price is the catalog headline blended with the calibration; it is shown but **not** added to history (§5.2) |
+| `CATALOG_UNAVAILABLE` | error on `model add`; warning (per model) on `run` | `model add`; `run` with no usable catalog and no cached history | catalog could not be queried; nothing is added / the model is skipped. `run` never reclassifies a slug's identity from an empty catalog (§5.2) → retry later |
 | `NOT_MONITORED` | warning on local reads (`status: "not_monitored"`); error (`refused`) on a filtered live `run` | `run --model` (`refused`); `check --model`/`check_prices`, `history --model`/`get_model_history` (`not_monitored`) | slug is absent from shortlist; no catalog or price request is made → add the model explicitly |
 | `PRICE_UNAVAILABLE` / `PRICE_INVALID` | warning (per model) | `run` | model has no usable advertised price or its listed price is invalid; that model is skipped with an explicit reason |
 | `NO_DEFAULT` | info | `run`, local price views | no explicit `order: 0` entry; no default-based alert is produced |
@@ -587,7 +658,7 @@ Codes emitted in 0.6.0 so far (the full catalog, including codes introduced by l
 ### 10.2 Exposed MCP Tools
 
 #### 1. `check_prices` (D-19: local read, no network)
-- **Description:** Local read of the latest normalized/blended price per the monitored shortlist from `history.csv`, plus the price alerts (PRICE_SPIKE, PRICE_DROP, BEST_OPTION_CHANGED) persisted by the last `run_prices` call in `alerts.json` -- shown verbatim, never recomputed. Makes no OpenRouter network call; `readOnlyHint: true`, `openWorldHint: false`.
+- **Description:** Local read of the latest stored observation's price and observation-derived moving averages per the monitored shortlist (`history.csv` only as a cached-quote fallback), plus the price alerts (PRICE_SPIKE, PRICE_DROP, BEST_OPTION_CHANGED) persisted by the last `run_prices` call in `alerts.json` -- shown verbatim, never recomputed. Makes no OpenRouter network call; `readOnlyHint: true`, `openWorldHint: false`.
 - **Parameters:**
   - `model_id` (string, optional): Exact shortlisted slug to read. If omitted, returns all shortlisted models. An absent slug returns `status: "not_monitored"` with `NOT_MONITORED` (a normal result, not `isError`; no catalog lookup).
 - **Return Payload:** The §10.1a envelope (`status`, `messages`, `elapsed_ms`) followed by `timestamp`, `data_source` (always `"cached_history"` -- this tool never performs a live call), `api_offline_fallback`, `prices_shortlist` (each entry carrying `effective_price_1m` and `advertised_prompt_1m`/`advertised_completion_1m`; no `policy_price_1m` -- ZDR is live-only, `run_prices`-only, D-28), `price_warnings` (as persisted), `hermes_integration` (`detected`, `source`, `method`, `models_count`), and in-band `_hints`. A `DATA_STALE` warning is added when the latest locally stored observation is older than today.
@@ -620,7 +691,7 @@ slug, returns `NO_EXACT_MATCH` for an invalid or nonexistent slug, and reports
 `CATALOG_UNAVAILABLE` when the catalog cannot be checked.
 
 #### 3. `get_model_history` (D-19: local read, no network)
-- **Description:** Local read of 30-day temporal price history, volatility coefficient of variation (CV%), directional trends, and deterministic intelligence profiles (STABLE, PROMO_ENDED, SUNSETTING, VOLATILE, DISCOUNTED, CREEPING_INFLATION, NEWLY_TRACKED), derived from `history.csv`'s `d1..d30` columns (themselves derived from `effective_prices.json` by the last `run_prices` call, §5.2). All analytics/profile classification lives in this tool, not in `check_prices`. Makes no OpenRouter network call; `readOnlyHint: true`, `openWorldHint: false`.
+- **Description:** Local read of 30-day temporal price history, volatility coefficient of variation (CV%), directional trends, and deterministic intelligence profiles (STABLE, PROMO_ENDED, SUNSETTING, VOLATILE, DISCOUNTED, CREEPING_INFLATION, NEWLY_TRACKED), computed from the dated observations in `effective_prices.json` (§5.2). All analytics/profile classification lives in this tool, not in `check_prices`. Makes no OpenRouter network call; `readOnlyHint: true`, `openWorldHint: false`.
 - **Parameters:**
   - `model_id` (string, optional): Exact shortlisted slug to inspect. If omitted, returns all shortlisted models. An absent slug returns `status: "not_monitored"` with `NOT_MONITORED` (a normal result, not `isError`).
   - `format` (string, optional, default: `"json"`): Output format (`"json"` for structured analytics or `"csv"` for raw historical table).
@@ -654,9 +725,14 @@ slug, returns `NO_EXACT_MATCH` for an invalid or nonexistent slug, and reports
   with `status: error` and MCP `isError: true`.
 - `run_update(type="install_only")` is the only Anticharon tool that executes
   commands. It is experimental, destructive, non-idempotent, and open-world.
-  The named enum is `install_only`, `restart_host`, `phoenix`,
-  and `reload_request`; every response includes the
-  `EXPERIMENTAL` warning. It prefers `uv tool install --force` from the Git
+  `type` is a string defaulting to `install_only`; `restart_host`,
+  `phoenix`, and `reload_request` are still accepted but are not listed in the
+  input schema, are deprecated, and are planned for removal in 0.8.0. The
+  reinstall uses the default branch without a version comparison, so the result
+  can be older than the installed version; the payload carries
+  `running_version`. Every response includes the `EXPERIMENTAL`
+  warning, and `install_only` ends with a `RESTART_REQUIRED` message naming the
+  Hermes (`/reload-mcp`) and generic (restart or reconnect) activation steps. It prefers `uv tool install --force` from the Git
   source and otherwise invokes `sys.executable -m pip install --force-reinstall`.
   The Phoenix variant schedules server termination for host respawn; a caller
   must explicitly request it.
@@ -664,6 +740,7 @@ slug, returns `NO_EXACT_MATCH` for an invalid or nonexistent slug, and reports
 ### 10.3 Exposed MCP Resources
 - `anticharon://llms.txt`: Machine-readable Agent-to-Agent operational briefing and schema definitions. The repository-root `llms.txt` is the only source; Hatch's wheel `force-include` maps it to `anticharon/llms.txt`.
 - `anticharon://history.csv`: Raw 30-day sliding history table (`model,last_updated,effective_price_1m,advertised_prompt_1m,advertised_completion_1m,ma_3d,ma_7d,d1..d7,d15,d30`).
+- `anticharon://effective_prices.json` (`application/json`): the local `effective_prices.json` store (§5.2) as JSON — per-model `canonical_slug`, `first_seen`, `last_synced`, and dated `observations`. Read-only: returns `{}` when the file is absent (or unreadable), makes no network call, and never creates or modifies the file.
 - `anticharon://shortlist.json`: Active model shortlist and token weight configuration.
 - `anticharon://calibration-details`: Definitions and derivation guidance for the three token weights, sample values, the server-local CSV workflow, and the local CLI fallback.
 

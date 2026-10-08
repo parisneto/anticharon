@@ -1,8 +1,8 @@
-# Anticharon MCP briefing (v0.6.1 Beta)
+# Anticharon MCP briefing (v0.7.0)
 
 Anticharon monitors OpenRouter model prices and maintains a local shortlist.
-This is a Beta release: public interfaces may change without deprecation until
-there is real-user and third-party feedback. Read `messages` in every result
+This is a pre-1.0 release: public interfaces may change between minor versions
+until there is real-user and third-party feedback. Read `messages` in every result
 before acting. Before trusting a remembered default model, call `check_prices`
 or re-read `anticharon://llms.txt`.
 
@@ -28,6 +28,23 @@ is experimental and may require a host restart.
   `history.csv`, `effective_prices.json`, and `alerts.json`.
 - `check` / `check_prices` and `history` / `get_model_history` are local reads
   that never fetch or recompute stored alerts.
+- Analytics come only from the dated daily observations in
+  `effective_prices.json` (OpenRouter's listed endpoint prices, standard tiers,
+  blended with your calibration; the same definition as the live price);
+  backfilled days count immediately. `NEWLY_TRACKED`
+  means too few observed days (`observation_count` below
+  `min_tracking_days_for_profile`), not a recent install. `change_vs_30d_pct:
+  null` means no usable 30-day baseline. Each result carries
+  `classification_reason`; each price row carries `price_source`
+  (`observation`, `live_quote`, `cached_quote`) and `price_date`.
+- A shortlisted slug with no stable catalog identity (a redirect alias such as
+  `x/y-latest` listed as `~x/y-latest`, or an unmatched slug) appears in
+  `not_tracked` with `status: "NOT_TRACKED"`, `identity`, `code`
+  (`REDIRECT_IDENTITY` or `NO_EXACT_MATCH`), and a diagnostic. It has no price
+  or history; the slug is never rewritten.
+- A model's price is its cheapest standard-tier endpoint (service tiers such as
+  `flex`, `fast`, `priority` are excluded); each price row reports the chosen
+  endpoint's `endpoint_tag`.
 - A write saves by default. Use `dry_run=true` (or CLI `--dry-run`) only to
   preview a write.
 - `add_model` validates an exact live catalog slug. `remove_model` refuses
@@ -51,12 +68,14 @@ is experimental and may require a host restart.
   `.bak` copy.
 - `self_test()`: Runs the same diagnostics as `anticharon test`.
 - `check_updates()`: User-initiated two-second check against GitHub Releases.
-- `run_update(type)`: Experimental reinstall sequence (`install_only`, `restart_host`, `phoenix`, `reload_request`). WARNING: Executes shell commands directly on the host and may require manual host intervention.
+- `run_update(type)`: Experimental reinstall from the default branch, without a version comparison, so the result can be older than the installed version (the payload reports `running_version`); `type` defaults to `install_only`. WARNING: Executes shell commands directly on the host, so call it only with explicit user intent. The running server keeps the old version (and `check_updates` keeps reporting it) until reloaded: Hermes, ask the user to send `/reload-mcp` in chat; other MCP hosts, restart the host or reconnect the MCP server. `restart_host`, `phoenix` and `reload_request` are deprecated and planned for removal in 0.8.0.
 
 ## MCP resources
 
 - `anticharon://llms.txt`: This operational briefing and glossary.
-- `anticharon://history.csv`: Compact 30-day local history.
+- `anticharon://history.csv`: Derived one-line-per-model price export (convenience only).
+- `anticharon://effective_prices.json`: Local dated price observations (the
+  analytics source); read-only, `{}` when absent, no network.
 - `anticharon://shortlist.json`: Active shortlist and token weights.
 - `anticharon://calibration-details`: Token-weight derivation and CSV fallback.
 
@@ -78,7 +97,8 @@ Every MCP tool and CLI `--json` response starts with `status`, `messages`, and
 codes are `API_FALLBACK`, `CALIBRATION_INPUT_INVALID`,
 `CATALOG_UNAVAILABLE`, `COMPLETED`, `DATA_STALE`, `EXPERIMENTAL`,
 `HERMES_DIVERGENT`, `HERMES_INCOMPLETE`, `HERMES_NOT_DETECTED`,
-`NO_DEFAULT`, `NO_EXACT_MATCH`, `NOT_MONITORED`, `PREVIEW_ONLY`,
+`NO_DEFAULT`, `NO_EXACT_MATCH`, `NOT_MONITORED`, `ONLY_NON_STANDARD_TIERS`, `PREVIEW_ONLY`,
+`QUOTE_FROM_CATALOG`,
 `PRICE_INVALID`, `PRICE_UNAVAILABLE`, `RESTART_REQUIRED`,
 `SELF_TEST_FAILED`, `SHORTLIST_UNCHANGED`, `SHORTLIST_UPDATED`, `SOURCE_MANAGED`,
 `UP_TO_DATE`, `UPDATE_AVAILABLE`, `UPDATE_CHECK_FAILED`, `UPDATE_FAILED`,

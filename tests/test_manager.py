@@ -36,3 +36,16 @@ def test_model_manager_add_remove_list(tmp_path, monkeypatch):
     # 5. List models
     res_list = list_models(config_path=temp_cfg)
     assert len(res_list.shortlist) == 1
+
+
+def test_exact_batch_slug_can_still_be_added_and_is_not_rewritten(tmp_path, monkeypatch):
+    """EH-6: only normal discovery hides `:batch`; an exact add keeps the slug verbatim."""
+    monkeypatch.setattr("anticharon.manager.fetch_openrouter_models",
+                        lambda **kwargs: {"acme/model:batch": {}, "acme/model": {}})
+    cfg = tmp_path / "shortlist.json"
+    cfg.write_text('{"shortlist": ["openai/gpt-5.6-luna"]}', encoding="utf-8")
+
+    res = add_model("acme/model:batch", dry_run=False, config_path=cfg)
+
+    assert res.status == "success"
+    assert load_config(cfg)["shortlist"] == ["openai/gpt-5.6-luna", "acme/model:batch"]

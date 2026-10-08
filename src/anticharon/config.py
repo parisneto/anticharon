@@ -133,12 +133,27 @@ def _entry_list(raw: list[Any], legacy_source: str = "manual") -> list[dict[str,
     return entries
 
 
-def default_model(entries: list[dict[str, Any]]) -> str | None:
-    """Return the explicitly ordered Hermes or manual default, if configured."""
+def default_entry(entries: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The one effective default entry: the Hermes `order: 0` entry when Hermes
+    owns a default, else the first manual `order: 0` preference."""
     defaults = [entry for entry in entries if entry.get("order") == 0
                 and entry.get("source") in {"hermes", "manual"}]
     hermes = next((entry for entry in defaults if entry.get("source") == "hermes"), None)
-    return (hermes or (defaults[0] if defaults else None) or {}).get("model")
+    return hermes or (defaults[0] if defaults else None)
+
+
+def default_model(entries: list[dict[str, Any]]) -> str | None:
+    """Return the explicitly ordered Hermes or manual default, if configured."""
+    return (default_entry(entries) or {}).get("model")
+
+
+def entry_by_model(entries: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """One entry per slug; a Hermes entry wins over a manual entry for the same slug."""
+    result: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        if entry["model"] not in result or entry.get("source") == "hermes":
+            result[entry["model"]] = entry
+    return result
 
 
 def load_config(config_path: Path | None = None, *, legacy_source: str = "manual") -> dict[str, Any]:
@@ -153,7 +168,7 @@ def load_config(config_path: Path | None = None, *, legacy_source: str = "manual
                 config.update(data)
                 entries = _entry_list(data.get("shortlist", DEFAULT_SHORTLIST), legacy_source)
                 config["_shortlist_entries"] = entries
-                config["shortlist"] = [entry["model"] for entry in entries]
+                config["shortlist"] = list(dict.fromkeys(entry["model"] for entry in entries))
                 return config
         except Exception:
             pass

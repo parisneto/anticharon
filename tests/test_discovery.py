@@ -359,3 +359,18 @@ def test_filter_catalog_multi_criteria():
 
     f_in = filter_catalog(dummy_catalog, max_input_price=0.15)
     assert len(f_in) == 2
+
+
+def _catalog_model(model_id):
+    return CatalogModel(id=model_id, name=model_id, context_length=1000, prompt_price_1m=1.0,
+                        completion_price_1m=2.0, blended_price_1m=1.5, is_promo=False,
+                        output_modalities=["text"], description="", canonical_slug=model_id)
+
+
+def test_normal_discovery_silently_excludes_batch_variants():
+    models = [_catalog_model(m) for m in ("acme/model", "acme/model:batch", "acme/batch-model", "acme/other:free")]
+    ids = [m.id for m in filter_catalog(models)]
+    assert ids == ["acme/model", "acme/batch-model", "acme/other:free"]
+    # Also excluded when the query would match them explicitly.
+    assert [m.id for m in filter_catalog(models, query="acme/model")] == ["acme/model"]
+    assert [m.id for m in filter_catalog(models, query=":batch")] == []

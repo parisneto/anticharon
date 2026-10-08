@@ -14,8 +14,8 @@ import json
 import requests
 
 from anticharon.tracker import (
-    fetch_effective_pricing_history,
     fetch_endpoint_policy_pricing,
+    fetch_listed_pricing,
     fetch_openrouter_models,
 )
 
@@ -202,78 +202,77 @@ def test_fetch_openrouter_models_nested_data_wrong_element_type_returns_empty_di
     assert fetch_openrouter_models() == {}
 
 
-# --- fetch_effective_pricing_history (28-day backfill route): returns {} on failure ---
+# --- fetch_listed_pricing (history source route): returns {} on failure ---
 
 
-def test_fetch_effective_pricing_history_timeout_returns_empty_dict(monkeypatch):
+def test_fetch_listed_pricing_timeout_returns_empty_dict(monkeypatch):
     def fake_get(*a, **kw):
         raise requests.exceptions.Timeout("timed out")
 
     monkeypatch.setattr("anticharon.tracker.requests.get", fake_get)
-    assert fetch_effective_pricing_history("openai/gpt-5.6-luna-20260709") == {}
+    assert fetch_listed_pricing("openai/gpt-5.6-luna-20260709") == {}
 
 
-def test_fetch_effective_pricing_history_connection_error_returns_empty_dict(monkeypatch):
+def test_fetch_listed_pricing_connection_error_returns_empty_dict(monkeypatch):
     def fake_get(*a, **kw):
         raise requests.exceptions.ConnectionError("connection refused")
 
     monkeypatch.setattr("anticharon.tracker.requests.get", fake_get)
-    assert fetch_effective_pricing_history("openai/gpt-5.6-luna-20260709") == {}
+    assert fetch_listed_pricing("openai/gpt-5.6-luna-20260709") == {}
 
 
-def test_fetch_effective_pricing_history_http_error_returns_empty_dict(monkeypatch):
+def test_fetch_listed_pricing_http_error_returns_empty_dict(monkeypatch):
     monkeypatch.setattr(
         "anticharon.tracker.requests.get",
         lambda *a, **kw: _FakeResponse(status_code=500),
     )
-    assert fetch_effective_pricing_history("openai/gpt-5.6-luna-20260709") == {}
+    assert fetch_listed_pricing("openai/gpt-5.6-luna-20260709") == {}
 
 
-def test_fetch_effective_pricing_history_malformed_json_returns_empty_dict(monkeypatch):
+def test_fetch_listed_pricing_malformed_json_returns_empty_dict(monkeypatch):
     monkeypatch.setattr(
         "anticharon.tracker.requests.get",
         lambda *a, **kw: _FakeResponse(json_error=json.JSONDecodeError("bad json", "", 0)),
     )
-    assert fetch_effective_pricing_history("openai/gpt-5.6-luna-20260709") == {}
+    assert fetch_listed_pricing("openai/gpt-5.6-luna-20260709") == {}
 
 
-def test_fetch_effective_pricing_history_wrong_response_shape_returns_empty_dict(monkeypatch):
+def test_fetch_listed_pricing_wrong_response_shape_returns_empty_dict(monkeypatch):
     """A response body that's valid JSON but a bare list, not {"data": {...}}."""
     monkeypatch.setattr(
         "anticharon.tracker.requests.get",
         lambda *a, **kw: _FakeResponse(json_data=["unexpected", "shape"]),
     )
-    assert fetch_effective_pricing_history("openai/gpt-5.6-luna-20260709") == {}
+    assert fetch_listed_pricing("openai/gpt-5.6-luna-20260709") == {}
 
 
-def test_fetch_effective_pricing_history_success_returns_real_data(monkeypatch):
-    real_data = {"inputChartData": [{"x": "2026-09-15 00:00:00", "y": {"ep1": 0.05}}]}
+def test_fetch_listed_pricing_success_returns_real_data(monkeypatch):
+    real_data = {"series": [{"endpointId": "ep1", "providerSlug": "openai", "input": [{"at": "2026-09-05T00:00:00Z", "value": 0.2}]}]}
     monkeypatch.setattr(
         "anticharon.tracker.requests.get",
         lambda *a, **kw: _FakeResponse(json_data={"data": real_data}),
     )
-    assert fetch_effective_pricing_history("openai/gpt-5.6-luna-20260709") == real_data
+    assert fetch_listed_pricing("openai/gpt-5.6-luna-20260709") == real_data
 
 
-def test_fetch_effective_pricing_history_nested_data_wrong_type_empty_list_returns_empty_dict(monkeypatch):
+def test_fetch_listed_pricing_nested_data_wrong_type_empty_list_returns_empty_dict(monkeypatch):
     """PE2-006 (independent retest round 4): valid JSON, valid top-level shape
     (a dict with a "data" key), but "data" itself is a list instead of a
     mapping -- the exact reported reproduction (`{"data": []}`). Must degrade
-    to {} rather than pass the list through: _reduce_to_daily_observations()
-    immediately calls history_data.get(...), which raises AttributeError on
+    to {} rather than pass the list through: the sync immediately calls listed.get(...), which raises AttributeError on
     a list."""
     monkeypatch.setattr(
         "anticharon.tracker.requests.get",
         lambda *a, **kw: _FakeResponse(json_data={"data": []}),
     )
-    assert fetch_effective_pricing_history("openai/gpt-5.6-luna-20260709") == {}
+    assert fetch_listed_pricing("openai/gpt-5.6-luna-20260709") == {}
 
 
-def test_fetch_effective_pricing_history_nested_data_wrong_type_nonempty_list_returns_empty_dict(monkeypatch):
+def test_fetch_listed_pricing_nested_data_wrong_type_nonempty_list_returns_empty_dict(monkeypatch):
     """PE2-006: same drift as above, but with a non-empty list -- confirms the
     guard checks the type, not just emptiness."""
     monkeypatch.setattr(
         "anticharon.tracker.requests.get",
         lambda *a, **kw: _FakeResponse(json_data={"data": ["unexpected", "entries"]}),
     )
-    assert fetch_effective_pricing_history("openai/gpt-5.6-luna-20260709") == {}
+    assert fetch_listed_pricing("openai/gpt-5.6-luna-20260709") == {}

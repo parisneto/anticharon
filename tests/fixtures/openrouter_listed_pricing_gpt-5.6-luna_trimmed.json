@@ -1,0 +1,251 @@
+{
+ "data": {
+  "series": [
+   {
+    "endpointId": "297a2285-308d-4bfb-a120-a9c2ead800b0",
+    "providerName": "OpenAI (1)",
+    "providerSlug": "openai",
+    "input": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0.4
+     }
+    ],
+    "output": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 2.4
+     }
+    ],
+    "cacheRead": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0.04
+     }
+    ],
+    "cacheWrite": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0.5
+     }
+    ],
+    "discount": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0
+     }
+    ]
+   },
+   {
+    "endpointId": "3e1fe018-94f7-4499-874b-34254ca271a7",
+    "providerName": "Azure (1)",
+    "providerSlug": "azure",
+    "input": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0.2
+     }
+    ],
+    "output": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 1.2
+     }
+    ],
+    "cacheRead": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0.02
+     }
+    ],
+    "cacheWrite": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0.25
+     }
+    ],
+    "discount": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0
+     }
+    ]
+   },
+   {
+    "endpointId": "84f2862d-b070-4497-b1f2-e44af8304e7f",
+    "providerName": "Amazon Bedrock",
+    "providerSlug": "amazon-bedrock",
+    "input": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0.22
+     }
+    ],
+    "output": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 1.32
+     }
+    ],
+    "cacheRead": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0.022
+     }
+    ],
+    "cacheWrite": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0.275
+     }
+    ],
+    "discount": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0
+     }
+    ]
+   },
+   {
+    "endpointId": "bf333980-ba45-412c-9eb3-bac520ea764d",
+    "providerName": "Azure (2)",
+    "providerSlug": "azure",
+    "input": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0.22
+     }
+    ],
+    "output": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 1.32
+     }
+    ],
+    "cacheRead": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0.022
+     }
+    ],
+    "cacheWrite": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0.275
+     }
+    ],
+    "discount": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0
+     }
+    ]
+   },
+   {
+    "endpointId": "eb706c2a-0b59-4497-ac86-31baf7e4876e",
+    "providerName": "Azure (3)",
+    "providerSlug": "azure",
+    "input": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0.22
+     }
+    ],
+    "output": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 1.32
+     }
+    ],
+    "cacheRead": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0.022
+     }
+    ],
+    "cacheWrite": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0.275
+     }
+    ],
+    "discount": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0
+     }
+    ]
+   },
+   {
+    "endpointId": "eebea444-34a5-4642-a766-cb319471d33a",
+    "providerName": "OpenAI (2)",
+    "providerSlug": "openai",
+    "input": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0.2
+     }
+    ],
+    "output": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 1.2
+     }
+    ],
+    "cacheRead": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0.02
+     }
+    ],
+    "cacheWrite": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0.25
+     }
+    ],
+    "discount": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0
+     }
+    ]
+   },
+   {
+    "endpointId": "ff94b1f1-db76-42c5-a21e-06083c3cc7d0",
+    "providerName": "OpenAI (3)",
+    "providerSlug": "openai",
+    "input": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0.1
+     }
+    ],
+    "output": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0.6
+     }
+    ],
+    "cacheRead": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0.01
+     }
+    ],
+    "cacheWrite": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0.125
+     }
+    ],
+    "discount": [
+     {
+      "at": "2026-09-05T20:16:51.639Z",
+      "value": 0
+     }
+    ]
+   }
+  ]
+ }
+}

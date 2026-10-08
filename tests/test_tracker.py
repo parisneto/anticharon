@@ -28,7 +28,7 @@ def _write_shortlist(tmp_path, models, default_first=False):
 @pytest.fixture
 def no_backfill(monkeypatch):
     """Backfill isn't the focus of these tests -- keep it a no-op (empty history)."""
-    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", lambda *a, **kw: {})
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **kw: {})
 
 
 def test_run_tracker_skips_sentinel_priced_model(monkeypatch, tmp_path, no_backfill):
@@ -251,7 +251,7 @@ def test_run_tracker_same_day_rerun_does_not_shift_d1(monkeypatch, tmp_path):
         },
     })
     monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **kw: [])
-    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", lambda *a, **kw: {
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **kw: {
         "inputChartData": [{"x": "2026-09-15 00:00:00", "y": {"ep1": 0.05}}],
         "outputChartData": [{"x": "2026-09-15 00:00:00", "y": {"ep1": 1.0}}],
     })
@@ -439,14 +439,14 @@ def test_run_tracker_zdr_delta_compares_effective_not_policy_price(monkeypatch, 
             "canonical_slug": "openai/gpt-5.6-sol-20260709",
             "first_seen": "2026-08-01",
             "last_synced": fixed_now.isoformat(),  # fresh -- backfill fetch must not run
-            "observations": seeded_observations,
+            "basis": "listed_blend", "observations": seeded_observations,
         }
     }), encoding="utf-8")
 
     def _fail_if_called(*a, **kw):
         raise AssertionError("fetch_effective_pricing_history must not be called -- store entry is fresh")
 
-    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", _fail_if_called)
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", _fail_if_called)
 
     class _FixedDatetime(datetime):
         @classmethod
@@ -465,10 +465,13 @@ def test_run_tracker_zdr_delta_compares_effective_not_policy_price(monkeypatch, 
     assert policy is not None and policy != pytest.approx(effective)  # sanity: they really differ
 
     assert model_price.ma_7d == pytest.approx(known_ma_price)
+    # Today's observation is the run's unconstrained effective quote (never the policy price),
+    # so the 7-day change compares it with the stored average like for like.
     expected_delta = ((effective - known_ma_price) / known_ma_price) * 100
     wrong_delta_if_using_policy = ((policy - known_ma_price) / known_ma_price) * 100
     assert model_price.change_vs_7d_pct == pytest.approx(expected_delta, abs=1e-4)
     assert model_price.change_vs_7d_pct != pytest.approx(wrong_delta_if_using_policy, abs=1e-4)
+    assert model_price.quote_vs_observed_pct == pytest.approx(0.0)
 
 
 # --- PE2-002: missing/partial bulk-catalog pricing must never become a fabricated $0 ---
@@ -645,12 +648,12 @@ def test_run_tracker_cache_hit_rate_used_is_the_real_rate_not_the_raw_weight(mon
 def test_run_tracker_survives_nested_schema_drift_on_both_stats_routes(monkeypatch, tmp_path):
     """End-to-end reproduction of both crashes the independent retest reported:
     the endpoint-stats route's "data" is a mapping instead of a list of
-    endpoint dicts, and the effective-pricing route's "data" is a list instead
+    endpoint dicts, and the listed-pricing route's "data" is a list instead
     of a mapping. Before the PE2-006 fix, this raised AttributeError out of
     resolve_policy_pricing()/_reduce_to_daily_observations() and crashed the
     whole `anticharon run`. Deliberately does NOT use the `no_backfill`
     fixture -- the point is to exercise sync_effective_prices_for_model's real
-    fetch_effective_pricing_history() call, not bypass it."""
+    fetch_listed_pricing() call, not bypass it."""
     monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {
         "openai/gpt-5.6-sol": {
             "id": "openai/gpt-5.6-sol",
@@ -674,7 +677,7 @@ def test_run_tracker_survives_nested_schema_drift_on_both_stats_routes(monkeypat
             # Drift reproduced verbatim from the independent retest report:
             # a non-empty mapping where a list of endpoint dicts is expected.
             return _FakeResponse({"data": {"ep1": {"provider_name": "OpenAI"}}})
-        if "stats/effective-pricing" in url:
+        if "stats/listed-pricing" in url:
             # Drift reproduced verbatim from the independent retest report:
             # a list (here, empty) where a mapping is expected.
             return _FakeResponse({"data": []})
@@ -695,3 +698,129 @@ def test_run_tracker_survives_nested_schema_drift_on_both_stats_routes(monkeypat
     assert model_price.price.policy_price_1m is None
     assert model_price.price.is_policy_routable is None
     assert model_price.price.cache_hit_rate_used != pytest.approx(0.764478, abs=1e-4)
+
+
+STD_SOL_ENDPOINT = {"tag": "openai", "provider_slug": "openai", "provider_name": "OpenAI",
+                    "pricing": {"prompt": "0.000002", "completion": "0.00001"}}
+
+
+def _analytics_profile_for_store(monkeypatch, tmp_path, observation_days, first_seen):
+    """Run the tracker with a fresh seeded store and return the model's analytics."""
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **kw: [STD_SOL_ENDPOINT])
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {
+        "openai/gpt-5.6-sol": {
+            "id": "openai/gpt-5.6-sol",
+            "canonical_slug": "openai/gpt-5.6-sol-20260709",
+            "pricing": {"prompt": "0.000002", "completion": "0.00001"},
+        },
+    })
+    fixed_now = datetime(2026, 9, 16, 10, 0, 0, tzinfo=timezone.utc)
+    (tmp_path / "effective_prices.json").write_text(json.dumps({
+        "openai/gpt-5.6-sol": {
+            "canonical_slug": "openai/gpt-5.6-sol-20260709",
+            "first_seen": first_seen,
+            "last_synced": fixed_now.isoformat(),
+            "basis": "listed_blend", "observations": [
+                {"date": (fixed_now.date() - timedelta(days=n)).isoformat(), "effective_price_1m": 0.5}
+                for n in range(1, observation_days + 1)
+            ],
+        }
+    }), encoding="utf-8")
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing",
+                        lambda *a, **kw: {})  # `force=True` runs refresh; no data keeps the seeded store
+
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now
+
+    monkeypatch.setattr("anticharon.tracker.datetime", _FixedDatetime)
+    result = run_tracker(
+        dry_run=True, config_path=_write_shortlist(tmp_path, ["openai/gpt-5.6-sol"]),
+        history_path=tmp_path / "history.csv", no_hermes=True, enable_analytics=True,
+    )
+    return result.prices_shortlist[0].analytics
+
+
+def test_first_run_with_day_zero_backfill_gets_normal_profile(monkeypatch, tmp_path):
+    """AC-1: first_seen is today (first Anticharon run) but 28 real backfilled
+    days exist, so the model is not NEWLY_TRACKED."""
+    analytics = _analytics_profile_for_store(monkeypatch, tmp_path, 28, first_seen="2026-09-16")
+    assert analytics.profile != "NEWLY_TRACKED"
+    assert analytics.observation_count == 29  # 28 backfilled days + today's run quote
+
+
+def test_old_first_seen_does_not_mature_a_model_with_five_observed_days(monkeypatch, tmp_path):
+    """AC-1: a long-ago first_seen cannot mature a model with only five real days."""
+    analytics = _analytics_profile_for_store(monkeypatch, tmp_path, 5, first_seen="2026-01-01")
+    assert analytics.profile == "NEWLY_TRACKED"
+    assert analytics.observation_count == 6  # 5 backfilled days + today's run quote
+
+
+def _seed_store_with_today(tmp_path, today, price=1.0, days=14):
+    (tmp_path / "effective_prices.json").write_text(json.dumps({
+        "openai/gpt-5.6-sol": {
+            "canonical_slug": "openai/gpt-5.6-sol-20260709",
+            "first_seen": "2026-08-01",
+            "last_synced": datetime(2026, 9, 16, 10, 0, 0, tzinfo=timezone.utc).isoformat(),
+            "basis": "listed_blend", "observations": [
+                {"date": (today - timedelta(days=n)).isoformat(), "effective_price_1m": price}
+                for n in range(days)
+            ],
+        }
+    }), encoding="utf-8")
+
+
+def _freeze_tracker_clock(monkeypatch):
+    fixed_now = datetime(2026, 9, 16, 10, 0, 0, tzinfo=timezone.utc)
+
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now
+
+    monkeypatch.setattr("anticharon.tracker.datetime", _FixedDatetime)
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing",
+                        lambda *a, **kw: {})  # `force=True` runs refresh; no data keeps the seeded store
+    return fixed_now
+
+
+def _write_export_with_quote(tmp_path, quote, now_iso):
+    from anticharon.storage import write_history
+    write_history([["openai/gpt-5.6-sol", now_iso, quote, quote, quote, quote, quote] + [None] * 9],
+                  tmp_path / "history.csv")
+
+
+def test_run_then_check_and_history_are_identical_and_offline_run_agrees(monkeypatch, tmp_path):
+    """Run is the hot read; right after it, check/history (cold reads of what the run stored)
+    show the same price, and an offline run falls back to that same stored quote and
+    classifies the same evidence identically."""
+    fixed_now = _freeze_tracker_clock(monkeypatch)
+    _seed_store_with_today(tmp_path, fixed_now.date(), days=14)
+    cfg = _write_shortlist(tmp_path, ["openai/gpt-5.6-sol"])
+    hist = tmp_path / "history.csv"
+    monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **kw: [STD_SOL_ENDPOINT])
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {
+        "openai/gpt-5.6-sol": {
+            "id": "openai/gpt-5.6-sol", "canonical_slug": "openai/gpt-5.6-sol-20260709",
+            "pricing": {"prompt": "0.000002", "completion": "0.00001"},
+        },
+    })
+    live = run_tracker(config_path=cfg, history_path=hist, no_hermes=True, enable_analytics=True,
+                       force=True).prices_shortlist[0]
+    assert live.price_source == "live_quote" and live.price_1m != 1.0  # the quote differs from the seeded 1.0
+
+    from anticharon.tracker import read_check_result, read_history_result
+    local = read_history_result(config_path=cfg, history_path=hist, no_hermes=True).prices_shortlist[0]
+    check = read_check_result(config_path=cfg, history_path=hist, no_hermes=True).prices_shortlist[0]
+    monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: {})
+    fallback = run_tracker(dry_run=True, config_path=cfg, history_path=hist, no_hermes=True,
+                           enable_analytics=True).prices_shortlist[0]
+
+    for row in (local, check):
+        assert (row.price_1m, row.price_source, row.price_date) == (
+            pytest.approx(live.price_1m, rel=1e-5), "observation", "2026-09-16")
+    assert fallback.price_1m == pytest.approx(live.price_1m, rel=1e-5) and fallback.price_source == "cached_quote"
+    assert local.change_vs_7d_pct == pytest.approx(live.change_vs_7d_pct)
+    assert live.analytics.to_dict() == fallback.analytics.to_dict() == local.analytics.to_dict()
+    assert live.analytics.current_price_source == "observation"

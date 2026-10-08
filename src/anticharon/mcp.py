@@ -39,9 +39,8 @@ from anticharon.manager import list_models as manage_list_models
 from anticharon.manager import remove_model as manage_remove_model
 from anticharon.models import ERROR_STATUSES, AgentMessage, build_envelope
 from anticharon.prompts import PROMPTS, render_prompt
-from anticharon.storage import CSV_HEADER
+from anticharon.storage import CSV_HEADER, get_effective_prices_path, read_effective_prices
 from anticharon.tracker import read_check_result, read_history_result, run_tracker
-from anticharon.updater import UpdateType
 from anticharon.updater import check_updates as check_for_updates
 from anticharon.updater import run_update as execute_update
 
@@ -103,7 +102,7 @@ def tool_result(envelope: dict[str, Any]) -> dict[str, Any] | CallToolResult:
         "Local read (no network) of the latest normalized/blended price per your monitored "
         "shortlist, computes 7-day moving averages, and shows price alerts (PRICE_SPIKE, "
         "PRICE_DROP, BEST_OPTION_CHANGED) exactly as persisted by the last `run_prices` call -- "
-        "never recomputed here. Source: history.csv (compact summary) and alerts.json. Call "
+        "never recomputed here. Prices and moving averages come from the dated observations in effective_prices.json (each row reports `price_source`/`price_date`; history.csv is only a cached-quote fallback for a model with no observations). Call "
         "`run_prices` first to refresh; this tool never fetches from OpenRouter. See "
         "anticharon://llms.txt for the authoritative glossary.\n"
         "## IMPORTANT : NO ZDR support in this endpoint. It needs live data as provider availability changes. Use run_prices with zdr_only=true to get latest ZDR information for your entire shortlist or for a single model_id."
@@ -154,8 +153,8 @@ def run_prices(
     description=(
         "Local read (no network) of 30-day historical price trajectories, statistical "
         "volatility (CV%), directional trend sparklines, deterministic intelligence profiles, "
-        "and sibling alternative recommendations, derived from history.csv's d1..d30 columns "
-        "(themselves derived from effective_prices.json by the last `run_prices` call). See "
+        "and sibling alternative recommendations, computed from the dated observations in "
+        "effective_prices.json. See "
         "anticharon://llms.txt for the authoritative glossary."
     )
 )
@@ -405,16 +404,20 @@ def check_updates() -> dict[str, Any]:
     name="run_update",
     annotations=_annotations("Run experimental update", False, True, False, True),
     description=(
-        "EXPERIMENTAL. WARNING: Executes shell commands directly on the host environment. "
-        "Reinstalls Anticharon from Git source using one of four named sequences:\n"
-        "- install_only: Reinstalls via uv/pip; requires manual host restart.\n"
-        "- restart_host: Reinstalls and runs `hermes gateway restart`.\n"
-        "- phoenix: Reinstalls, then terminates this MCP server process for host respawn.\n"
-        "- reload_request: Reinstalls and prompts the user to send `/reload-mcp` in host chat.\n"
+        "EXPERIMENTAL. WARNING: Executes shell commands directly on the host; call it only with explicit user intent. "
+        "Reinstalls Anticharon from the repository's default branch without comparing versions, so the result can be "
+        "older than the installed version; the response reports `running_version`, the version of this running server, which can differ from the installation that was replaced. The `type` argument is a string "
+        "and defaults to install_only.\n"
+        "After it succeeds this running server keeps the old version, and `check_updates` keeps reporting it, until "
+        "it is reloaded:\n"
+        "- Hermes: ask the user to send `/reload-mcp` in chat.\n"
+        "- Other MCP hosts: restart the host or reconnect the MCP server.\n"
+        "Then call `check_updates` to confirm the installed version. "
+        "Deprecated, accepted for compatibility and planned for removal in 0.8.0: restart_host, phoenix, reload_request. "
         "May require manual intervention. See anticharon://llms.txt for the operational glossary."
     ),
 )
-def run_update(type: UpdateType = UpdateType.INSTALL_ONLY) -> dict[str, Any]:
+def run_update(type: str = "install_only") -> dict[str, Any]:
     """Run an experimental named update sequence; use only with explicit user intent."""
     started = time.perf_counter()
     payload, messages = execute_update(type)
@@ -451,6 +454,13 @@ def resource_history_csv() -> str:
     if hist_path.exists():
         return hist_path.read_text(encoding="utf-8").strip()
     return CSV_HEADER
+
+
+@server.resource("anticharon://effective_prices.json", mime_type="application/json")
+def resource_effective_prices_json() -> str:
+    """Local per-model dated price observations (the analytics source). Read-only:
+    `{}` when the store is absent; never touches the network or the file."""
+    return json.dumps(read_effective_prices(get_effective_prices_path(get_history_path().parent)), indent=2)
 
 
 @server.resource("anticharon://shortlist.json", mime_type="application/json")

@@ -69,7 +69,7 @@ def sandbox(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: CATALOG)
     monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **kw: [])
-    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", lambda *a, **kw: {})
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **kw: {})
     for module in ("anticharon.tracker", "anticharon.mcp", "anticharon.cli"):
         monkeypatch.setattr(f"{module}.get_hermes_models", lambda *a, **kw: None)
     return tmp_path

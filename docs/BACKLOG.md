@@ -62,6 +62,10 @@ This backlog tracks completed milestones, upcoming sprint priorities, and long-t
 
 ## ✅ Completed Milestones
 
+### Milestone 6: Effective History & Model Identity (v0.7.0)
+- [x] Standard-tier price, listed-price history with the user's calibration, observed-vs-observed alerts, redirect-identity visibility, Hermes sync fixes, CLI help contract, MCP `effective_prices.json` resource. Contract: [`docs/plans/effective-history-model-identity/`](docs/plans/effective-history-model-identity/EXECUTION_CONTRACT.md).
+- [ ] Follow-ups: remove the deprecated update types `restart_host`, `phoenix`, `reload_request` in 0.8.0; bare `anticharon` runs `run` (consider printing help); self-test or `run` inside a checkout can rewrite the tracked `config/shortlist.example.json` when Hermes is detected.
+
 ### Milestone 5: Pricing Engine v2 — Cache-Aware + Provider-Routable Pricing + 28-Day Backfill (v0.5.0)
 - [x] Unifies three prior threads into one initiative — see [`docs/plans/pricing-engine-v2/`](docs/plans/pricing-engine-v2/) (`EXECUTION_CONTRACT.md`, `PLAN.md`, `ADR_CANDIDATE_TOKENS_CACHED.md`) for the full plan and evidence.
 - [x] Cache-aware 3-component blended pricing (`tokens_cached` was never read from activity logs, overestimating real cost by 55–75% for cache-heavy agents), validated against 5 golden cases.
@@ -69,7 +73,7 @@ This backlog tracks completed milestones, upcoming sprint priorities, and long-t
 - [x] The three-price model (advertised / effective / policy) as distinct, never-collapsed numbers everywhere a price is shown.
 - [x] 28-day historical backfill on cold start (internal effective-pricing route with `range=1m`, live-verified required for ~30 days vs. the ~8-day default) replacing fabricated flat-padding with real observations; dual storage (`history.csv` compact summary + new granular `effective_prices.json` store).
 - [x] Same-day-rerun bug fixed: `d1..d30`/MA columns derived fresh from dated observations each sync instead of shifted per run.
-- [x] Elapsed-days `NEWLY_TRACKED` analytics threshold (`min_tracking_days_for_profile`), nullable history slots throughout.
+- [x] Observed-days `NEWLY_TRACKED` analytics threshold (`min_tracking_days_for_profile`) over dated `effective_prices.json` observations.
 - [x] Test suite matured to `pytest` as part of this initiative (`tests/run_tests.py` retired outright as the CI gate, per `AGENTS.md` Rule 8).
 
 ### Milestone 4: Public Release, Community Hardening & Ergonomics (v0.4.1 - v0.4.3)

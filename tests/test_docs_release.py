@@ -15,7 +15,7 @@ def test_root_llms_is_the_single_source_and_matches_the_mcp_resource():
     assert root_llms.exists()
     assert not (ROOT / "src" / "anticharon" / "llms.txt").exists()
     assert mcp.resource_llms_txt() == root_llms.read_text(encoding="utf-8").strip()
-    assert f"v{__version__} Beta" in mcp.resource_llms_txt()
+    assert f"(v{__version__})" in mcp.resource_llms_txt()
 
 
 def test_llms_lists_every_registered_mcp_surface_and_wheel_mapping():
@@ -34,7 +34,7 @@ def test_llms_lists_every_registered_mcp_surface_and_wheel_mapping():
         assert f"`{prompt.name}`" in llms
 
 
-def test_install_docs_are_beta_and_do_not_advertise_ephemeral_execution():
+def test_install_docs_are_versioned_and_do_not_advertise_ephemeral_execution():
     docs = [
         ROOT / "README.md",
         ROOT / "llms.txt",
@@ -43,7 +43,7 @@ def test_install_docs_are_beta_and_do_not_advertise_ephemeral_execution():
     ]
     text = "\n".join(path.read_text(encoding="utf-8") for path in docs)
 
-    assert f"v{__version__} Beta" in text
+    assert f"(v{__version__})" in text
     assert "uv tool install git+https://github.com/parisneto/anticharon.git" in text
     assert "pip install git+https://github.com/parisneto/anticharon.git" in text
     assert "uvx" not in text

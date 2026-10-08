@@ -1,8 +1,8 @@
-"""Storage: compact history.csv (fast-read summary) + granular effective_prices.json
-(one entry per model per calendar day, storing the cheapest blended endpoint price
-observed that day -- the source of truth history.csv's d1..d7/d15/d30 and moving
-averages are precalculated from, per docs/plans/pricing-engine-v2/PLAN.md's "Storage
-architecture" section). Provider identity and other provider-specific dimensions are
+"""Storage: granular effective_prices.json (one entry per model per calendar day,
+storing the cheapest blended endpoint price observed that day -- the sole source of
+dated history and the only analytics input) plus the derived history.csv export,
+per docs/plans/pricing-engine-v2/PLAN.md's "Storage architecture" section.
+Provider identity and other provider-specific dimensions are
 not persisted; provider-granular historical persistence remains deferred (approved
 scope reduction -- see docs/plans/pricing-engine-v2/EXECUTION_CONTRACT.md's Deferred
 section).

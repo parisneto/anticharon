@@ -38,7 +38,7 @@ from anticharon.models import (
 from anticharon.prompts import PROMPTS, render_prompt
 from anticharon.tester import run_self_test
 from anticharon.tracker import read_check_result, read_history_result, run_tracker
-from anticharon.updater import UPDATE_TYPE_ALIASES, UpdateType
+from anticharon.updater import UpdateType, parse_update_type
 from anticharon.updater import check_updates as check_for_updates
 from anticharon.updater import run_update as execute_update
 
@@ -68,6 +68,13 @@ def _print_status_line(result: TrackerResult, local_read: bool) -> None:
         print("🟢 [STATUS: LIVE API] Latest OpenRouter prices fetched.")
 
 
+def _print_not_tracked(result: TrackerResult) -> None:
+    """Price-table rows for shortlisted slugs with no stable catalog identity."""
+    for row in result.not_tracked:
+        badge = " ★ [DEFAULT]" if row.is_default else ""
+        print(f"{row.model:<34} {'NOT_TRACKED':<13} {row.diagnostic}{badge}")
+
+
 def format_human_output(result: TrackerResult, messages: list[dict], local_read: bool = False) -> None:
     """Format and print human-readable CLI summary; `messages` are the envelope's."""
     print("\n" + "=" * 74)
@@ -83,7 +90,7 @@ def format_human_output(result: TrackerResult, messages: list[dict], local_read:
 
     default_model = next((p.model for p in result.prices_shortlist if p.is_default), None)
 
-    print(f"{'MODEL':<34} {'EFFECTIVE/1M':<13} {'MA 7D':<12} {'CHANGE (7D)':<10}")
+    print(f"{'MODEL':<34} {'EFFECTIVE/1M':<13} {'MA 7D (obs)':<12} {'CHG 7D (obs)':<10}")
     print("-" * 74)
 
     for idx, p in enumerate(result.prices_shortlist):
@@ -99,12 +106,17 @@ def format_human_output(result: TrackerResult, messages: list[dict], local_read:
             # Advertised is a raw (never blended) prompt/completion pair -- a
             # transparency anchor only, distinct from the effective blend above.
             detail = f"    ↳ advertised: ${p.price.advertised_prompt_1m:.4f} in / ${p.price.advertised_completion_1m:.4f} out /1M"
+            if p.price.endpoint_tag:
+                detail += f"  |  endpoint: {p.price.endpoint_tag}"
             if p.price.policy_price_1m is not None:
                 detail += f"  |  policy (ZDR): ${p.price.policy_price_1m:.5f}/1M"
             elif p.price.is_policy_routable is False:
                 detail += "  |  policy (ZDR): unroutable"
             print(detail)
+        if p.quote_1m is not None and abs(p.quote_1m - p.price_1m) > 1e-4 * abs(p.price_1m):
+            print(f"    ↳ last run quote: ${p.quote_1m:.5f}/1M ({p.quote_date}); row price is the stored observation")
 
+    _print_not_tracked(result)
     print("-" * 74)
 
     # TUI ASCII Price Spectrum Chart
@@ -187,7 +199,21 @@ def format_analytics_human_output(result: TrackerResult, messages: list[dict], l
         if an and an.secondary_badge:
             print(f"{'':<33} {'':<10} {'':<18} {an.secondary_badge:<17}")
 
+    for row in result.not_tracked:
+        badge = " ★[DEF]" if row.is_default else ""
+        print(f"{row.model + badge:<33} {'—':<10} {'—':<18} {'NOT_TRACKED':<17} {row.diagnostic}")
+
     print("-" * 104)
+
+    evidence_rows = [p for p in result.prices_shortlist if p.analytics]
+    if evidence_rows:
+        print("\n📎 EVIDENCE (stored daily observations):")
+        for p in evidence_rows:
+            an = p.analytics
+            span = f"{an.earliest_observation} → {an.latest_observation}" if an.observation_count else "none"
+            print(f"  • {p.model}: {an.observation_count} observed days ({span}); "
+                  f"price: {p.price_source or 'n/a'}{f' {p.price_date}' if p.price_date else ''}"
+                  + (f"; last run quote ${p.quote_1m:.5f}" if p.quote_1m is not None else ""))
 
     # Summary Insights
     print("\n📊 30-DAY VOLATILITY & SPREAD SUMMARY:")
@@ -196,7 +222,8 @@ def format_analytics_human_output(result: TrackerResult, messages: list[dict], l
         print(f"  • STABLE WORKHORSES: {st_desc} [CV < 2.5%]")
     if promo_ended_models:
         for m, delta, cv in promo_ended_models:
-            print(f"  • EXPIRED PROMO: {m} rose {delta:+.1f}% over baseline (CV: {cv:.1f}%).")
+            rise = f" {delta:+.1f}%" if delta is not None else ""
+            print(f"  • EXPIRED PROMO: {m} rose{rise} over baseline (CV: {cv:.1f}%).")
     if sunsetting_models:
         for m, rec in sunsetting_models:
             print(f"  • MIGRATION OPPORTUNITY: {m} — {rec}")
@@ -510,7 +537,7 @@ def cmd_model(args) -> int:
             print(f"\n📋 Shortlisted Models ({len(res.shortlist)}):")
             print(f"⚙️ Config: {res.config_path}")
             print("-" * 50)
-            defaults = {entry["model"] for entry in res.entries if entry.get("order") == 0}
+            defaults = {entry["model"] for entry in res.entries if entry.get("is_default")}
             for idx, m in enumerate(res.shortlist, 1):
                 entry = next((e for e in res.entries if e["model"] == m), {"source": "manual"})
                 badge = " (Default Model)" if m in defaults else ""
@@ -598,17 +625,31 @@ def cmd_help(
     primary = target[0]
     if primary in subparsers.choices:
         sub = subparsers.choices[primary]
-        if len(target) > 1 and primary == "model" and target[1] in model_subparsers.choices:
-            model_subparsers.choices[target[1]].print_help()
+        nested = model_subparsers.choices if primary == "model" else {}
+        if len(target) == 1:
+            sub.print_help()
             return 0
-        sub.print_help()
-        return 0
+        if len(target) == 2 and target[1] in nested:
+            nested[target[1]].print_help()
+            return 0
+        valid = f" Valid model subcommands: {', '.join(nested)}." if nested else ""
+        print(f"anticharon: error: unknown help target '{' '.join(target)}'.{valid} "
+              "Run 'anticharon help' for available commands.", file=sys.stderr)
+        return 2
 
     print(
         f"anticharon: error: unknown help target '{primary}'. Run 'anticharon help' for available commands.",
         file=sys.stderr
     )
     return 2
+
+
+def _update_type_arg(value: str) -> str:
+    """Accept every update type (including deprecated ones) without listing them as choices."""
+    try:
+        return parse_update_type(value).value
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid update type: {value!r} (default: install_only)") from None
 
 
 def build_parser() -> tuple[argparse.ArgumentParser, argparse._SubParsersAction, argparse._SubParsersAction]:
@@ -721,8 +762,9 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse._SubParsersAction,
     update_parser.add_argument(
         "--type",
         default=UpdateType.INSTALL_ONLY.value,
-        choices=[*UPDATE_TYPE_ALIASES, *(item.value for item in UpdateType)],
-        help="Update sequence: 1/install_only, 2/restart_host, 3/phoenix, or 4/reload_request",
+        type=_update_type_arg,
+        metavar="TYPE",
+        help="Update type (default: install_only). Reinstalls from the default branch without comparing versions. Other legacy types are deprecated and planned for removal in 0.8.0",
     )
     update_parser.add_argument("--json", action="store_true", help="Output the response envelope as JSON")
 
@@ -797,9 +839,34 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse._SubParsersAction,
     return parser, subparsers, model_subparsers
 
 
+_HELP_PATHS = {
+    ("run",), ("check",), ("history",), ("info",), ("mcp",), ("test",), ("check-updates",), ("update",),
+    ("model",), ("model", "add"), ("model", "remove"), ("model", "list"), ("model", "import-hermes"),
+    ("model", "sync"),
+}
+
+
+def misplaced_help_hint(argv: list[str]) -> str | None:
+    """Error text for `<command> help` / `model help [<sub>]`, which are not help
+    forms (supported: `<command> [sub] -h|--help` and `help <command> [sub]`);
+    None otherwise. Commands taking a free positional (`discover`, `calibrate`,
+    `prompt`, `help`) are exempt so a literal "help" argument still works."""
+    words = [a for a in argv if not a.startswith("-")]
+    if words[:2] == ["model", "help"] and len(words) <= 3:
+        return "help " + " ".join(["model", *words[2:]])
+    if len(words) >= 2 and words[-1] == "help" and tuple(words[:-1]) in _HELP_PATHS:
+        return "help " + " ".join(words[:-1])
+    return None
+
+
 def main() -> None:
     """Main CLI entrypoint."""
     parser, subparsers, model_subparsers = build_parser()
+    hint = misplaced_help_hint(sys.argv[1:])
+    if hint:
+        print(f"anticharon: error: 'help' is not an argument here. Use 'anticharon {hint}' "
+              f"or 'anticharon {hint.removeprefix('help ')} -h'.", file=sys.stderr)
+        sys.exit(2)
     args = parser.parse_args()
 
     if args.command == "help":

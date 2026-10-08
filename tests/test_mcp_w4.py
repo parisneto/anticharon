@@ -141,3 +141,38 @@ def test_self_test_wraps_json_diagnostics_without_stdout(monkeypatch, capsys):
     assert called.get("no_hermes", False) is False
     assert called["json_mode"] is True
     assert capsys.readouterr().out == ""
+
+
+def test_effective_prices_resource_returns_local_store_without_network_or_mutation(tmp_path, monkeypatch):
+    """EH-5: present store is returned as JSON; missing/corrupt store is `{}`; the
+    resource never touches the network and never creates or modifies the file."""
+    monkeypatch.setenv("ANTICHARON_DATA_DIR", str(tmp_path))
+
+    def _no_network(*args, **kwargs):
+        raise AssertionError("effective_prices.json resource must not use the network")
+
+    monkeypatch.setattr("requests.get", _no_network)
+    monkeypatch.setattr("requests.post", _no_network)
+    path = tmp_path / "effective_prices.json"
+
+    resources = asyncio.run(mcp.server.list_resources())
+    resource = next(item for item in resources if str(item.uri) == "anticharon://effective_prices.json")
+    assert resource.mime_type == "application/json"
+
+    missing = asyncio.run(mcp.server.read_resource("anticharon://effective_prices.json"))
+    assert json.loads(missing[0].content) == {}
+    assert not path.exists()
+
+    store = {"a/model": {"canonical_slug": "a/model-1", "first_seen": "2026-09-16",
+                         "last_synced": "2026-09-16T00:00:00+00:00",
+                         "basis": "listed_blend", "observations": [{"date": "2026-09-15", "effective_price_1m": 0.5}]}}
+    path.write_text(json.dumps(store), encoding="utf-8")
+    before = path.read_bytes()
+    present = asyncio.run(mcp.server.read_resource("anticharon://effective_prices.json"))
+    assert json.loads(present[0].content) == store
+    assert path.read_bytes() == before
+
+    path.write_text("{not json", encoding="utf-8")
+    corrupt = asyncio.run(mcp.server.read_resource("anticharon://effective_prices.json"))
+    assert json.loads(corrupt[0].content) == {}
+    assert path.read_text(encoding="utf-8") == "{not json"

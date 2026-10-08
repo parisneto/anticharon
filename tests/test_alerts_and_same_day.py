@@ -36,7 +36,7 @@ def two_model_catalog(monkeypatch):
         "p/beta": {"id": "p/beta", "canonical_slug": "p/beta", "pricing": {"prompt": "0.000005", "completion": "0.00001"}},
     })
     monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", fake_endpoints)
-    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", lambda *a, **kw: {})
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **kw: {})
     return calls
 
 
@@ -108,7 +108,7 @@ def test_run_model_filter_replaces_only_target_alerts_and_recomputes_cross_model
         "p/other": {"id": "p/other", "canonical_slug": "p/other", "pricing": {"prompt": "0.000001", "completion": "0.000002"}},
     })
     monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **kw: [])
-    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", lambda *a, **kw: {})
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **kw: {})
 
     run_tracker(dry_run=False, config_path=cfg_path, history_path=hist_path, no_hermes=True)
     alerts_path = get_alerts_path(hist_path.parent)
@@ -164,7 +164,7 @@ def test_run_records_unpriceable_next_hermes_fallback_without_crashing(tmp_path,
         "p/default": {"id": "p/default", "canonical_slug": "p/default", "pricing": {"prompt": "0.000001", "completion": "0.000002"}},
     })
     monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **kw: [])
-    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", lambda *a, **kw: {})
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **kw: {})
 
     result = run_tracker(dry_run=False, config_path=cfg_path, history_path=hist_path, no_hermes=True)
 
@@ -190,7 +190,7 @@ def test_filtered_run_returns_the_same_next_fallback_alert_it_persists(tmp_path,
     }
     monkeypatch.setattr("anticharon.tracker.fetch_openrouter_models", lambda timeout=10.0: catalog)
     monkeypatch.setattr("anticharon.tracker.fetch_endpoint_policy_pricing", lambda *a, **kw: [])
-    monkeypatch.setattr("anticharon.tracker.fetch_effective_pricing_history", lambda *a, **kw: {})
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **kw: {})
 
     run_tracker(dry_run=False, config_path=cfg_path, history_path=hist_path, no_hermes=True)
     result = run_tracker(

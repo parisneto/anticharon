@@ -7,6 +7,8 @@ import io
 import json
 from contextlib import redirect_stderr, redirect_stdout
 
+import pytest
+
 from anticharon.cli import cmd_help, cmd_model, cmd_run
 
 
@@ -202,6 +204,7 @@ def _mock_zdr_scenario(monkeypatch):
         {"provider_name": "OpenAI", "pricing": {"prompt": "0.000001", "completion": "0.000005"},
          "provider_info": {"dataPolicy": {"retainsPrompts": True}}},
     ])  # fully unroutable under ZDR -- real endpoint data, none compliant
+    monkeypatch.setattr("anticharon.tracker.fetch_listed_pricing", lambda *a, **kw: {})
 
 
 def test_cmd_run_json_output_preserves_three_price_distinction(monkeypatch, tmp_path):
@@ -328,3 +331,10 @@ def test_cmd_model_sync_human_warns_and_preserves_shortlist_on_equal_length_inco
     for model_id in existing:
         assert model_id in captured.out
     assert "deepseek/deepseek-v4-flash-0731" not in captured.out
+
+
+def test_the_default_suite_refuses_real_network_requests():
+    import requests
+
+    with pytest.raises(AssertionError, match="unmocked network request"):
+        requests.get("https://openrouter.ai/api/v1/models", timeout=1)

@@ -1,6 +1,6 @@
-# Anticharon 🪙⚖️ (v0.6.1 Beta)
+# Anticharon 🪙⚖️ (v0.7.0)
 
-[![Version](https://img.shields.io/badge/version-0.6.1--beta-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.7.0-blue.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/parisneto/anticharon/actions/workflows/ci.yml/badge.svg)](https://github.com/parisneto/anticharon/actions)
 
@@ -11,8 +11,8 @@
 > **The ferryman who minimizes the fare instead of demanding toll.**
 > An ultra-lightweight, resilient OpenRouter API price tracker, volatility detector, and token cost optimizer for **Hermes Agent** and automated LLM workflows.
 
-> **Status: Beta.** Interfaces may change without deprecation until the project
-> has real-user and third-party feedback.
+> **Status: pre-1.0.** Public interfaces may change between minor versions
+> until the project has real-user and third-party feedback.
 
 ---
 
@@ -34,7 +34,7 @@ In Greek mythology, **Charon** is the grim ferryman who demands an obol coin tol
 - **Model Shortlist Management (`anticharon model add / remove / list`):** Manage your configuration right from the terminal with live catalog slug validation and `--dry-run` safety.
 - **One-Command Calibration (`anticharon calibrate`):** Directly ingest CSV log exports from OpenRouter to automatically calculate and save your exact three-component mix — uncached prompt, cached prompt, and completion — for better life quality. Remember: Y.M.M.V. (Your Mix May Vary).
 - **Moving Average & Volatility Detection:** Tracks 3-day and 7-day moving averages (`MA_3d`, `MA_7d`) to trigger instant `PRICE_SPIKE`, `PRICE_DROP`, and `BEST_OPTION_CHANGED` alerts. No Scientific Analysis here just simple moving averages and threshold based logic.
-- **Compact Historical Storage with Real 28-Day Backfill:** Keeps a clean, 1-line-per-model sliding CSV history (`history.csv`), precalculated from a granular per-model daily store (`effective_prices.json`) that backfills real 28-day pricing history on first tracking a model — never fabricated flat padding.
+- **Real 30-Day Backfill:** A granular per-model daily store (`effective_prices.json`) backfills 30 days of history on first tracking a model from OpenRouter's listed endpoint prices blended with your calibration (standard service tiers only) — never fabricated flat padding — and is the only input to analytics. `history.csv` is a derived one-line-per-model export for convenience.
 - **Resilient & Safe:** 10-second API timeouts with graceful fallback to local cache when offline or rate-limited.
 - **Built-in Self-Test (`anticharon test`):** Instant pre-flight checks validating runtime environment, dependencies, math calculations, and network access.
 - **Fast, Zero-Bloat Distribution:** Managed with `uv`, runnable as a standalone CLI or directly installed from Git.
@@ -225,7 +225,8 @@ The five MCP prompts are also available on the CLI: `anticharon prompt` lists th
 
 ### MCP Resources:
 - `anticharon://llms.txt`: Machine-readable Agent-to-Agent briefing.
-- `anticharon://history.csv`: Raw 30-day sliding history data table.
+- `anticharon://history.csv`: Derived one-line-per-model price export (convenience only).
+- `anticharon://effective_prices.json`: Local dated price observations (read-only; `{}` when absent).
 - `anticharon://shortlist.json`: Active configuration and calibrated weights.
 - `anticharon://calibration-details`: Token weight definitions, derivation guidance, and local CSV fallback.
 

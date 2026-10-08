@@ -8,6 +8,7 @@ w_uncached) + (P_cache_read × w_cached) + (P_out × w_completion)`. A 2-compone
 regression measurable (see `tests/test_golden_pricing.py`), not as a live path.
 """
 
+import itertools
 import math
 
 
@@ -163,3 +164,170 @@ def calculate_legacy_cost(
         (prompt_tokens / 1_000_000) * prompt_price_1m
         + (completion_tokens / 1_000_000) * completion_price_1m
     )
+
+
+# Service-tier tokens in an endpoint `tag` (e.g. `openai/flex`, `google-vertex/global/priority`).
+# Quantization (`fp8`), region (`eu`, `global`) and `zdr` segments are NOT tiers (EH-8, D-9).
+BASIS_LISTED_BLEND = "listed_blend"
+# How a day's value is taken from the listed steps; stored on each entry so a change of
+# formula re-derives existing history (a same-day row must not keep the old values).
+HISTORY_METHOD = "time_weighted_day_mean"
+
+SERVICE_TIER_TOKENS = frozenset({"flex", "fast", "priority", "ultrafast", "turbo", "batch"})
+
+
+def endpoint_tag(endpoint: dict) -> str:
+    """The endpoint's tag: `tag` on the public `/models/{slug}/endpoints` shape,
+    `provider_slug` (the same string, e.g. `openai/flex`) on the frontend
+    `/stats/endpoint` shape that the live quote is built from."""
+    return endpoint.get("tag") or endpoint.get("provider_slug") or ""
+
+
+def is_service_tier_tag(tag: str | None) -> bool:
+    """True when any `/`-separated segment of an endpoint tag is a service-tier token."""
+    return any(segment in SERVICE_TIER_TOKENS for segment in (tag or "").split("/"))
+
+
+def map_endpoint_tags(series: list[dict], endpoints: list[dict]) -> dict[str, str]:
+    """Endpoint UUID -> tag, joining the frontend listed-pricing series to the public
+    endpoints API at each series' latest point.
+
+    Join key: (tag prefix, input $/1M, output $/1M), then (prefix, input), then
+    (prefix, output). The tag prefix equals the frontend `providerSlug`; the public
+    `provider_name` does not ("Google" vs "google-vertex"). When several tags match
+    and disagree on tier class, a service-tier tag wins (non-standard). Unmatched
+    UUIDs are omitted."""
+    full: dict[tuple, set[str]] = {}
+    by_in: dict[tuple, set[str]] = {}
+    by_out: dict[tuple, set[str]] = {}
+    for ep in endpoints:
+        tag = endpoint_tag(ep)
+        prefix = tag.split("/")[0]
+        pricing = ep.get("pricing") or {}
+        try:
+            p_in = round(float(pricing["prompt"]) * 1_000_000, 4)
+            p_out = round(float(pricing["completion"]) * 1_000_000, 4)
+        except (KeyError, TypeError, ValueError):
+            continue
+        full.setdefault((prefix, p_in, p_out), set()).add(tag)
+        by_in.setdefault((prefix, p_in), set()).add(tag)
+        by_out.setdefault((prefix, p_out), set()).add(tag)
+
+    def latest(item: dict, key: str) -> float | None:
+        """The last valid step (negative or non-finite steps are ignored, as in history)."""
+        points = item.get(key)
+        for point in reversed(points if isinstance(points, list) else []):
+            try:
+                value = float(point["value"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if is_valid_listed_price(value):
+                return round(value, 4)
+        return None
+
+    result: dict[str, str] = {}
+    for item in series:
+        if not isinstance(item, dict):
+            continue
+        uuid, slug = item.get("endpointId"), item.get("providerSlug") or ""
+        p_in, p_out = latest(item, "input"), latest(item, "output")
+        if not uuid or p_in is None:
+            continue
+        candidates = (full.get((slug, p_in, p_out)) or by_in.get((slug, p_in))
+                      or (by_out.get((slug, p_out)) if p_out is not None else None))
+        if not candidates:
+            continue
+        tier_tags = [t for t in candidates if is_service_tier_tag(t)]
+        result[uuid] = min(tier_tags or candidates)
+    return result
+
+
+def derive_listed_daily_prices(
+    series: list[dict],
+    standard_endpoint_ids: frozenset[str],
+    weights: tuple[float, float, float],
+    today,
+    now,
+    window_days: int = 30,
+) -> list[dict]:
+    """Daily Anticharon-blended prices from OpenRouter *listed* step series (D-10).
+
+    The price at any moment is the cheapest endpoint's `blended_rate_1m` of the listed
+    input/output/cacheRead prices in effect then, over `standard_endpoint_ids` only: an
+    endpoint whose tag is unknown is not provably standard, so it never sets a price
+    (EH-8). A past UTC day's value is the time-weighted mean of that price over the day,
+    computed exactly from the step changes (a provider that reprices every few minutes
+    contributes what it actually charged, not the price at one instant); time before an
+    endpoint exists, or when no endpoint has a valid price, is left out. Today's value is
+    the price at `now`. A step with a negative or non-finite value is ignored (the
+    previous valid step stays in effect); a missing cacheRead falls back to 10% of input,
+    as the live quote does."""
+    from bisect import bisect_right
+    from datetime import datetime, time, timedelta, timezone
+
+    def parse(value: str) -> datetime:
+        moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)  # timestamps are UTC
+
+    def steps(points: list[dict] | None) -> tuple[list[datetime], list[float]]:
+        moments: list[tuple[datetime, float]] = []
+        for point in points if isinstance(points, list) else []:
+            try:
+                at, value = parse(point["at"]), float(point["value"])
+            except (KeyError, TypeError, ValueError, AttributeError):
+                continue
+            if is_valid_listed_price(value):
+                moments.append((at, value))
+        moments.sort(key=lambda m: m[0])
+        return [m[0] for m in moments], [m[1] for m in moments]
+
+    def value_at(steps_: tuple[list[datetime], list[float]], moment: datetime) -> float | None:
+        index = bisect_right(steps_[0], moment) - 1
+        return steps_[1][index] if index >= 0 else None
+
+    endpoints = []
+    change_times: list[datetime] = []
+    for endpoint in series:
+        if not isinstance(endpoint, dict) or endpoint.get("endpointId") not in standard_endpoint_ids:
+            continue
+        parsed = {key: steps(endpoint.get(key)) for key in ("input", "output", "cacheRead")}
+        endpoints.append(parsed)
+        for key in ("input", "output", "cacheRead"):
+            change_times.extend(parsed[key][0])
+    change_times.sort()
+
+    w_uncached, w_cached, w_completion = weights
+
+    def cheapest_at(moment: datetime) -> float | None:
+        best = None
+        for parsed in endpoints:
+            p_in, p_out = value_at(parsed["input"], moment), value_at(parsed["output"], moment)
+            if p_in is None or p_out is None:
+                continue
+            p_cache = resolve_cache_read_price_1m(p_in, value_at(parsed["cacheRead"], moment))
+            rate = blended_rate_1m(p_in, p_cache, p_out, w_uncached, w_cached, w_completion)
+            if best is None or rate < best:
+                best = rate
+        return best
+
+    observations = []
+    for offset in range(window_days, -1, -1):
+        day = today - timedelta(days=offset)
+        if offset == 0:
+            value = cheapest_at(now)
+        else:
+            start = datetime.combine(day, time(0, 0), tzinfo=timezone.utc)
+            end = start + timedelta(days=1)
+            inside = [t for t in change_times if start < t < end]
+            boundaries = sorted({start, end, *inside})
+            weighted = duration = 0.0
+            for left, right in itertools.pairwise(boundaries):
+                rate = cheapest_at(left)
+                if rate is not None:
+                    seconds = (right - left).total_seconds()
+                    weighted += rate * seconds
+                    duration += seconds
+            value = weighted / duration if duration else None
+        if value is not None:
+            observations.append({"date": day.isoformat(), "effective_price_1m": value})
+    return observations

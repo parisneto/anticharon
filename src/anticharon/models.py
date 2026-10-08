@@ -118,12 +118,19 @@ class ModelAnalytics:
     volatility_cv_pct: float
     price_min_30d: float
     price_max_30d: float
-    change_vs_30d_pct: float
+    change_vs_30d_pct: float | None
     trajectory_sparkline: str
     recommendation: str
     secondary_badge: str | None = None
     sibling_alternatives: list[SiblingAlternative] = field(default_factory=list)
     history_vector: dict[str, float | None] = field(default_factory=dict)
+    observation_count: int = 0
+    earliest_observation: str | None = None
+    latest_observation: str | None = None
+    coverage_days: int = 0
+    classification_reason: str = ""
+    current_price_used: float | None = None
+    current_price_source: str = "quote"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -134,11 +141,18 @@ class ModelAnalytics:
             "volatility_cv_pct": round(self.volatility_cv_pct, 2),
             "price_min_30d": round(self.price_min_30d, 5),
             "price_max_30d": round(self.price_max_30d, 5),
-            "change_vs_30d_pct": round(self.change_vs_30d_pct, 2),
+            "change_vs_30d_pct": round(self.change_vs_30d_pct, 2) if self.change_vs_30d_pct is not None else None,
             "trajectory_sparkline": self.trajectory_sparkline,
             "recommendation": self.recommendation,
             "sibling_alternatives": [s.to_dict() for s in self.sibling_alternatives],
-            "history_vector": {k: (round(v, 5) if v is not None else None) for k, v in self.history_vector.items()}
+            "history_vector": {k: (round(v, 5) if v is not None else None) for k, v in self.history_vector.items()},
+            "observation_count": self.observation_count,
+            "earliest_observation": self.earliest_observation,
+            "latest_observation": self.latest_observation,
+            "coverage_days": self.coverage_days,
+            "classification_reason": self.classification_reason,
+            "current_price_used": self.current_price_used,
+            "current_price_source": self.current_price_source,
         }
 
 
@@ -164,6 +178,8 @@ class PricePoint:
     # (cached tokens / ALL tokens, including completion), which is a different
     # number. See anticharon.pricing.derive_cache_hit_rate for the derivation.
     cache_hit_rate_used: float = 0.0
+    # Tag of the standard-tier endpoint the effective price comes from (EH-8).
+    endpoint_tag: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
@@ -172,6 +188,8 @@ class PricePoint:
             "effective_price_1m": round(self.effective_price_1m, 6),
             "cache_hit_rate_used": round(self.cache_hit_rate_used, 6),
         }
+        if self.endpoint_tag is not None:
+            data["endpoint_tag"] = self.endpoint_tag
         if self.policy_price_1m is not None:
             data["policy_price_1m"] = round(self.policy_price_1m, 6)
         if self.is_policy_routable is not None:
@@ -204,6 +222,17 @@ class ModelPrice:
     canonical_slug: str | None = None
     source: str | None = None
     is_default: bool = False
+    # Provenance of `price_1m`: `observation` (latest stored dated observation),
+    # `live_quote` (this run's catalog quote), or `cached_quote` (last exported quote).
+    price_source: str | None = None
+    price_date: str | None = None
+    # The last `run`'s catalog quote, shown beside an observation-sourced price
+    # (the two are different price definitions and can differ materially).
+    quote_1m: float | None = None
+    quote_date: str | None = None
+    # (quote - latest observation) / observation x 100 when both exist; a separate
+    # report, never an alert (the two are different price definitions).
+    quote_vs_observed_pct: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         # PE2-001 defense-in-depth: always serialize the true unconstrained
@@ -224,6 +253,15 @@ class ModelPrice:
         if self.source:
             data["source"] = self.source
         data["is_default"] = self.is_default
+        if self.price_source:
+            data["price_source"] = self.price_source
+        if self.price_date:
+            data["price_date"] = self.price_date
+        if self.quote_1m is not None:
+            data["last_run_quote_1m"] = round(self.quote_1m, 5)
+            data["last_run_quote_date"] = self.quote_date
+        if self.quote_vs_observed_pct is not None:
+            data["quote_vs_observed_pct"] = round(self.quote_vs_observed_pct, 2)
         if self.price:
             price_dict = self.price.to_dict()
             price_dict.pop("effective_price_1m", None)
@@ -290,6 +328,32 @@ class HermesIntegrationStatus:
 
 
 @dataclass
+class NotTrackedModel:
+    """A shortlisted slug with no stable catalog identity (redirect alias or
+    unresolved): shown as `NOT_TRACKED` with a diagnostic, never priced and never
+    given history. The user's exact slug is preserved."""
+    model: str
+    identity: str  # "redirect" | "unresolved"
+    code: str  # REDIRECT_IDENTITY | NO_EXACT_MATCH
+    diagnostic: str
+    resolved_id: str | None = None
+    source: str | None = None
+    is_default: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "model": self.model,
+            "status": "NOT_TRACKED",
+            "identity": self.identity,
+            "resolved_id": self.resolved_id,
+            "code": self.code,
+            "diagnostic": self.diagnostic,
+            "source": self.source,
+            "is_default": self.is_default,
+        }
+
+
+@dataclass
 class TrackerResult:
     """Full execution output from the price tracker."""
     status: str
@@ -303,6 +367,7 @@ class TrackerResult:
     analytics_mode: bool = False
     hints_enabled: bool = False
     messages: list[AgentMessage] = field(default_factory=list)
+    not_tracked: list[NotTrackedModel] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Payload only; callers wrap it with `build_envelope(payload, self.messages, started)`."""
@@ -314,6 +379,7 @@ class TrackerResult:
             "fallback": self.fallback,
             "prices_shortlist": [p.to_dict() for p in self.prices_shortlist],
             "price_warnings": [w.to_dict() for w in self.price_warnings],
+            "not_tracked": [m.to_dict() for m in self.not_tracked],
         }
         if self.analytics_mode:
             data["analytics_mode"] = True
