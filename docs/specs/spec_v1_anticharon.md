@@ -1,10 +1,10 @@
 # Technical Specification: Anticharon (v1)
 
 **Document Version:** 1.1.0
-**Status:** Approved — v0.6.0 Beta
+**Status:** Approved — v0.7.0
 **Language:** English
 
-Anticharon is in Beta. Its public interfaces may change without deprecation
+Anticharon is pre-1.0. Its public interfaces may change between minor versions
 until real-user and third-party feedback establish stable expectations.
 
 ---

@@ -83,7 +83,7 @@ relevant changes require revalidation.
 | E-6 | AC-5: present/missing local resource, no network or mutation | PASS at `f58caea` (also corrupt store → `{}`) | `tests/test_mcp_w4.py` |
 | E-7 | AC-6: discovery exclusion and exact explicit add/import | PASS at `f58caea` | `tests/test_discovery.py`, `tests/test_manager.py`, `tests/test_hermes_ownership.py` |
 | E-8 | AC-7: primary/nested help forms and exit codes | PASS at `964ea36` (all 18 command paths, both forms, invalid forms) | `tests/test_cli_help.py` |
-| E-9 | Final deterministic suite, applicable quality checks, independent review | NOT_RUN | Pending |
+| E-9 | Final deterministic suite, applicable quality checks, independent review | PASS at `7b8a08d` (491 passed, 2 live deselected; `anticharon test`; changed-line lint gate; independent review PASS for the final delta) | Review record on the PR |
 | E-11 | AC-8: classifier, standard-tier quote, tag join, history exclusion, fallback | PASS at `96689f3`; verified on the VM at `23b7443` (classifier, standard-tier quote, tag join, history exclusion, fallback) | `tests/test_service_tiers.py`, `tests/test_listed_basis.py` |
 | E-12 | AC-9: listed-basis history, upgrade of legacy entries, recalibration, run-then-check identity | PASS at `707b922` (cold-start 31-day history from the real listed fixture, legacy upgrade, recalibration without refetch, run-then-check identity; live smoke on an empty store) | `tests/test_listed_history.py`, `tests/test_tracker.py`, `tests/test_service_tiers.py` |
 | E-10 | Preserved-backup VM verification (D-8) | PARTIAL: Wave 1 scope (AC-1, AC-2) verified at `9683b66`; W2–W3 run on the VM at `ee77f65`; AC-8, gate fix and Phase A run on the VM at `23b7443` [vm_verification_wave1.md](evidence/vm_verification_wave1.md), [vm_verification_tiers.md](evidence/vm_verification_tiers.md) |
@@ -113,7 +113,7 @@ OPEN decisions block only dependent work.
 | W1 — Data contract (AC-1, AC-2) | IMPLEMENTED at `09ce27c`; independent re-review of audit remediation pending (E-9) | None for W2 start | Review W1; approve W2 start |
 | W2 — Analytics propagation (AC-3 + B) | IMPLEMENTED at `7673c81`; independent review pending (E-9) | None | Review W2 |
 | W3 — Identity and catalog boundaries | IMPLEMENTED at `7bbb0cb`; independent review pending (E-9) | None | Review W3 |
-| Post-review (gate fix, AC-8, AC-9) | IMPLEMENTED at `707b922` (observed-vs-observed alerts, service-tier price, listed-price history basis); hardened by review and time-weighted; update-interface fixes after the fifth review. VM-verified: listed-price history and standard tiers at `c88b278`, time-weighted daily value and the MCP update path at `8d17d1b`. Not VM-verified: later hardening and the final head; the VM re-check is planned after the release. Independent re-review pending | None | Review; run the VM steps |
+| Post-review (gate fix, AC-8, AC-9) | IMPLEMENTED at `707b922` (observed-vs-observed alerts, service-tier price, listed-price history basis); hardened by review and time-weighted; update-interface fixes after the fifth review. VM-verified: listed-price history and standard tiers at `c88b278`, time-weighted daily value and the MCP update path at `8d17d1b`. Not VM-verified: later hardening and the final head; the VM re-check is planned after the release. Independent review PASS at `7b8a08d` | None | Review; run the VM steps |
 | W4 — CLI ergonomics, release readiness | AC-7 IMPLEMENTED at `964ea36`; version bumped to 0.7.0 at `15a2b06`; E-9 independent review and PO release sign-off pending | None | Review; sign off release |
 
 Preserve only current truth; reference everything else. At wave end, update
@@ -124,6 +124,7 @@ than copying it. Scope/acceptance changes require PO approval before implementat
 
 - Hermes detection has no explicit "Hermes owns no default" signal (an unreadable default is treated as unavailable), so authoritative removal is honored at the sync boundary (`complete` with no models) but no detector emits it yet.
 - Parked after the listed-price investigation: keep raw `listed` beyond the route's 30-day window, per-day all-endpoint archive for exact recalibration, deprecated endpoints still listed, `cacheWrite` pricing, a calibration stamp on `history.csv`, ignoring or pruning store entries for models off the shortlist.
+- Follow-ups: remove the deprecated update types in 0.8.0; bare `anticharon` runs `run`; self-test or `run` in a checkout can rewrite the tracked `config/shortlist.example.json` when Hermes is detected.
 - Pre-existing lint debt is unchanged; changed-line gate passes against `219a766` (`docs/standards/lint_baseline_legacy.txt`).
 
 Non-goals: §3; OPEN decisions: §5;

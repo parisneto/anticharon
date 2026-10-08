@@ -1,8 +1,8 @@
-# Anticharon MCP briefing (v0.7.0 Beta)
+# Anticharon MCP briefing (v0.7.0)
 
 Anticharon monitors OpenRouter model prices and maintains a local shortlist.
-This is a Beta release: public interfaces may change without deprecation until
-there is real-user and third-party feedback. Read `messages` in every result
+This is a pre-1.0 release: public interfaces may change between minor versions
+until there is real-user and third-party feedback. Read `messages` in every result
 before acting. Before trusting a remembered default model, call `check_prices`
 or re-read `anticharon://llms.txt`.
 

@@ -1,6 +1,6 @@
-# Anticharon 🪙⚖️ (v0.7.0 Beta)
+# Anticharon 🪙⚖️ (v0.7.0)
 
-[![Version](https://img.shields.io/badge/version-0.7.0--beta-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.7.0-blue.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/parisneto/anticharon/actions/workflows/ci.yml/badge.svg)](https://github.com/parisneto/anticharon/actions)
 
@@ -11,8 +11,8 @@
 > **The ferryman who minimizes the fare instead of demanding toll.**
 > An ultra-lightweight, resilient OpenRouter API price tracker, volatility detector, and token cost optimizer for **Hermes Agent** and automated LLM workflows.
 
-> **Status: Beta.** Interfaces may change without deprecation until the project
-> has real-user and third-party feedback.
+> **Status: pre-1.0.** Public interfaces may change between minor versions
+> until the project has real-user and third-party feedback.
 
 ---
 
